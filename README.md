@@ -25,15 +25,10 @@ tripbiseo/
    npm install
    npm run dev
    ```
-4. **관리자 만들기**: 회원가입을 한 뒤, DB에서 아래를 실행하고 다시 로그인합니다.
-   ```sql
-   UPDATE member SET role = 'ROLE_ADMIN' WHERE username = '내아이디';
-   ```
-   마이 탭 맨 아래의 작은 `v1.0`을 누르면 API 키 관리 화면이 열립니다.
 
 ## API 키
 
-키는 **API 키 관리 화면**(`api_key` 테이블)에 넣는 것이 먼저 적용되고, 없으면 `application.properties`나 환경변수 값을 씁니다. 저장하면 서버를 다시 켜지 않아도 바로 적용됩니다.
+키는 각자 컴퓨터의 **환경변수**로 넣습니다. 코드나 `application.properties`에 키 값을 직접 적어서 커밋하지 않습니다. 환경변수 이름은 아래 표와 같습니다.
 
 | 키 | 어디서 받나 | 없으면 |
 |---|---|---|
