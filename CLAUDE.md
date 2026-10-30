@@ -24,6 +24,21 @@
 
 ## 코드 수준
 
+### [우리 수준] — 이 수준에 맞춰서 코드를 쓰고 설명해 줘
+
+우리는 공간정보 아카데미에서 수업을 들으며 만드는 학생 5명이야. 실무 경험은 거의 없어.
+
+- 수업에서 배운 것: Java 기본(클래스·인터페이스·for/if·예외), 컬렉션 API(List·Set·Map, ArrayList·HashSet·HashMap, Iterator, Collections 정렬), Spring Boot(@RestController, @Service, Service 인터페이스 + Impl, @Transactional), MyBatis(Mapper 인터페이스 + XML), Spring Security 세션 로그인 기본, SQL과 PostGIS 기본(ST_DWithin 등), Vue 3 script setup 기본, Git 브랜치·PR
+- 아직 낯선 것: 긴 스트림·람다 연결, Optional, 제네릭 직접 만들기, 비동기, 디자인 패턴, 테스트 코드, JPA(안 씀)
+- 그래서:
+  - 배운 것 안에서 쓴다. 낯선 문법이 꼭 필요하면 쓰기 전에 왜 필요한지 한 줄로 말하고, 코드에도 한 줄 주석을 단다.
+  - 처음 쓰는 어노테이션·클래스(RestClient, ChatClient 등)는 무엇을 하는지 주석 한 줄.
+  - 트랜잭션: 한 메서드에서 DB에 두 번 이상 쓰면(INSERT·UPDATE·DELETE) ServiceImpl의 public 메서드에 @Transactional을 붙여 하나라도 실패하면 전부 되돌린다. (예: 여행 + 일정 칸 여러 개 저장, 대안 적용으로 일정 칸 여러 개 수정) 다른 번호의 Service 쓰기 메서드를 여러 번 부르는 메서드도 부르는 쪽에 붙인다. 같은 클래스 안에서 부르는 private 메서드에 붙이면 동작하지 않는다. 읽기만 하는 메서드에는 붙이지 않는다.
+  - 의존성 주입은 생성자 주입 하나로 통일 (Lombok @RequiredArgsConstructor).
+  - 설명은 쉬운 말로 짧게. 팀원이 면접에서 "이 코드 왜 이렇게 짰어요?"에 답할 수 있게 이유를 같이 알려 준다.
+
+### 코드 규칙
+
 우리는 수업을 들으며 만드는 학생 팀이다. 코드는 **읽기 쉽고 짧게** 쓴다.
 
 - 패키지는 기능별: `com.tripbiseo.{member|trip|plan|live|after}` 아래 `controller`, `service`, `mapper`, `dto`. 공통은 `common`, 설정은 `config`.
@@ -39,8 +54,18 @@
 
 - 메서드는 한 가지 일만 하고 짧게(대략 30줄 안쪽) 쓴다. 길어지면 private 메서드로 나눈다.
 - 어려운 문법(복잡한 스트림 연결, 제네릭 남발, 리플렉션, 과한 디자인 패턴)으로 가독성을 떨어뜨리지 않는다. for문과 if문으로 충분하면 그렇게 쓴다.
+- 이름만 보고 무슨 일인지 알 수 있게 쉬운 동사로 쓰고 줄임말은 쓰지 않는다. boolean은 `is`/`has`로 시작한다. 숫자는 이름 있는 상수로 쓴다 (`ARRIVE_RADIUS_M = 150`). if 중첩은 2단계까지.
 - 인터페이스 메서드와 public 메서드 위에는 한 줄 주석으로 하는 일을 적는다.
-- API 키·비밀번호는 코드에 쓰지 않고 환경변수로 읽는다.
+- API 키·비밀번호는 코드에 쓰지 않고 환경변수로 읽는다. `application.properties`에는 `${환경변수:기본값}`만 쓰고, 내 PC 값은 `application-local.properties`(커밋 안 됨)에 둔다.
+- 프론트는 `/api`로 시작하는 주소만 부른다. 코드·문서에 내 PC 경로(`C:\...`)를 쓰지 않는다.
+
+### 거리 계산
+- DB에서 "반경 안·가까운 순"으로 찾는 건 SQL에서 PostGIS(`ST_DWithin`, `ORDER BY geom <-> 점`)로 한다. 장소를 Java로 다 불러와서 거리 계산·정렬하지 않는다.
+- 이미 손에 있는 두 점 사이 거리(GPS 한 점과 다음 장소의 도착 판정 등)는 Java의 `Geo.distanceMeters`를 써도 된다.
+
+### 이름 바꾸기(리팩터링)
+- 클래스·메서드 이름을 바꾸면 사용처(Java 호출, Mapper XML의 namespace·id·resultType, `docs/ROLES.md`)를 **같은 커밋**에서 같이 고친다. XML은 컴파일로 안 잡히니 서버를 실제로 켜서 확인한다.
+- 다른 번호가 부르는 인터페이스 메서드면 아래 "메서드 추가·변경 규칙" 4번처럼 먼저 확인받는다.
 
 ## 메서드 추가·변경 규칙
 
@@ -58,7 +83,10 @@
 - SQL은 사람별 파일에 쓴다: `db/01_common.sql`은 DB 총괄, 나머지는 `db/11_member.sql`처럼 자기 파일만.
 - **남의 테이블은 읽기(SELECT, JOIN)만 한다.** 쓰기(INSERT, UPDATE, DELETE)가 필요하면 그 테이블 주인의 Service 메서드를 부른다.
 - 다른 번호가 쓰는 테이블의 컬럼 이름·타입을 바꾸거나 지우는 것은 아래 API 구조 변경과 같은 순서를 따르고, DB.md와 SQL을 같은 커밋에 넣는다.
-- 좌표가 있는 테이블은 `lat`, `lng` + 자동 생성 `geom` + GIST 인덱스를 둔다.
+- 반경·근처로 검색하는 테이블(`retrip_place`, 나중에 `amenity` 등)만 `lat`·`lng` + 자동 생성 `geom` + GIST 인덱스를 둔다. `trip_stop`·`trip_track`처럼 검색하지 않는 좌표는 `lat`·`lng`만 둔다.
+- 이미 만든 테이블을 바꿀 때는 `CREATE` 문을 고치지 않고, 같은 SQL 파일 끝에 `ALTER TABLE … ADD COLUMN IF NOT EXISTS …`를 날짜·담당 주석과 함께 추가한다. (`CREATE TABLE IF NOT EXISTS`는 이미 있는 테이블을 바꾸지 않아서 다른 사람 DB에 반영되지 않는다.)
+- SQL을 만들거나 고치면 작업자 DB에 실행할 명령을 보여 주고, **허락을 받은 뒤에만** 실행한다.
+- 테이블을 새로 만들기 전에는 DB.md에 적은 내용을 DB 총괄(① 이상재)에게 확인받았는지 묻는다.
 
 ## Git 규칙
 
@@ -67,19 +95,19 @@
 - `develop`: 다 같이 합치는 곳. 직접 커밋하지 않는다. PR로만 합친다.
 - 작업은 항상 develop에서 새 브랜치를 만들어서 한다. 커밋·푸시는 자기 브랜치에 한다.
 
-브랜치 이름은 영어로 쓴다. 한글 브랜치 이름은 cmd와 GitHub 주소에서 깨질 수 있다.
+브랜치 이름은 `앞머리/번호-기능` 형식의 영어로 쓴다 (예: `feature/4-live-status`). 한글 브랜치 이름은 cmd와 GitHub 주소에서 깨질 수 있다.
 
 | 앞머리 | 언제 | 예시 |
 |---|---|---|
-| `feature/` | 새 기능 | `feature/live-delay` |
-| `fix/` | 버그 고치기 | `fix/login-error` |
-| `docs/` | 문서만 고칠 때 | `docs/readme` |
+| `feature/` | 새 기능 | `feature/4-live-status` |
+| `fix/` | 버그 고치기 | `fix/1-login-error` |
+| `docs/` | 문서만 고칠 때 | `docs/2-api-trip` |
 
 브랜치 만드는 순서:
 ```
 git switch develop
 git pull
-git switch -c feature/live-delay
+git switch -c feature/4-live-status
 ```
 하던 작업을 이어 할 때는 내 브랜치에서 `git pull origin develop`으로 최신을 받는다.
 
@@ -91,13 +119,14 @@ git switch -c feature/live-delay
 | `[기능]` | 새 기능 | `[기능] 지연 알림 API 연결` |
 | `[수정]` | 버그 고치기 | `[수정] 로그인 실패 시 토스트 안 뜨는 문제` |
 | `[문서]` | 문서만 고칠 때 | `[문서] README 실행 방법 추가` |
+| `[설정]` | 설정·빌드·의존성 변경 | `[설정] Swagger 의존성 추가` |
 
 - 커밋 하나에는 한 가지 일만 담는다.
 - 커밋하기 전에 `git status`로 내 담당 폴더 말고 다른 파일이 바뀌지 않았는지 확인한다.
 
 ### Claude가 커밋·푸시할 때
 - 지금 브랜치가 `main`이나 `develop`이면 커밋하지 말고, 위 순서로 브랜치부터 만들자고 안내한다.
-- 브랜치 이름은 위 표의 앞머리를, 커밋 메시지는 `[기능]` `[수정]` `[문서]` 말머리를 지킨다.
+- 브랜치 이름은 위 표의 앞머리를, 커밋 메시지는 `[기능]` `[수정]` `[문서]` `[설정]` 말머리를 지킨다.
 - 다른 담당자 폴더의 파일이 바뀌어 있으면 커밋에 넣지 말고 사용자에게 먼저 알린다.
 - 브랜치 이동은 `git switch`, 파일 되돌리기는 `git restore`를 쓴다. `git checkout`은 쓰지 않는다.
 - 푸시까지만 한다. develop에 합치는 건 GitHub PR로 사람이 한다.
@@ -126,6 +155,14 @@ API의 기준은 `docs/API.md` 하나다. API를 만들거나 고치기 전에 �
 
 ### 삭제 예정 API
 새로 만들지 않는다.
+
+## 화면·API 추가·삭제
+
+- **API 삭제**: 바로 지우지 않는다. `docs/API.md` 상태를 먼저 "삭제 예정"으로 바꾸고, 그 API를 쓰는 화면과 번호를 찾아 보여 준 뒤 확인받고 지운다.
+- **화면 추가**: 담당 폴더(`views/{기능}`)에 만들고 라우터에 `meta`(`owner`, `title`)를 넣는다. 그러면 `/screens` 목록에 자동으로 나온다.
+- **화면 삭제**: 먼저 확인받는다. 그 화면으로 가는 링크(`router-link`, `router.push`)를 검색해 보여 주고, 라우터와 뷰 파일을 같은 커밋에서 지운다. 그 화면만 쓰던 API는 API.md에서 "삭제 예정"으로 바꾼다.
+- `docs/DEMO.md` 시연 흐름에 있는 화면·API면 팀에 먼저 확인한다.
+- 팀이 정한 큰 변경이면 `docs/DECISIONS.md`에 한 줄 남긴다.
 
 ## 결정 기록
 
