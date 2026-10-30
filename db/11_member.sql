@@ -1,0 +1,3 @@
+-- 11_member.sql — ① 이상재 (회원·홈·알림)
+--  테이블: member_style, notification, friend(여유)
+--  만들기 전에 docs/DB.md "각자 채울 칸"에 컬럼을 적고 DB 총괄 확인을 받아요. 다시 실행해도 안전하게 (IF NOT EXISTS)
