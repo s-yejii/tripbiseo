@@ -1,14 +1,15 @@
 # 내 PC 설정 견본입니다. 이 파일을 복사해서 이름을 application-local.properties로 바꾸고 값을 채우세요.
 # application-local.properties는 .gitignore에 있어서 커밋되지 않습니다. 키·비밀번호는 거기에만 적습니다.
-# 비운 값은 "없음"으로 처리돼요. 없어도 서버는 켜지고, 그 기능만 대신 동작(추정·규칙)합니다.
+# 비운 값은 "없음"으로 처리돼요(Gemini 두 줄만 예외, 아래 참고). 키가 없어도 서버는 켜지고, 그 기능만 대신 동작(추정·규칙)합니다.
 
-# DB (pgAdmin에서 쓰는 계정)
+# DB: PostgreSQL 계정 (설치할 때 정한 postgres 비밀번호. pgAdmin master password 아님)
 DB_USERNAME=postgres
 DB_PASSWORD=
 
-# Gemini (Google AI Studio). 모델은 비우면 gemini-3.8-flash
-GEMINI_API_KEY=
-GEMINI_MODEL=
+# Gemini (Google AI Studio). 키를 받으면 앞의 #을 지우고 값을 넣어요.
+# 빈 값(GEMINI_API_KEY=)으로 두면 서버가 안 켜져요. 쓰지 않을 땐 # 주석 그대로. 모델은 주석이면 gemini-3.8-flash
+# GEMINI_API_KEY=
+# GEMINI_MODEL=
 
 # 카카오 (JS 키는 지도, REST 키는 DB에 없는 장소 위치 찾기)
 KAKAO_JS_KEY=
