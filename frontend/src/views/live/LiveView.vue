@@ -3,6 +3,7 @@
 // 같은 화면을 두 상황으로 써요
 //   /live      : 여행 시작 (첫 장소 가기 전, 테이블링 했는지 묻기)
 //   /live/late : 16:21 아직 성내동 카페 → 공연 입장에 14분 늦음
+// 두 상황 모두 지도 아래 칩 줄에서 "AI에게 묻기"(④ AskPanel)와 화장실·쓰레기통(⑤)을 쓸 수 있어요
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
@@ -11,7 +12,7 @@ import LiveCards from '@/components/live/LiveCards.vue'
 import SegSheet from '@/components/live/SegSheet.vue'
 import TablingModal from '@/components/live/TablingModal.vue'
 import AmenityChips from '@/components/after/AmenityChips.vue'
-import NearSearch from '@/components/after/NearSearch.vue'
+import AskPanel from '@/components/live/AskPanel.vue'
 import VisitedPin from '@/components/after/VisitedPin.vue'
 import { todayStops, legs, planArrive, reserveTime, lateArrive, lateMinutes, visitedInfo } from '@/data/live'
 import { toTime } from '@/utils/time'
@@ -21,15 +22,15 @@ const route = useRoute()
 const router = useRouter()
 const late = route.meta.late === true
 
-const me = late ? { x: 215, y: 285 } : { x: 52, y: 384 } // 지금 위치 (지도 그림 위)
+const me = late ? { x: 215, y: 285 } : { x: 44, y: 352 } // 지금 위치 (지도 그림 위, 아래 칩 줄에 가리지 않게)
 const selected = ref(late ? 4 : 1) // 선택한 카드·핀 번호
 const tablingWait = ref(null) // null: 아직 안 물어봄 / 0: 안 함 / 숫자: 대기 분
 const showTabling = ref(false)
 const segCard = ref(null) // 이동 칩을 누른 카드
 const info = ref(null) // 정보창을 연 다녀온 곳 번호 (1, 2, 9)
 const notiOpen = ref(true)
-const searching = ref(false)
-const added = ref(null) // 근처 찾기로 넣은 곳
+const asking = ref(false) // AI 채팅을 연 상태 (아래 시트·버튼을 숨겨요)
+const added = ref(null) // AI 추천으로 일정에 넣은 곳
 
 // 대기 시간만큼 남은 일정이 밀려요
 const wait = computed(() => tablingWait.value || 0)
@@ -88,11 +89,12 @@ function baseCard(stop) {
   }
 }
 
-// 근처 찾기로 넣은 곳은 "지금" 카드 바로 뒤에 끼워요
+// AI 추천으로 넣은 곳은 "지금" 카드 바로 뒤에 끼워요
 const shownCards = computed(() => {
   if (!added.value) return cards.value
   const list = [...cards.value]
-  list.splice(3, 0, { no: 7, img: added.value.img, title: '+ ' + added.value.name, sub: '다음에 들러요 · 방금 추가', subCls: 'c-navy', state: '', leg: null })
+  const nowIndex = list.findIndex((card) => card.state === 'now')
+  list.splice(nowIndex + 1, 0, { no: 7, img: added.value.img, title: '+ ' + added.value.name, sub: '다음에 들러요 · 방금 추가', subCls: 'c-navy', state: '', leg: null })
   return list
 })
 
@@ -126,16 +128,17 @@ function saveTabling(minutes) {
   }
 }
 
-function openSearch() {
-  searching.value = true
+function openAsk() {
+  asking.value = true
   info.value = null
 }
 
+// AI 추천에서 고른 곳을 다음 일정으로 넣어요 (백엔드가 붙으면 POST /api/trips/{id}/live/insert)
 function addPlace(place) {
   added.value = place
-  searching.value = false
+  asking.value = false
   selected.value = 7
-  showToast(place.name + '을(를) 다음 경로에 넣었어요 · 남은 시간을 다시 계산했어요')
+  showToast(place.name + '을(를) 다음 일정으로 넣었어요 · 남은 시간을 다시 계산했어요')
 }
 
 function locate() {
@@ -168,7 +171,7 @@ const infoBox = computed(() => {
             <polyline points="215,285 290,200 300,330 220,400" fill="none" stroke="#A65800" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 9" />
           </template>
           <template v-else>
-            <polyline points="52,384 90,330" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 9" />
+            <polyline points="44,352 90,330" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 9" />
             <polyline points="90,330 140,250 215,285 290,200 300,330 220,400" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".55" />
           </template>
         </svg>
@@ -177,7 +180,7 @@ const infoBox = computed(() => {
       <!-- 핀: 여행 시작 -->
       <template v-if="!late">
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-label="지금 위치, 천호역 1번 출구"></span>
-        <span class="maplabel" style="left: 8px; top: 400px">천호역 · 지금</span>
+        <span class="maplabel" style="left: 8px; top: 366px">천호역 · 지금</span>
         <button
           v-for="stop in todayStops"
           :key="stop.no"
@@ -230,7 +233,7 @@ const infoBox = computed(() => {
         </button>
       </template>
 
-      <span v-if="added && !searching" class="pin pin--added" :style="{ left: added.x + 'px', top: added.y + 'px' }" :aria-label="'추가한 곳 ' + added.name">
+      <span v-if="added && !asking" class="pin pin--added" :style="{ left: added.x + 'px', top: added.y + 'px' }" :aria-label="'추가한 곳 ' + added.name">
         <i class="ic ic--s i-plus" aria-hidden="true" style="width: 13px; height: 13px"></i>
       </span>
 
@@ -274,14 +277,12 @@ const infoBox = computed(() => {
         </button>
       </div>
 
-      <!-- 화장실·쓰레기통·근처 찾기 (⑤) -->
-      <template v-if="late">
-        <NearSearch v-if="searching" :me="me" @close="searching = false" @add="addPlace" />
-        <AmenityChips v-else :me="me" @search="openSearch" />
-      </template>
+      <!-- AI 채팅(④) · 화장실·쓰레기통(⑤) -->
+      <AskPanel v-if="asking" :me="me" :late="late" @close="asking = false" @add="addPlace" />
+      <AmenityChips v-else :me="me" @ask="openAsk" />
 
       <!-- 아래 시트: 오늘 일정 카드 -->
-      <BottomSheet v-if="!searching" class="sheet--peek live-sheet" :aria-label="late ? '다음 일정' : '오늘 일정'">
+      <BottomSheet v-if="!asking" class="sheet--peek live-sheet" :aria-label="late ? '다음 일정' : '오늘 일정'">
         <div class="live-head">
           <div v-if="late" style="flex: 1">
             <p class="t-cap">다음 장소 출발 시간이 지났어요</p>
@@ -303,7 +304,7 @@ const infoBox = computed(() => {
         <p v-else class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>14–16시 비 60% · 강풀만화거리는 우산을 챙겨요</p>
       </BottomSheet>
 
-      <div v-if="!searching" class="cta cta--white" style="box-shadow: none">
+      <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
         <div class="cta__row">
           <RouterLink v-if="late" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
           <RouterLink v-else to="/plan/edit" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>일정 변경</RouterLink>
