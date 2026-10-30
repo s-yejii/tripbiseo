@@ -1,0 +1,23 @@
+# 내 PC 설정 견본입니다. 이 파일을 복사해서 이름을 application-local.properties로 바꾸고 값을 채우세요.
+# application-local.properties는 .gitignore에 있어서 커밋되지 않습니다. 키·비밀번호는 거기에만 적습니다.
+# 비운 값은 "없음"으로 처리돼요. 없어도 서버는 켜지고, 그 기능만 대신 동작(추정·규칙)합니다.
+
+# DB (pgAdmin에서 쓰는 계정)
+DB_USERNAME=postgres
+DB_PASSWORD=
+
+# Gemini (Google AI Studio). 모델은 비우면 gemini-3.8-flash
+GEMINI_API_KEY=
+GEMINI_MODEL=
+
+# 카카오 (JS 키는 지도, REST 키는 DB에 없는 장소 위치 찾기)
+KAKAO_JS_KEY=
+KAKAO_REST_API_KEY=
+
+# 길찾기 (TMAP → 실패하면 ODsay → 없으면 거리로 추정)
+TMAP_APP_KEY=
+ODSAY_API_KEY=
+
+# 공공데이터포털 (TourAPI 장소 찾기, 기상청 단기예보). Decoding 키
+TOUR_API_KEY=
+KMA_SERVICE_KEY=
