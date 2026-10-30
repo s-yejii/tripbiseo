@@ -2,7 +2,11 @@
 
 "나 N번 담당이야, 뭐부터 해?"의 답이 있는 문서예요. 뼈대를 받은 다음부터 이 순서대로 하나씩 하면 돼요.
 
-담당(①~⑤)은 아직 사람이 정해지지 않았어요. 번호로만 불러요.
+| ① | ② | ③ | ④ | ⑤ |
+|---|---|---|---|---|
+| 이상재 | 이찬기 | 김주형 | 신예지 | 박석진 |
+
+담당은 10/30에 확정했어요. 문서에서는 짧게 번호로 불러요.
 
 목차: [시작하기](#시작하기) · [개발 순서](#api-하나를-만드는-순서-모두-같음) · [①](#-회원홈알림-member) · [②](#-여행일정점검장소-trip) · [③](#-ai-일정-plan) · [④](#-여행-중-판별-live) · [⑤](#-여행-후지도-부가-after) · [서로 부르는 메서드](#서로-부르는-메서드) · [매주 합쳐 보기](#매주-금요일-합쳐-보기)
 
@@ -22,7 +26,7 @@
 **첫날 할 일 (모두 같음)**
 1. `git switch develop` → `git pull` → `git switch -c feature/○○`
 2. README대로 DB·서버·화면 켜기
-3. 자기 화면들을 보고 필요한 테이블·컬럼을 `docs/DB.md`의 자기 칸에 적고 PR → 리뷰에서 다른 테이블과 겹치지 않는지 확인 (DB 총괄이 정해지면 DB 총괄이 확인)
+3. 자기 화면들을 보고 필요한 테이블·컬럼을 `docs/DB.md`의 자기 칸에 적고 PR → 리뷰에서 다른 테이블과 겹치지 않는지 확인 (DB 총괄 이상재가 확인)
 
 **표시**: ★ = 12/4까지 반드시 (10/15 팀 결정). ★가 다 끝나기 전에는 여유 기능과 "확인 필요" API를 시작하지 않아요.
 
@@ -44,6 +48,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 ## ① 회원·홈·알림 (member)
 
+- **담당**: 이상재
 - **화면** `views/member`: 온보딩, 로그인, 회원가입, 계정 찾기, 권한(2), 홈(로그인 전), 알림 센터, 마이, 정보 수정, 여행 스타일, 친구 초대, 위치 기록, 잠금화면 알림(5)
 - **내 테이블**: `member`(공통, 이미 있음), `member_style`, `notification`, `friend`
 - **다른 번호가 기다리는 것**: `NotificationService.send` (④⑤), `MemberService.getStyle` (③)
@@ -59,6 +64,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 ## ② 여행·일정·점검·장소 (trip)
 
+- **담당**: 이찬기
 - **화면** `views/trip`: 홈(여행 날), 여행 시간 확인, 내 여행(+빈 상태), 지도에서 직접 고르기, 일정 점검, 일정 편집, 일정 한 칸 수정, 빼기 확인, 여행 상세(여행 전·여행 날), 장소 상세
 - **내 테이블**: `trip`, `trip_stop`, `retrip_place`(공통, 이미 있음), `trip_chat`(이미 있음), `pack_item`(여유)
 - **다른 번호가 기다리는 것**: `TripService` 공유 메서드 (③④⑤), `PlaceService.card·openInfo` (④)
@@ -76,6 +82,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 ## ③ AI 일정 (plan)
 
+- **담당**: 김주형
 - **화면** `views/plan`: 테마 코스, 새 여행(방법 고르기), 여행 정보 입력, 장소 검색·시간 고정, 숙소 핀, 예약 캡처, 원하는 것 말하기, 만드는 중, 생성 실패, 한 곳 빼고 다시, 릴스에서 담기
 - **내 테이블**: `theme`, `theme_stop`, `vector_store`(RAG)
 - **기다리는 것**: ②의 `TripService.createTrip` (저장은 ②의 `POST /api/trips`로), ①의 `MemberService.getStyle`
@@ -90,6 +97,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 ## ④ 여행 중 판별 (live)
 
+- **담당**: 신예지
 - **화면** `views/live`: 여행 중(+지연 배너), 핀 눌러 미리 바꾸기, GPS 끊김, 지연 감지, 대안(시간 줄이기·한 곳 빼기·장소 바꾸기), 바뀐 일정, 예약에 늦어요
 - **내 테이블**: `trip_track`(GPS, 이미 있음)
 - **기다리는 것**: ②의 `TripService`(getTrip, updateStop, insertStop, skipStops), `PlaceService`, ①의 `NotificationService.send`
@@ -108,6 +116,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 ## ⑤ 여행 후·지도 부가 (after)
 
+- **담당**: 박석진
 - **화면** `views/after`: 길 안내, 결제 메모, 지난 여행 다시보기(회고), 앨범, 결제 카드 등록
 - **내 테이블**: `payment`, `card`, `photo`, `extra_visit`, `amenity`
 - **기다리는 것**: ④의 `TrackService.getTrack`, ②의 `TripService.getTrip`

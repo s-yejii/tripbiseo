@@ -58,7 +58,7 @@
 
 ## 공통 테이블 (컬럼)
 
-지금 DB(`db/01_member.sql`, `db/06_tripbiseo.sql`, `db/02_retrip_schema.sql`) 기준이에요. 공통 테이블은 DB 총괄만 고쳐요. **DB 총괄은 아직 정해지지 않았어요. 정해지기 전까지 공통 테이블은 바꾸지 않고, 꼭 필요하면 팀에 먼저 말해요.**
+지금 DB(`db/01_member.sql`, `db/06_tripbiseo.sql`, `db/02_retrip_schema.sql`) 기준이에요. 공통 테이블은 DB 총괄(**① 이상재**)만 고쳐요. 바꿔야 하면 이상재에게 요청해요.
 
 ### member · 회원
 
@@ -164,7 +164,7 @@
 
 ## 각자 채울 칸
 
-자기 테이블의 컬럼을 아래 형식으로 적어요. **SQL을 쓰기 전에 먼저 여기에 적고 PR로 올려서 확인**을 받아요. 리뷰에서 다른 테이블과 겹치지 않는지, 이름 규칙이 맞는지 봐요 (DB 총괄이 정해지면 DB 총괄이 확인).
+자기 테이블의 컬럼을 아래 형식으로 적어요. **SQL을 쓰기 전에 먼저 여기에 적고 PR로 올려서 확인**을 받아요. 리뷰에서 다른 테이블과 겹치지 않는지, 이름 규칙이 맞는지 봐요 (DB 총괄 이상재가 확인).
 
 ### 작성 예시
 
@@ -182,17 +182,17 @@
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
 ```
 
-### ① 회원·알림
+### ① 회원·알림 (이상재)
 (member_style, notification, friend)
 
-### ② 여행·일정
+### ② 여행·일정 (이찬기)
 (pack_item — 여유)
 
-### ③ AI 일정
+### ③ AI 일정 (김주형)
 (theme, theme_stop, vector_store)
 
-### ④ 여행 중
+### ④ 여행 중 (신예지)
 (trip_track은 위에 있음. 더 필요하면 여기에)
 
-### ⑤ 여행 후
+### ⑤ 여행 후 (박석진)
 (payment, card, photo, extra_visit, amenity)
