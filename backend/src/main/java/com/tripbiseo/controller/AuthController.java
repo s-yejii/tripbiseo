@@ -3,6 +3,7 @@ package com.tripbiseo.controller;
 import static com.tripbiseo.common.ApiException.fail;
 
 import java.security.Principal;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.dao.DuplicateKeyException;
@@ -21,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.tripbiseo.common.Maps;
 import com.tripbiseo.dto.Member;
 import com.tripbiseo.mapper.MemberMapper;
 
@@ -105,6 +105,10 @@ public class AuthController {
     private Map<String, Object> userOf(String username) {
         Member m = members.findByUsername(username);
         if (m == null) throw fail(401, "회원 정보를 찾을 수 없어요.");
-        return Maps.of("username", m.getUsername(), "nickname", m.getNickname(), "admin", "ROLE_ADMIN".equals(m.getRole()));
+        Map<String, Object> user = new HashMap<>(); // nickname이 null일 수 있어서 Map.of 대신 HashMap
+        user.put("username", m.getUsername());
+        user.put("nickname", m.getNickname());
+        user.put("admin", "ROLE_ADMIN".equals(m.getRole()));
+        return user;
     }
 }
