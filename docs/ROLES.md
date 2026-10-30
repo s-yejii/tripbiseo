@@ -103,7 +103,8 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 | 4 ★ | 고른 대안 적용 | `POST /api/trips/{id}/live/apply` | ②의 updateStop·insertStop·skipStops 사용 |
 | 5 | `TrackService.getTrack·deleteAll` 진짜로 | (내부 메서드) | ⑤ 회고, ① 위치 기록이 부름 |
 | 6 | 시연용 가짜 GPS 재생 | (시연 모드) | 2주차 안에 (10/21 리스크) |
-| 여유 | 근처 추천·넣기, 여행 중 채팅, 줄서기 대기, "그냥 갈게요" | `/live/recommend`, `/live/insert`, `/live/assist`, 확인 필요 | |
+| 7 | 여행 중 AI 채팅: 말 분류 → 근처 추천·일정에 넣기 / 일정 바꾸기 / 일정 질문 | `/live/assist`, `/live/recommend`, `/live/insert` | 10/30 결정. 화면은 `components/live/AskPanel.vue`(지금 가짜 응답 `data/ask.js`). ②의 insertStop 사용 |
+| 여유 | 줄서기 대기, "그냥 갈게요" | 확인 필요 | |
 
 ## ⑤ 여행 후·지도 부가 (after)
 
@@ -117,7 +118,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 | 2 | 결제 메모 | `GET·POST /api/trips/{id}/payments` | 확인 필요 |
 | 3 | 결제 카드 | `GET·POST·PUT /api/cards` | 확인 필요 |
 | 4 | 길 안내 | `GET /api/route` | 확인 필요. 공통 TMAP·ODsay 사용 |
-| 여유 | 편의시설(화장실·쓰레기통), 앨범, 들른 곳 | 확인 필요 | 편의시설은 공공데이터 수집 필요 |
+| 여유 | 편의시설(화장실·쓰레기통), 앨범, 들른 곳 | 확인 필요 | 편의시설은 공공데이터 수집 필요. 칩 줄(`AmenityChips`) 맨 앞은 ④ AI 채팅 칩 (10/30). `NearSearch.vue`는 화면에서 안 쓰게 됨 → 지울지 ④와 확인 |
 
 ⑤는 ★가 적어서, 회고·결제를 끝내면 ④(가짜 GPS 재생)나 ②(장소 검색)를 도울 수 있어요. 2주차에 진행 상황을 보고 정해요.
 

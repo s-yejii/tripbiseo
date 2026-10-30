@@ -68,7 +68,7 @@
 | `POST /api/trips/{id}/chats` | 대화 기록 저장 | plan/PlanChatView, live/LiveView | 있음 |
 | `POST /api/plans/check?day=1` | 하루 일정 점검 (이동시간·영업시간·휴무·고정 일정 여유) | trip/PlanCheckView | 있음 |
 | `GET /api/places/search` | 장소 검색 (이름·분류) | plan/PlaceSearchView, trip/PlanManualView | 있음 |
-| `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView, ⑤ NearSearch | 있음 |
+| `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -89,9 +89,9 @@
 |---|---|---|---|
 | `POST /api/trips/{id}/live/track` | GPS 한 점 저장 + 도착·출발 기록 | live/LiveView | 있음 |
 | `POST /api/trips/{id}/live/status` | 지금 상황 다시 계산 (알림·여유·날씨) | live/LiveView, live/LiveDelayView | 있음 |
-| `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView | 있음 |
-| `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView | 있음 |
-| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 | live/LiveView | 있음 |
+| `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView (AI 채팅 AskPanel) | 있음 |
+| `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView (AI 채팅 AskPanel) | 있음 |
+| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `POST /api/trips/{id}/live/apply` | 고른 대안을 일정에 반영 | live/AltTrimView, live/AltDropView, live/AltSwapView → live/AppliedView | 있음 |
 | (주소 미정) | 줄서기 대기 시간 반영 | live/LiveView (TablingModal) | 확인 필요 |
@@ -489,7 +489,7 @@
 **오류** 400 "q 값이 필요해요." · 400 "검색어를 1~40자로 입력해 주세요."
 
 ### `GET /api/places/nearby`
-지도에서 누른 곳 근처 장소. · 로그인 필요 · 화면: trip/PlanManualView, ⑤ NearSearch
+지도에서 누른 곳 근처 장소. · 로그인 필요 · 화면: trip/PlanManualView
 
 **요청** 쿼리
 
@@ -651,7 +651,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 **오류** 공통 오류
 
 ### `POST /api/trips/{id}/live/assist`
-여행 중 채팅이에요. Gemini가 사용자 말을 분류해요. · 로그인 필요 · 화면: live/LiveView
+여행 중 채팅이에요. Gemini가 사용자 말을 분류해요. · 로그인 필요 · 화면: live/LiveView (지도 아래 "AI에게 묻기" → `components/live/AskPanel.vue`)
 
 **요청** `message`(1~300자), `lat`, `lng`
 
@@ -667,8 +667,10 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 > Gemini가 실패하면 낱말 규칙으로 대신 분류하고 오류는 내지 않아요.
 
+> 화면은 비·실내 요청이면 `data`를 쓰지 않고 "비 올 때 바꾸기"(`/live/alt/swap?why=rain`)로 가요 (10/30 결정). 그 밖의 일정 바꾸기는 대안 A·B·C 화면(`/live/alt`)으로 가요. **확인 필요(④)**: 비 요청일 때도 서버가 대안 A·B·C를 계산할지.
+
 ### `POST /api/trips/{id}/live/recommend`
-반경 안에서 평점 상위 3곳을 추천해요. · 로그인 필요 · 화면: live/LiveView
+반경 안에서 평점 상위 3곳을 추천해요. · 로그인 필요 · 화면: live/LiveView (AskPanel)
 
 **요청**
 
@@ -689,7 +691,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 **오류** 400 "radius 값이 필요해요." · 공통 오류 · 400 "반경은 100m~3km예요."
 
 ### `POST /api/trips/{id}/live/insert`
-추천 장소를 바로 다음 일정으로 넣어요. · 로그인 필요 · 화면: live/LiveView
+추천 장소를 바로 다음 일정으로 넣어요. · 로그인 필요 · 화면: live/LiveView (AskPanel의 "일정에 넣기")
 
 **요청** `placeId`(장소 카드의 `id`), `lat`, `lng`
 
@@ -806,7 +808,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | `POST·PUT·DELETE /api/trips/{id}/stops...` (②) | ④ PinEditView | 수정 때 `mode`·`memo`를 안 보내면 지워지는 규칙, 응답이 Trip 전체라는 점을 같이 알아야 함 |
 | `POST /api/trips/{id}/finish` (②) | ④ LiveView | 여행 끝내기 버튼이 ④ 화면에 있음 |
 | `POST /api/trips/{id}/chats` (②) | ③ PlanChatView, ④ LiveView | `{role, text, at}` 형식으로 저장. `at` 형식이 다르면 저장 시각이 바뀜 |
-| `GET /api/places/search`·`/nearby`·`/{id}` (②) | ③ PlaceSearchView, ⑤ NearSearch | 장소 카드 모양을 같이 씀. `distance`는 lat·lng를 보냈을 때만 있음 |
+| `GET /api/places/search`·`/nearby`·`/{id}` (②) | ③ PlaceSearchView | 장소 카드 모양을 같이 씀. `distance`는 lat·lng를 보냈을 때만 있음 |
 | `POST /api/plans/generate` (③) | ② PlanCheckView → `POST /api/trips` | 초안 Stop·`transports`가 ②의 저장 규칙과 맞아야 함 (조건에 transports가 없으면 `[]`로 와서 저장 400) |
 | `POST /api/plans/check` (②) | ③ 일정 생성 후 점검 | 응답 `legs[].mode`는 `walk/transit/car`라 Stop.mode(`taxi`)와 다름 |
 | `POST /api/trips/{id}/live/recommend` (④) | 응답 항목이 ②의 장소 카드 + 영업 정보 | ②가 장소 카드·영업 정보 모양을 바꾸면 ④ 화면이 바뀜 |
