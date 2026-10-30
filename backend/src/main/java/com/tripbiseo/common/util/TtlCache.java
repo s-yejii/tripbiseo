@@ -1,4 +1,4 @@
-package com.tripbiseo.common;
+package com.tripbiseo.common.util;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -20,6 +20,10 @@ public class TtlCache {
         this.max = max;
     }
 
+    /**
+     * key로 기억한 값이 ttlMs 안이면 그대로, 아니면 loader를 실행해 새로 받아 기억합니다.
+     * <T>: 돌려줄 값의 타입을 부르는 쪽이 정함(Route, Forecast …). Supplier: "값을 만드는 방법"을 넘기는 람다 () -> …
+     */
     @SuppressWarnings("unchecked")
     public <T> T get(String key, long ttlMs, Supplier<T> loader) {
         Entry hit = map.get(key);

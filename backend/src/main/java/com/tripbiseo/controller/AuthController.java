@@ -1,6 +1,6 @@
 package com.tripbiseo.controller;
 
-import static com.tripbiseo.common.ApiException.fail;
+import static com.tripbiseo.common.exception.ApiException.fail;
 
 import java.security.Principal;
 import java.util.HashMap;

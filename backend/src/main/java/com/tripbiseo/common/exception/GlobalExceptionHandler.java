@@ -1,4 +1,4 @@
-package com.tripbiseo.common;
+package com.tripbiseo.common.exception;
 
 import java.util.Map;
 
