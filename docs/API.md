@@ -18,13 +18,15 @@
 
 ## 담당 번호
 
-| 번호 | 맡은 일 | 앞단 폴더 | 사람 |
-|---|---|---|---|
-| ① | 회원·홈·알림 (+공통 UI) | `views/member`, `components/member` | (정해지면 적기) |
-| ② | 여행·일정 관리·점검·장소 검색·상세 | `views/trip`, `components/trip` | (정해지면 적기) |
-| ③ | AI 일정 만들기·예약 캡처·숙소 핀·링크·테마 | `views/plan`, `components/plan` | (정해지면 적기) |
-| ④ | 여행 중 판별 엔진 (도착·지연·대안) | `views/live`, `components/live` | 예지 |
-| ⑤ | 여행 후·지도 부가 (회고·앨범·결제 메모·길 안내·편의시설) | `views/after`, `components/after` | (정해지면 적기) |
+| 번호 | 맡은 일 | 앞단 폴더 |
+|---|---|---|
+| ① | 회원·홈·알림 (+공통 UI) | `views/member`, `components/member` |
+| ② | 여행·일정 관리·점검·장소 검색·상세 | `views/trip`, `components/trip` |
+| ③ | AI 일정 만들기·예약 캡처·숙소 핀·링크·테마 | `views/plan`, `components/plan` |
+| ④ | 여행 중 판별 엔진 (도착·지연·대안) | `views/live`, `components/live` |
+| ⑤ | 여행 후·지도 부가 (회고·앨범·결제 메모·길 안내·편의시설) | `views/after`, `components/after` |
+
+담당은 아직 사람이 정해지지 않았어요. 문서와 대화에서는 번호(①~⑤)로만 불러요.
 
 ## 한눈에 보기
 
