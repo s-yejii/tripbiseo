@@ -1,13 +1,13 @@
 <script setup>
 // 여행 중 지도 위 칩: 화장실·쓰레기통을 누르면 근처 위치 핀과 가는 길을 보여 줘요 (⑤)
-// "근처 찾기"를 누르면 search 이벤트를 보내요
+// 맨 앞 "AI에게 묻기"를 누르면 ask 이벤트를 보내요 → 여행 중 AI 채팅(④ AskPanel)이 열려요
 import { computed, ref } from 'vue'
 import { amenities } from '@/data/near'
 
 const props = defineProps({
   me: { type: Object, required: true }, // 지금 위치 { x, y }
 })
-const emit = defineEmits(['search'])
+const emit = defineEmits(['ask'])
 
 const kind = ref(null) // 'toilet' | 'trash' | null
 const pointIndex = ref(0)
@@ -46,7 +46,10 @@ function pick(key) {
     </button>
   </template>
 
-  <div class="quick amen-chips" role="group" aria-label="근처 편의시설">
+  <div class="quick amen-chips" role="group" aria-label="AI 채팅과 근처 편의시설">
+    <button type="button" class="chip chip--sm chip--add" @click="emit('ask')">
+      <i class="ic ic--s i-sparkle" aria-hidden="true"></i>AI에게 묻기
+    </button>
     <button
       v-for="(a, key) in amenities"
       :key="key"
@@ -57,9 +60,6 @@ function pick(key) {
       @click="pick(key)"
     >
       <i class="ic ic--s" :class="a.icon" aria-hidden="true"></i>{{ a.label }}
-    </button>
-    <button type="button" class="chip chip--sm chip--add" @click="emit('search')">
-      <i class="ic ic--s i-search" aria-hidden="true"></i>근처 찾기
     </button>
   </div>
 </template>
