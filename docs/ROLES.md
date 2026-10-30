@@ -17,8 +17,9 @@
 - 로그인·회원가입 (진짜로 동작)
 - API 31개: Controller → Service 인터페이스 → ServiceImpl까지 연결돼 있고, **Impl은 지금 명세 예시 데이터(가짜)를 돌려줌**
 - API 31개의 요청·응답 DTO (명세 필드 그대로), 공통 DTO (Trip, Stop, 장소 카드)
-- 공통 테이블 4개 + 이미 모은 장소·리뷰 데이터, 테스트 계정·샘플 여행
-- 외부 API 호출부 (Gemini, TMAP, ODsay, 기상청)
+- 공통 테이블 5개(member, trip, trip_stop, retrip_place, retrip_review) + 이미 모은 장소·리뷰 데이터, 테스트 계정(tripuser / tripuser1234)·샘플 여행
+- 외부 API 호출부: `common/ai/AiService`(Gemini), `common/external`의 `RouteClient`(TMAP·ODsay)·`WeatherClient`(기상청)·`PlaceSearchClient`(TourAPI·카카오)
+- 예전 로직은 `backend-v0` 태그에 있어요. 각 `ServiceImpl`의 `// TODO`에 참고할 예전 메서드와 주의할 점을 적어 뒀어요
 - **완성 예시 1개**: `GET /api/trips` (테이블 → DTO → Mapper → Service → Controller → 화면). 막히면 이걸 보고 똑같이 따라 하기
 
 **각자 할 것**: ServiceImpl 안의 진짜 로직, Mapper 인터페이스 + XML, 자기 테이블, 화면 연결, "확인 필요" API
@@ -67,16 +68,16 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 - **담당**: 이찬기
 - **화면** `views/trip`: 홈(여행 날), 여행 시간 확인, 내 여행(+빈 상태), 지도에서 직접 고르기, 일정 점검, 일정 편집, 일정 한 칸 수정, 빼기 확인, 여행 상세(여행 전·여행 날), 장소 상세
 - **내 테이블**: `trip`, `trip_stop`, `retrip_place`(공통, 이미 있음), `trip_chat`(이미 있음), `pack_item`(여유)
-- **다른 번호가 기다리는 것**: `TripService` 공유 메서드 (③④⑤), `PlaceService.card·openInfo` (④)
+- **다른 번호가 기다리는 것**: `TripService` 공유 메서드 (③④⑤), `PlaceService.getPlaceCard·getOpenInfo·getNearbyPlaceList` (③④)
 
 | 순서 | 할 일 | API | 비고 |
 |---|---|---|---|
-| 1 ★ | **`TripService` 공유 메서드 진짜로**: getTrip, createTrip, updateStop, insertStop, skipStops | (내부 메서드) | ③④가 기다려요. 제일 먼저 |
+| 1 ★ | **`TripService` 공유 메서드 진짜로**: getTrip, createTrip, createStop, updateStop, skipStops | (내부 메서드) | ③④가 기다려요. 제일 먼저 |
 | 2 ★ | 여행 목록·저장·상세·수정·삭제 | `GET·POST /api/trips`, `GET·PUT·DELETE /api/trips/{id}` | 목록은 뼈대 완성 예시. 나머지를 같은 방식으로 |
 | 3 ★ | 일정 칸 추가·수정·삭제 | `POST /api/trips/{id}/stops`, `PUT·DELETE /api/trips/{id}/stops/{stopId}` | `mode`·`memo` null 규칙 주의 (API.md) |
 | 4 ★ | 여행 시작·마치기 | `POST /api/trips/{id}/start`, `.../finish` | |
 | 5 ★ | 일정 점검 (이동시간·영업시간·휴무·고정 일정 여유) | `POST /api/plans/check` | 공통 외부 API(TMAP·ODsay) 사용 |
-| 6 | 장소 검색·근처·상세 + `PlaceService.card·openInfo` | `GET /api/places/search`, `/nearby`, `/{id}` | 직접 고르기 화면에 필요 |
+| 6 | 장소 검색·근처·상세 + `PlaceService` 공유 메서드 (getPlaceCard, getOpenInfo, getNearbyPlaceList …) | `GET /api/places/search`, `/nearby`, `/{id}` | 직접 고르기 화면에 필요. 근처·거리순은 PostGIS로 |
 | 7 | 대화 기록 | `GET·POST /api/trips/{id}/chats` | ③④가 저장 |
 | 여유 | 챙길 것 목록 | 확인 필요 | |
 
@@ -89,7 +90,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 | 순서 | 할 일 | API | 비고 |
 |---|---|---|---|
-| 1 | 사용자 말 → 여행 조건 정리 | `POST /api/plans/chat` | 공통 GeminiService 사용 |
+| 1 | 사용자 말 → 여행 조건 정리 | `POST /api/plans/chat` | 공통 `AiService` 사용 |
 | 2 | 조건 → 일정 초안 | `POST /api/plans/generate` | 결과는 ② 일정 점검 화면으로 넘어감. 초안 Stop이 ②의 저장 규칙과 맞아야 함 |
 | 3 | 예약 캡처 → 고정 일정 | `POST /api/plans/capture` | 확인 필요 |
 | 4 | 테마 코스 목록·상세 | `GET /api/themes`, `/{id}` | 확인 필요. 홈(②)에도 보여 줌 |
@@ -100,18 +101,18 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 - **담당**: 신예지
 - **화면** `views/live`: 여행 중(+지연 배너), 핀 눌러 미리 바꾸기, GPS 끊김, 지연 감지, 대안(시간 줄이기·한 곳 빼기·장소 바꾸기), 바뀐 일정, 예약에 늦어요
 - **내 테이블**: `trip_track`(GPS, 이미 있음)
-- **기다리는 것**: ②의 `TripService`(getTrip, updateStop, insertStop, skipStops), `PlaceService`, ①의 `NotificationService.send`
-- **다른 번호가 기다리는 것**: `TrackService.getTrack·deleteAll` (⑤①)
+- **기다리는 것**: ②의 `TripService`(getTrip, createStop, updateStop, skipStops), `PlaceService`, ①의 `NotificationService.send`
+- **다른 번호가 기다리는 것**: `TrackService.getTrackList·deleteTrackList` (⑤①)
 
 | 순서 | 할 일 | API | 비고 |
 |---|---|---|---|
 | 1 ★ | GPS 한 점 저장 + 도착·출발 판정 | `POST /api/trips/{id}/live/track` | 150m 안 도착, 200m 밖 2번 출발 |
 | 2 ★ | 지금 상황 다시 계산 (출발·지각 알림, 여유, 날씨) | `POST /api/trips/{id}/live/status` | 가장 큰 기능. 예전 LiveService 참고 |
 | 3 ★ | 대안 A·B·C 만들기 | `POST /api/trips/{id}/live/alternatives` | |
-| 4 ★ | 고른 대안 적용 | `POST /api/trips/{id}/live/apply` | ②의 updateStop·insertStop·skipStops 사용 |
-| 5 | `TrackService.getTrack·deleteAll` 진짜로 | (내부 메서드) | ⑤ 회고, ① 위치 기록이 부름 |
+| 4 ★ | 고른 대안 적용 | `POST /api/trips/{id}/live/apply` | ②의 updateStop·createStop·skipStops 사용 |
+| 5 | `TrackService.getTrackList·deleteTrackList` 진짜로 | (내부 메서드) | ⑤ 회고, ① 위치 기록이 부름 |
 | 6 | 시연용 가짜 GPS 재생 | (시연 모드) | 2주차 안에 (10/21 리스크) |
-| 7 | 여행 중 AI 채팅: 말 분류 → 근처 추천·일정에 넣기 / 일정 바꾸기 / 일정 질문 | `/live/assist`, `/live/recommend`, `/live/insert` | 10/30 결정. 화면은 `components/live/AskPanel.vue`(지금 가짜 응답 `data/ask.js`). ②의 insertStop 사용 |
+| 7 | 여행 중 AI 채팅: 말 분류 → 근처 추천·일정에 넣기 / 일정 바꾸기 / 일정 질문 | `/live/assist`, `/live/recommend`, `/live/insert` | 10/30 결정. 화면은 `components/live/AskPanel.vue`(지금 가짜 응답 `data/ask.js`). ②의 createStop 사용 |
 | 여유 | 줄서기 대기, "그냥 갈게요" | 확인 필요 | |
 
 ## ⑤ 여행 후·지도 부가 (after)
@@ -119,7 +120,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 - **담당**: 박석진
 - **화면** `views/after`: 길 안내, 결제 메모, 지난 여행 다시보기(회고), 앨범, 결제 카드 등록
 - **내 테이블**: `payment`, `card`, `photo`, `extra_visit`, `amenity`
-- **기다리는 것**: ④의 `TrackService.getTrack`, ②의 `TripService.getTrip`
+- **기다리는 것**: ④의 `TrackService.getTrackList`, ②의 `TripService.getTrip`
 
 | 순서 | 할 일 | API | 비고 |
 |---|---|---|---|
@@ -139,16 +140,22 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 
 | 주인 | 메서드 | 하는 일 | 부르는 번호 |
 |---|---|---|---|
-| 공통 | `LoginUser.id()` | 지금 로그인한 회원 번호 | 전원 |
-| 공통 | `GeminiService`, `RouteService`, `WeatherService` | 외부 API 호출 | ②③④⑤ |
-| ① | `NotificationService.send(memberId, title, text)` | 알림 보내기 | ④⑤ |
+| 공통 | `LoginUser.id()` | 지금 로그인한 회원 번호 (Controller에서 꺼내 Service에 넘김) | 전원 |
+| 공통 | `AiService.isReady()`, `askText(prompt)`, `askJson(prompt, DTO클래스)`, `askJsonWithWeather(prompt, lat, lng, DTO클래스)` | Gemini 호출. 실패하면 ApiException → 부르는 쪽이 규칙 기본값 | ③④ |
+| 공통 | `RouteClient.getRoute(…)`, `estimate(…)`, `chooseMode(…)` | 두 지점 사이 이동시간·경로선 (TMAP → ODsay → 추정) | ②④⑤ |
+| 공통 | `WeatherClient.getForecast(lat, lng)` | 기상청 단기예보 | ④ |
+| 공통 | `PlaceSearchClient.searchByName(name, lat, lng)` | DB에 없는 장소 찾기 (TourAPI → 카카오) | ② |
+| ① | `MemberService.getMember(username)` | 아이디로 회원 | 공통 로그인 |
 | ① | `MemberService.getStyle(memberId)` | 여행 스타일 | ③ |
+| ① | `NotificationService.send(memberId, title, text)` | 알림 보내기 | ④⑤ |
 | ② | `TripService.getTrip(memberId, tripId)` | 여행 + 일정 칸 | ③④⑤ |
 | ② | `TripService.createTrip(memberId, trip)` | 여행 저장 | ③ |
-| ② | `TripService.updateStop(…)`, `insertStop(…)`, `skipStops(…)` | 일정 칸 바꾸기 | ④ |
-| ② | `PlaceService.card(…)`, `PlaceService.openInfo(…)` | 장소 카드, 영업 정보 | ④ |
-| ④ | `TrackService.getTrack(tripId)` | GPS 기록 | ⑤ |
-| ④ | `TrackService.deleteAll(memberId)` | 위치 기록 지우기 | ① |
+| ② | `TripService.createStop(memberId, tripId, stop)`, `updateStop(memberId, tripId, stopId, stop)`, `skipStops(memberId, tripId, stopIds)` | 일정 칸 넣기·고치기·빼기 | ④ |
+| ② | `TripService.createChats(memberId, tripId, messages)` | 대화 기록 저장 | ③④ |
+| ② | `PlaceService.getPlace(placeId)`, `getNearbyPlaceList(lat, lng, radius, category)`, `getAreaPlaceList(region)`, `getPlaceByName(name, lat, lng)` | 장소 하나·반경 안(가까운 순)·지역·이름으로 | ③④ |
+| ② | `PlaceService.getPlaceCard(place, lat, lng)`, `getOpenInfo(place, date, arriveMinutes, stayMinutes)`, `isIndoor(category)`, `getNaverUrl(name, address)` | 장소 카드, 영업 정보, 실내인지, 네이버 지도 링크 | ③④ |
+| ④ | `TrackService.getTrackList(tripId)` | GPS 기록 | ⑤ |
+| ④ | `TrackService.deleteTrackList(memberId)` | 위치 기록 지우기 | ① |
 
 정확한 파라미터·반환 타입은 각 Service 인터페이스 파일을 봐요. 새로 추가하면 이 표도 같은 커밋에서 고쳐요.
 

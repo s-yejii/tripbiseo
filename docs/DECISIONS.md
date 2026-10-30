@@ -18,7 +18,7 @@
 | 10/21 | 역할 | Claude는 초반 뼈대(ERD, 공통 DDL, 패키지, 공통 클래스, API 명세, 메서드 껍데기)까지만. 기능을 통째로 "다 만들어 줘"는 안 함 | 각자 자기 기능을 설명할 수 있어야 함 |
 | 10/21 | DB | 공통 테이블은 member, trip, trip_stop, place 4개. 공통 테이블은 DB 총괄만 고치고, 바꿀 땐 PR + DB 총괄 확인 | |
 | 10/21 | DB | SQL 파일은 사람별로 나눔 (`db/01_common.sql`은 DB 총괄, 나머지는 자기 것만) | 충돌 줄이기 |
-| 10/21 | DB | 좌표가 있는 테이블은 lat·lng + 자동 생성 geom + GIST 인덱스 | |
+| 10/21 | DB | 좌표가 있는 테이블은 lat·lng + 자동 생성 geom + GIST 인덱스 | 바뀜 → 10/30 |
 | 10/21 | Git | 브랜치는 main ← develop ← feature/…. main·develop에 직접 push 안 함. PR은 작게. 매일 시작 전에 develop 받기 | |
 | 10/29 | 범위 | 최종 시연 시나리오는 서울 3개 구로 잡고 그 구의 장소만 DB에 수집 (구는 아직 미정) | 서울 전체 수집은 어려움 |
 | 10/29 | 앞단 | 프로토타입 화면 57개를 Vue로 옮긴 초안을 develop에 넣고, 여기서 잘라서 각자 개발 | 가짜 데이터는 `src/data`, API 붙이면 바꿈 |
@@ -34,6 +34,11 @@
 | 10/30 | 역할 | 담당 ①~⑤는 아직 사람에게 정해지지 않음. 문서·대화에서는 번호로만 부름. DB 총괄도 미정 | 정해지면 이 표에 새 줄로 남기기 |
 | 10/30 | 역할 | 담당 확정: ① 이상재, ② 이찬기, ③ 김주형, ④ 신예지, ⑤ 박석진. DB 총괄은 ① 이상재 (공통 테이블·`01_common.sql`·`90_test_data.sql`·DB.md 등록 확인) | 문서에는 번호와 이름을 같이 적음 |
 | 10/30 | 앞단 | 여행 중 AI 채팅을 되살림. 지도 아래 칩 줄의 "AI에게 묻기"로 열고(`/live`, `/live/late` 둘 다), 말을 근처 추천 / 일정 바꾸기 / 일정 질문 세 가지로 나눔. 비·실내 요청은 "비 올 때 바꾸기" 화면으로. "지금 갈 수 있는 구역"·"일정 위험도" 레이어는 여유 | 10/29 프로토타입에서 빠졌지만 핵심 기능(실시간 재분석)의 입구라서. 예전 앱 동작을 새 디자인으로 옮김 |
+| 10/30 | 백엔드 | 패키지는 기능별(모듈러 모놀리스): `com.tripbiseo.{member\|trip\|plan\|live\|after}` 아래 controller·service·mapper·dto, 공통은 `common`, 설정은 `config`. 다른 기능은 Service 인터페이스로만 부름 | 담당 번호와 폴더가 1:1이라 충돌이 적고, 남의 Mapper를 직접 쓰지 않게 |
+| 10/30 | 백엔드 | AI는 Spring AI 2.0.2 + Gemini(`gemini-3.8-flash`, 예비 `gemini-3.6-flash`·`gemini-3.5-flash-lite`)를 `common/ai/AiService`로 감쌈. 키가 없거나 실패하면 각 기능이 규칙 기본값. 개인정보·좌표는 Gemini에 보내지 않음 | 직접 만든 HTTP·JSON 코드 대신 Spring 공식 도구. 무료 등급은 입력이 학습에 쓰일 수 있음 |
+| 10/30 | 백엔드 | 키·DB 비밀번호는 환경변수 또는 `application-local.properties`(커밋 안 함, 견본은 `.example`)로만. `application.properties`에는 `${이름:기본값}`만. `api_key` 테이블·`ApiKeyService` 삭제 | 10/17 결정을 코드로. 예전 코드는 `backend-v0` 태그 |
+| 10/30 | DB | 반경·근처로 검색하는 테이블(retrip_place, 나중에 amenity)만 lat·lng + geom + GIST. trip_stop·trip_track처럼 검색하지 않는 좌표는 lat·lng만. 반경·가까운 순 검색은 SQL의 PostGIS로 | 검색하지 않는 칸에 geom·인덱스를 두면 저장만 느려짐 |
+| 10/30 | 백엔드 | API 문서 화면은 Swagger(springdoc-openapi 3.2.0, `/swagger-ui.html`, 로그인 없이 열림). 기준은 여전히 `docs/API.md` | 코드와 명세가 맞는지 바로 확인 |
 
 ## 충돌 메모
 
