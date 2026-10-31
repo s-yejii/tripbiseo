@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ④ GPS 기록 (trip_track). TrackMapper.java에 메서드를 추가하면 같은 id로 여기에 SQL을 써요 -->
+<mapper namespace="com.tripbiseo.live.mapper.TrackMapper">
+
+  <!-- TODO: ④ insertTrack, selectLastTrack, selectTrackList, deleteTrackList
+       참고: git show backend-v0:backend/src/main/resources/mapper/TripMapper.xml (GPS 부분) -->
+
+</mapper>

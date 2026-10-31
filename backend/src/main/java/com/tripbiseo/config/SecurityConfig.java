@@ -1,5 +1,7 @@
 package com.tripbiseo.config;
 
+import java.io.IOException;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -17,9 +19,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * 스프링 시큐리티 설정 (Vue 화면용 JSON API + 세션 쿠키)
- *  로그인 없이 : 로그인·회원가입, 지도 키, /api/chat·/db-test(팀 테스트용)
- *  관리자      : /api/admin/** (member.role = 'ROLE_ADMIN')
- *  그 밖       : 로그인 필요 → 401 JSON (로그인 페이지로 튕기지 않음, 화면이 처리)
+ *  로그인 없이 : 로그인·회원가입(/api/auth/**), 지도 키(/api/config/public), Swagger 화면
+ *  그 밖       : 로그인 필요 → 401 {"message": "로그인이 필요해요."} (로그인 페이지로 튕기지 않음, 화면이 처리)
  */
 @Configuration
 public class SecurityConfig {
@@ -27,10 +28,10 @@ public class SecurityConfig {
     private static final String[] PUBLIC_URLS = {
             "/api/auth/**", "/api/config/public",
             "/error",
-            "/db-test", // DB 연결 확인용 (개발 단계)
-            "/api/chat" // 제미나이 테스트용
+            "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**" // Swagger (API 문서 화면)
     };
 
+    /** 어떤 주소를 로그인 없이 열지, 로그인 안 했을 때 어떻게 답할지 */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -42,32 +43,31 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .dispatcherTypeMatchers(DispatcherType.FORWARD, DispatcherType.ERROR).permitAll()
                 .requestMatchers(PUBLIC_URLS).permitAll()
-                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .exceptionHandling(e -> e
-                .authenticationEntryPoint((req, res, ex) -> json(res, 401, "로그인이 필요해요."))
-                .accessDeniedHandler((req, res, ex) -> json(res, 403, "관리자만 쓸 수 있어요."))
+                .authenticationEntryPoint((request, response, ex) -> writeJson(response, 401, "로그인이 필요해요."))
             );
         return http.build();
     }
 
     /** AuthController가 아이디·비밀번호 확인에 씀 (CustomUserDetailsService + BCrypt) */
     @Bean
-    public AuthenticationManager authenticationManager(UserDetailsService users, PasswordEncoder encoder) {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(users);
-        provider.setPasswordEncoder(encoder);
+    public AuthenticationManager authenticationManager(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+        provider.setPasswordEncoder(passwordEncoder);
         return new ProviderManager(provider);
     }
 
+    /** 비밀번호를 BCrypt 암호문으로 바꾸고 비교하는 도구 */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    private static void json(HttpServletResponse res, int status, String message) throws java.io.IOException {
-        res.setStatus(status);
-        res.setContentType("application/json;charset=UTF-8");
-        res.getWriter().write("{\"message\":\"" + message + "\"}");
+    private static void writeJson(HttpServletResponse response, int status, String message) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"message\":\"" + message + "\"}");
     }
 }

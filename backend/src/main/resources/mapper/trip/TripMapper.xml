@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- namespace = Mapper 인터페이스의 전체 이름. 다르면 서버가 켜질 때 오류가 나요 -->
+<mapper namespace="com.tripbiseo.trip.mapper.TripMapper">
+
+  <!--
+    resultMap: DB 한 줄 → Trip 객체. 대부분은 이름으로 자동(autoMapping, start_date → startDate)이고,
+    transports만 "subway,bus,walk" 글자 ↔ List<String>으로 바꿔야 해서 CsvTypeHandler를 지정해요.
+  -->
+  <resultMap id="tripResult" type="com.tripbiseo.trip.dto.Trip" autoMapping="true">
+    <id property="id" column="id"/>
+    <result property="transports" column="transports" typeHandler="com.tripbiseo.config.CsvTypeHandler"/>
+  </resultMap>
+
+  <!-- [완성 예시] GET /api/trips: 내 여행 목록. stop_count = 'skipped'가 아닌 일정 칸 수 -->
+  <select id="selectTripList" resultMap="tripResult">
+    SELECT t.trip_id AS id, t.member_id, t.title,
+           t.start_date::text AS start_date, t.end_date::text AS end_date,
+           t.people, t.transports, t.status,
+           (SELECT COUNT(*) FROM trip_stop s
+             WHERE s.trip_id = t.trip_id AND s.state &lt;&gt; 'skipped') AS stop_count
+    FROM trip t
+    WHERE t.member_id = #{memberId}
+    ORDER BY t.start_date DESC, t.trip_id DESC
+  </select>
+
+</mapper>
