@@ -8,13 +8,11 @@ import com.tripbiseo.live.service.TrackService;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.TripService;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 
 import lombok.RequiredArgsConstructor;
 
-/**
- * ⑤ 회고. 여행·일정은 ②의 TripService, GPS는 ④의 TrackService로 읽어요 (남의 Mapper 직접 사용 안 함).
- * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/TripService.java (retro 메서드)
- */
 @Service
 @RequiredArgsConstructor
 public class RetroServiceImpl implements RetroService {
@@ -23,8 +21,7 @@ public class RetroServiceImpl implements RetroService {
     private final TrackService trackService;
 
     /** 회고: 계획 vs 실제 + GPS 선 */
-    // TODO: ⑤ 회고. 지금은 ②·④의 가짜 값을 그대로 옮겨 담기만 해요. arrivedAt이 있으면 visited +1, actualArrive = HH:mm,
-    //       departedAt도 있으면 actualStay = 두 시각 사이 분. 참고: 예전 TripService.retro
+
     @Override
     public RetroResponse getRetro(long memberId, long tripId) {
         Trip trip = tripService.getTrip(memberId, tripId);
@@ -33,9 +30,15 @@ public class RetroServiceImpl implements RetroService {
         response.setTitle(trip.getTitle());
         response.setStartDate(trip.getStartDate());
         response.setEndDate(trip.getEndDate());
+        int visited = 0;
         for (Stop stop : trip.getStops()) {
+
+            if (stop.getArrivedAt() != null) {
+                visited++;
+            }
             response.getStops().add(toRetroStop(stop));
         }
+        response.setVisited(visited);
         response.setTrack(trackService.getTrackList(tripId));
         return response;
     }
@@ -51,6 +54,24 @@ public class RetroServiceImpl implements RetroService {
         retro.setTime(stop.getTime());
         retro.setStay(stop.getStay());
         retro.setState(stop.getState());
+
+        if (stop.getArrivedAt() != null) {
+            LocalDateTime arrived = LocalDateTime.parse(stop.getArrivedAt());
+
+            // 시각만 꺼내 앞 5글자만 잘라 적는 코드입니다.
+            retro.setActualArrive(arrived.toLocalTime().toString().substring(0, 5));
+
+            if (stop.getDepartedAt() != null) {
+
+                LocalDateTime departed = LocalDateTime.parse(stop.getDepartedAt());
+                // ChronoUnit.MINUTES.between: 두 시각 사이가 몇 분인지 계산 (long으로 돌려줘서 int로 바꿈)
+                // 출발 도착 시간을 계산해서 그렇게 함.
+
+                retro.setActualStay((int) ChronoUnit.MINUTES.between(arrived, departed));
+            }
+
+        }
+
         return retro;
     }
 }
