@@ -3,7 +3,13 @@
 <!-- ④ GPS 기록 (trip_track). TrackMapper.java에 메서드를 추가하면 같은 id로 여기에 SQL을 써요 -->
 <mapper namespace="com.tripbiseo.live.mapper.TrackMapper">
 
-  <!-- TODO: ④ insertTrack, selectLastTrack, selectTrackList, deleteTrackList
+  <!-- GPS 한 점 저장. recorded_at은 DB 기본값 NOW()가 채움 -->
+  <insert id="insertTrack">
+    INSERT INTO trip_track (trip_id, lat, lng, accuracy)
+    VALUES (#{tripId}, #{lat}, #{lng}, #{accuracy})
+  </insert>
+
+  <!-- TODO: ④ selectLastTrack, selectTrackList, deleteTrackList
        참고: git show backend-v0:backend/src/main/resources/mapper/TripMapper.xml (GPS 부분) -->
 
 </mapper>
