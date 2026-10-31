@@ -13,13 +13,6 @@ const visited = [
   { no: 4, x: 290, y: 140, name: '천호 작은 갤러리숍', time: '16:05–16:40', pay: '' },
   { no: 5, x: 300, y: 250, name: '천호 소품 편집숍', time: '16:50–17:25', pay: '24,500원\n나: 24,500원' },
 ]
-// 계획 vs 실제 (막대 길이 %)
-const compare = [
-  { name: '성내동 카페', plan: 55, real: 75, diff: '+22분', cls: 'c-warning' },
-  { name: '디저트 카페', plan: 40, real: 54, diff: '+15분', cls: 'c-warning' },
-  { name: '갤러리숍', plan: 30, real: 28, diff: '−2분', cls: 'muted' },
-  { name: '소품 편집숍', plan: 30, real: 25, diff: '−5분', cls: 'muted' },
-]
 
 const progress = ref(68) // 재생 위치 (%)
 const playing = ref(false)
@@ -58,12 +51,41 @@ const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사
 const retro = ref(null)//서버 응답 . 받기 전에는 null
 const errorMessage = ref(``)
 
+const BAR_FULL_MINUTES = 240 // 막대가 꽉 차는 기준 시간(분) // 240분으로 정한 이유는 한 장소에 4시간 이상 머무는 일은 거의 없을것 같아서 주관임.
+
+// 머문 시간을 %로 해주는 것
+function toBarWidth(minutes) {
+  return Math.min(100, (minutes / BAR_FULL_MINUTES) * 100)
+}
+
+const compare = computed(() => {
+  const rows = []
+  if(retro.value === null)
+  return rows
+
+  for(const place of retro.value.stops) {
+    if(place.actualStay === null) continue 
+
+    const diff = place.actualStay - place.stay
+    rows.push({
+      name: place.name,
+      plan: toBarWidth(place.stay),
+      real: toBarWidth(place.actualStay),
+      diff: (diff > 0 ? '+' : '') + diff + '분',
+      cls: diff > 0 ? 'c-warning' : 'muted',
+    })
+  }
+  return rows
+})
+
 //화면이 열리면 회고 데이터를 가져옴
 onMounted(async () => {
   try{
     retro.value = await get('/trips/' + route.query.id +'/retro')
   }catch  (error){
     errorMessage.value = error.message
+
+
   }
 })
 
