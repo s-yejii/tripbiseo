@@ -39,6 +39,7 @@
 | 10/30 | 백엔드 | 키·DB 비밀번호는 환경변수 또는 `application-local.properties`(커밋 안 함, 견본은 `.example`)로만. `application.properties`에는 `${이름:기본값}`만. `api_key` 테이블·`ApiKeyService` 삭제 | 10/17 결정을 코드로. 예전 코드는 `backend-v0` 태그 |
 | 10/30 | DB | 반경·근처로 검색하는 테이블(retrip_place, 나중에 amenity)만 lat·lng + geom + GIST. trip_stop·trip_track처럼 검색하지 않는 좌표는 lat·lng만. 반경·가까운 순 검색은 SQL의 PostGIS로 | 검색하지 않는 칸에 geom·인덱스를 두면 저장만 느려짐 |
 | 10/30 | 백엔드 | API 문서 화면은 Swagger(springdoc-openapi 3.2.0, `/swagger-ui.html`, 로그인 없이 열림). 기준은 여전히 `docs/API.md` | 코드와 명세가 맞는지 바로 확인 |
+| 10/31 | Git | 커밋 메시지는 작업자가 직접 쓰고, Claude는 바뀐 내용만 보여 준 뒤 말머리·한 가지 일·결과가 보이는지만 체크. 커밋 단위는 API 만드는 순서 한 단계. PR·머지 제목은 `[말머리] 이름 - 기능` | 자기가 한 일을 한 줄로 설명할 수 있게 (면접 대비). Claude 공동 작성자 표시는 숨기지 않음 |
 
 ## 충돌 메모
 
