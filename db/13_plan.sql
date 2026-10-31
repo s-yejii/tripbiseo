@@ -1,0 +1,3 @@
+-- 13_plan.sql — ③ 김주형 (AI 일정·테마)
+--  테이블: theme, theme_stop, vector_store(여유)
+--  만들기 전에 docs/DB.md "각자 채울 칸"에 컬럼을 적고 DB 총괄 확인을 받아요. 다시 실행해도 안전하게 (IF NOT EXISTS)

@@ -1,0 +1,3 @@
+-- 15_after.sql — ⑤ 박석진 (여행 후·지도 부가)
+--  테이블: payment, card, photo(여유), extra_visit(여유), amenity(여유, 반경 검색 → lat·lng + geom + GIST)
+--  만들기 전에 docs/DB.md "각자 채울 칸"에 컬럼을 적고 DB 총괄 확인을 받아요. 다시 실행해도 안전하게 (IF NOT EXISTS)

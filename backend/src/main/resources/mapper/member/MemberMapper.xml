@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tripbiseo.member.mapper.MemberMapper">
+
+  <!-- 로그인할 때 아이디로 회원 찾기 -->
+  <select id="selectMemberByUsername" resultType="com.tripbiseo.member.dto.Member">
+    SELECT member_id, username, password, nickname, role, created_at
+    FROM member
+    WHERE username = #{username}
+  </select>
+
+  <!-- 회원가입 (role·created_at은 기본값) -->
+  <insert id="insertMember" useGeneratedKeys="true" keyProperty="memberId" keyColumn="member_id">
+    INSERT INTO member (username, password, nickname)
+    VALUES (#{username}, #{password}, #{nickname})
+  </insert>
+</mapper>
