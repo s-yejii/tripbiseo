@@ -1,6 +1,8 @@
 <script setup>
 // S19-a 지난 여행 다시보기 (⑤): 다녀온 동선을 재생하고, 핀을 누르면 시간·결제 메모를 봐요. 계획과 실제도 비교해요
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { get } from '@/api/http'
 import { toTime } from '@/utils/time'
 
 // 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
@@ -52,6 +54,19 @@ function stop() {
   playing.value = false
 }
 onUnmounted(() => clearInterval(timer))
+const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사용
+const retro = ref(null)//서버 응답 . 받기 전에는 null
+const errorMessage = ref(``)
+
+//화면이 열리면 회고 데이터를 가져옴
+onMounted(async () => {
+  try{
+    retro.value = await get('/trips/' + route.query.id +'/retro')
+  }catch  (error){
+    errorMessage.value = error.message
+  }
+})
+
 
 function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
@@ -102,11 +117,13 @@ function toggleInfo(no) {
       </div>
 
       <div class="scroll" style="top: 340px; padding-top: 4px; gap: 14px; bottom: 102px">
-        <div><h1 class="h-title">천호 카페 투어</h1><p class="t-cap">10월 11일 토요일 · 2명</p></div>
-
+<div><h1 v-if="retro" class="h-title">{{ retro.title }}</h1><p v-if="retro" class="t-cap">{{ retro.startDate }} ~ {{ retro.endDate }}</p></div>
+<p v-if="errorMessage" class="t-cap">{{ errorMessage }}</p>
         <div class="stats">
-          <div class="stat"><b>5/5</b><span class="t-cap">다녀온 곳</span></div>
+       <div v-if="retro" class="stat"><b>{{ retro.visited }}/{{ retro.stops.length }}</b><span class="t-cap">다녀온 곳</span></div>
           <div class="stat"><b>6.8km</b><span class="t-cap">걸은 거리</span></div>
+
+
           <div class="stat"><b class="c-success">16분</b><span class="t-cap">예약 여유</span></div>
         </div>
 
