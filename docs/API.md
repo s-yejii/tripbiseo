@@ -191,7 +191,7 @@
 | memo | string (null 가능) | | 메모 200자까지 |
 | state | string | | `todo`(갈 곳) / `done`(다녀옴) / `skipped`(뺌). 기본 `todo`. 추가할 때는 보내도 `todo`로 저장 |
 | arrivedAt | string (null 가능) | | GPS로 150m 안에 들어온 시각. `live/track`이 기록하고 요청 값은 무시 |
-| departedAt | string (null 가능) | | 200m 밖으로 두 번 연속 나간 시각 |
+| departedAt | string (null 가능) | | 출발한 시각. 200m 밖으로 두 번 연속 나갔거나, 다음 칸에 도착한 시각 |
 
 ```json
 { "id": 101, "tripId": 12, "day": 1, "placeId": "e70caff5-27cf-5c76-a1f3-201b7032d672",
@@ -604,7 +604,10 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 **요청** `lat`, `lng`, `accuracy`(선택, GPS 정확도 m)
 
-**동작** 오늘 `todo` 칸 150m 안이면 `arrivedAt` 기록. 도착한 칸에서 200m 밖이 두 번 연속이면 `departedAt` 기록 + `state = done`.
+**동작** "지금 있는 칸"(도착했고 아직 출발 안 함)은 한 번에 하나만 둬요.
+- 오늘 `todo` 칸 중 제일 가까운 칸이 지금 칸이 아니고, 지금 점·바로 앞 점 둘 다 150m 안이면 그 칸 `arrivedAt` 기록. 지금 칸이 있었으면 그 칸은 `departedAt` 기록 + `state = done`
+- 그게 아니고 지금 칸에서 지금 점·바로 앞 점 둘 다 200m 밖이면 지금 칸 `departedAt` 기록 + `state = done`
+- 여행의 첫 점이거나 `accuracy`가 100m보다 크면 저장만 하고 판정하지 않아요
 
 **응답** `{ "ok": true }` · **오류** 공통 오류
 
@@ -620,7 +623,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | now | string | 지금 시각 |
 | currentStopId | number (null 가능) | 지금 있는 일정 칸 id (도착했고 아직 출발 안 함, 또는 150m 안) |
 | alert | object (null 가능) | 화면 맨 위 알림 1개 `{key, level, title, text, repeat}` |
-| alert.key | string | 중복 알림 방지 키. 앞부분: `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 |
+| alert.key | string | 중복 알림 방지 키. 앞부분: `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 |
 | alert.level | string | `danger` / `warn` |
 | alert.repeat | boolean (없을 수 있음) | `leave-` 알림에만 `true` |
 | leave | object (null 가능) | 출발 시각 ±10분 안일 때만 `{stopId, name, leaveAt, minutesLeft, to, atStop}`. `stopId`는 지금 있는 칸 또는 다음 칸 id. `minutesLeft`는 −10~10(음수=지남), `to`는 다음 장소 이름(null 가능), `atStop`이 `true`면 지금 있는 곳에서 출발 |
@@ -628,7 +631,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | hint | string (null 가능) | 고정 일정에 늦을 때 조언 한 줄. 예: "OO은(는) 그대로 갈 수 있어요..." |
 | replan | boolean | 다시 짜는 게 좋은가 (지각·영업 끝·지난 일정·더 머묾·다음 장소 10분 넘게 늦음) |
 | area | object (null 가능) | '지금 갈 수 있는 구역' 기준 `{slackMin, basis, basisTime, lat, lng}`. `basis`·`basisTime`은 기준 일정(고정 일정, 없으면 다음 일정), `lat`·`lng`는 보낸 내 위치. 남은 일정이 없으면 `null` |
-| weather | object (null 가능) | 오늘 지금 이후 비·눈(또는 강수확률 60% 이상) 첫 시간 `{time, pop, snow, outdoor}`. `outdoor`는 남은 야외 일정 이름. 예보가 없거나 실패하면 `null` |
+| weather | object (null 가능) | 오늘 지금 이후 비·눈(또는 강수확률 60% 이상) 첫 시간 `{time, pop, snow, outdoor}`. `outdoor`는 지금 칸·남은 칸 중 야외이고 비 시작 뒤에도 머무는(떠날 시각 > 비 시작) 일정 이름. 예보가 없거나 실패하면 `null` |
 | stops[] | object[] | **오늘의 모든 칸** (done·skipped 포함): `id, placeId, name, category, lat, lng, time, stay, fixed` + 아래 |
 | stops[].eta | string | 남은 일정이면 예상 도착, 아니면 계획 `time` |
 | stops[].reach | string | `done`(done·skipped) / `here`(지금 있는 곳) / `closed` / `missed`(계획 시간 지남) / `fixed` / `ok` / `tight`(시간 줄이면 OK) / `no`(고정 일정에 못 돌아옴) |
@@ -647,6 +650,20 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
                "fixed": false, "eta": "13:30", "reach": "here", "closeAt": null, "closedReason": null, "closingSoon": false } ],
   "next": { "id": 103, "minutes": 12, "coords": [[37.57,126.98],[37.569,126.978]], "source": "estimate" } }
 ```
+
+**`alert` 고르는 순서** — 여러 개가 맞아도 위에서부터 먼저 맞는 하나만 보내요.
+
+| 순서 | key | 언제 | level |
+|---|---|---|---|
+| 1 | `overdue-{칸}-{더 머문 분÷5}` | 지금 칸에서 떠날 시각(도착 + 머묾)이 지남 | danger |
+| 2 | `closed-{칸}` / `closed-{칸}-short` | 남은 칸이 도착할 때 닫힘·휴무 / 열려 있지만 닫을 때까지 남은 분 < 머무는 시간 | danger / warn |
+| 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0 | danger |
+| 4 | `leave-{칸}-{남은 분}` | `leave`가 있음 (출발 ±10분). `repeat: true` | 남은 분 > 0이면 warn, 아니면 danger |
+| 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 칸 (고정 일정 제외) | warn |
+| 6 | `tight-{고정 칸}` | 고정 일정 여유 ≤ 10분 | warn |
+| 7 | `next-{칸}-{늦는 분÷10}` | 다음 칸에 10분 넘게 늦게 도착 | warn |
+
+key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 **오류** 공통 오류
 

@@ -13,21 +13,13 @@ import com.tripbiseo.live.dto.AlternativesResponse;
 import com.tripbiseo.live.dto.AppliedStop;
 import com.tripbiseo.live.dto.ApplyRequest;
 import com.tripbiseo.live.dto.ApplyResponse;
-import com.tripbiseo.live.dto.AreaInfo;
 import com.tripbiseo.live.dto.AssistRequest;
 import com.tripbiseo.live.dto.AssistResponse;
-import com.tripbiseo.live.dto.FixedStatus;
 import com.tripbiseo.live.dto.InsertRequest;
 import com.tripbiseo.live.dto.InsertResponse;
-import com.tripbiseo.live.dto.LeaveInfo;
-import com.tripbiseo.live.dto.LiveAlert;
-import com.tripbiseo.live.dto.LocationRequest;
-import com.tripbiseo.live.dto.NextRoute;
 import com.tripbiseo.live.dto.RecommendPlace;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
-import com.tripbiseo.live.dto.StatusResponse;
-import com.tripbiseo.live.dto.StatusStop;
 import com.tripbiseo.member.service.NotificationService;
 import com.tripbiseo.trip.service.PlaceService;
 import com.tripbiseo.trip.service.TripService;
@@ -35,8 +27,8 @@ import com.tripbiseo.trip.service.TripService;
 import lombok.RequiredArgsConstructor;
 
 /**
- * ④ 여행 중 판별. 지금은 docs/API.md 예시 같은 가짜 값이에요.
- * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/LiveService.java (679줄 → 여기와 TrackService로 나눔)
+ * ④ 여행 중 채팅·추천·대안. 지금은 docs/API.md 예시 같은 가짜 값이에요.
+ * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/LiveService.java (679줄 → 여기, StatusService, TrackService로 나눔)
  * 공통 주의
  *  - 오늘 칸은 tripService.getTrip으로 읽고, 고칠 때도 TripService(createStop·updateStop·skipStops)로. 예전처럼 TripMapper를 직접 쓰지 않기
  *  - 장소 판단은 placeService 메서드로 (예전 PlaceService.openInfo·isIndoor static 호출 대신)
@@ -47,32 +39,11 @@ import lombok.RequiredArgsConstructor;
 public class LiveServiceImpl implements LiveService {
 
     private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
-    private final PlaceService placeService;               // TODO: ④ 영업 정보·근처 장소·실내 판단
-    private final RouteClient routeClient;                 // TODO: ④ 이동 시간 (후보 비교는 isPrecise=false)
-    private final WeatherClient weatherClient;             // TODO: ④ status의 weather
+    private final PlaceService placeService;               // TODO: ④ 근처 장소·영업 정보·실내 판단
+    private final RouteClient routeClient;                 // TODO: ④ 대안 이동 시간 (후보 비교는 isPrecise=false)
+    private final WeatherClient weatherClient;             // TODO: ④ 대안에서 비 오는지
     private final AiService aiService;                     // TODO: ④ assist 분류, alternatives
     private final NotificationService notificationService; // TODO: ④ 지연·출발 알림을 ①의 알림함에도 남길 때
-
-    /** 지금 상황 다시 계산 */
-    // TODO: ④ 지금 상황. 공통 오류 → 오늘(day)·남은 일정 → 칸마다 eta·reach·영업 정보 → alert 하나(우선순위) → leave·fixed·hint·replan·area·next.
-    //       참고: 예전 LiveService.status/today/start/alert/rain.
-    //       주의: 날씨는 weatherClient.getForecast(서버가 위치로 직접), 실패하면 weather = null. 구글 검색 대체는 쓰지 않기
-    @Override
-    public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
-        StatusResponse response = new StatusResponse();
-        response.setNow("14:20");
-        response.setCurrentStopId(102L);
-        response.setAlert(sampleAlert());
-        response.setLeave(sampleLeave());
-        response.setFixed(sampleFixed());
-        response.setReplan(false);
-        response.setArea(sampleArea(request));
-        response.getStops().add(statusStop(101L, "e70caff5-27cf-5c76-a1f3-201b7032d672", "경복궁", "관광지", 37.5796, 126.977, "10:00", 90, false, "done"));
-        response.getStops().add(statusStop(102L, null, "카페OO", "카페", 37.5745, 126.9849, "13:30", 55, false, "here"));
-        response.getStops().add(statusStop(103L, null, "세종문화회관", "문화시설", 37.5725, 126.9759, "19:00", 120, true, "fixed"));
-        response.setNext(sampleNext());
-        return response;
-    }
 
     /** 여행 중 채팅: 말 분류 */
     // TODO: ④ 채팅. message 1~300자 → aiService.askJson(분류 프롬프트, 분류 DTO) → recommend면 ask-radius, change면 makeAlternatives(reason "request"), 그 밖은 text.
@@ -163,77 +134,6 @@ public class LiveServiceImpl implements LiveService {
     }
 
     // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static LiveAlert sampleAlert() {
-        LiveAlert alert = new LiveAlert();
-        alert.setKey("leave-102-5");
-        alert.setLevel("warn");
-        alert.setTitle("5분 뒤 출발해야 해요");
-        alert.setText("카페OO 출발 14:25 → 청계천");
-        alert.setRepeat(true);
-        return alert;
-    }
-
-    private static LeaveInfo sampleLeave() {
-        LeaveInfo leave = new LeaveInfo();
-        leave.setStopId(102L);
-        leave.setName("카페OO");
-        leave.setLeaveAt("14:25");
-        leave.setMinutesLeft(5);
-        leave.setTo("청계천");
-        leave.setAtStop(true);
-        return leave;
-    }
-
-    private static FixedStatus sampleFixed() {
-        FixedStatus fixed = new FixedStatus();
-        fixed.setId(103L);
-        fixed.setName("세종문화회관");
-        fixed.setTime("19:00");
-        fixed.setEta("18:40");
-        fixed.setSlackMin(20);
-        fixed.setLat(37.5725);
-        fixed.setLng(126.9759);
-        return fixed;
-    }
-
-    private static AreaInfo sampleArea(LocationRequest request) {
-        AreaInfo area = new AreaInfo();
-        area.setSlackMin(20);
-        area.setBasis("세종문화회관");
-        area.setBasisTime("19:00");
-        area.setLat(request.getLat());
-        area.setLng(request.getLng());
-        return area;
-    }
-
-    private static NextRoute sampleNext() {
-        NextRoute next = new NextRoute();
-        next.setId(103L);
-        next.setMinutes(12);
-        next.getCoords().add(new double[] {37.5745, 126.9849});
-        next.getCoords().add(new double[] {37.5725, 126.9759});
-        next.setSource("estimate");
-        return next;
-    }
-
-    private static StatusStop statusStop(long id, String placeId, String name, String category, double lat, double lng,
-                                         String time, int stay, boolean isFixed, String reach) {
-        StatusStop stop = new StatusStop();
-        stop.setId(id);
-        stop.setPlaceId(placeId);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setTime(time);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setEta(time);
-        stop.setReach(reach);
-        stop.setClosingSoon(false);
-        return stop;
-    }
-
     private static AlternativesResponse sampleAlternatives() {
         Alternative alternative = new Alternative();
         alternative.setKey("A");

@@ -3,7 +3,38 @@
 <!-- ④ GPS 기록 (trip_track). TrackMapper.java에 메서드를 추가하면 같은 id로 여기에 SQL을 써요 -->
 <mapper namespace="com.tripbiseo.live.mapper.TrackMapper">
 
-  <!-- TODO: ④ insertTrack, selectLastTrack, selectTrackList, deleteTrackList
-       참고: git show backend-v0:backend/src/main/resources/mapper/TripMapper.xml (GPS 부분) -->
+  <!-- GPS 한 점 저장. recorded_at은 DB 기본값 NOW()가 채움 -->
+  <insert id="insertTrack">
+    INSERT INTO trip_track (trip_id, lat, lng, accuracy)
+    VALUES (#{tripId}, #{lat}, #{lng}, #{accuracy})
+  </insert>
+
+  <!-- 바로 앞 GPS 한 점. 같은 시각이면 나중에 들어온 것(track_id 큰 것)이 먼저 -->
+  <select id="selectLastTrack" resultType="com.tripbiseo.live.dto.TrackPoint">
+    SELECT lat, lng
+    FROM trip_track
+    WHERE trip_id = #{tripId}
+    ORDER BY recorded_at DESC, track_id DESC
+    LIMIT 1
+  </select>
+
+  <!-- 여행의 GPS 점 전부, 시간순.
+       day = 기록 날짜 − 여행 시작 날짜 + 1 (시작일이면 1일째), time = HH:mm -->
+  <select id="selectTrackList" resultType="com.tripbiseo.live.dto.TrackPoint">
+    SELECT k.lat,
+           k.lng,
+           (k.recorded_at::date - t.start_date + 1) AS day,
+           to_char(k.recorded_at, 'HH24:MI') AS time
+    FROM trip_track k
+    JOIN trip t ON t.trip_id = k.trip_id
+    WHERE k.trip_id = #{tripId}
+    ORDER BY k.recorded_at, k.track_id
+  </select>
+
+  <!-- 이 회원의 여행에 달린 GPS만 지움 (trip_track에는 member_id가 없어서 trip으로 확인) -->
+  <delete id="deleteTrackList">
+    DELETE FROM trip_track
+    WHERE trip_id IN (SELECT trip_id FROM trip WHERE member_id = #{memberId})
+  </delete>
 
 </mapper>

@@ -40,6 +40,7 @@
 | 10/30 | DB | 반경·근처로 검색하는 테이블(retrip_place, 나중에 amenity)만 lat·lng + geom + GIST. trip_stop·trip_track처럼 검색하지 않는 좌표는 lat·lng만. 반경·가까운 순 검색은 SQL의 PostGIS로 | 검색하지 않는 칸에 geom·인덱스를 두면 저장만 느려짐 |
 | 10/30 | 백엔드 | API 문서 화면은 Swagger(springdoc-openapi 3.2.0, `/swagger-ui.html`, 로그인 없이 열림). 기준은 여전히 `docs/API.md` | 코드와 명세가 맞는지 바로 확인 |
 | 10/31 | Git | 커밋 메시지는 작업자가 직접 쓰고, Claude는 바뀐 내용만 보여 준 뒤 말머리·한 가지 일·결과가 보이는지만 체크. 커밋 단위는 API 만드는 순서 한 단계. PR·머지 제목은 `[말머리] 이름 - 기능` | 자기가 한 일을 한 줄로 설명할 수 있게 (면접 대비). Claude 공동 작성자 표시는 숨기지 않음 |
+| 11/01 | 백엔드 | Service가 너무 커지면 나눔. 다른 곳에서 부르는 입구는 Service(인터페이스 + Impl), 그 Service 안에서만 쓰는 계산 덩어리는 인터페이스 없는 `@Component` 도우미로 (예: ④ `LiveAlertMaker`). 넘길 값이 많으면 DTO 하나로 묶음 (예: `StatusContext`) | 한 클래스에 500줄 넘게 기능이 섞이면 읽기 어려움. 안에서만 쓰는 클래스까지 인터페이스를 만들면 파일만 늘어남 (RouteClient와 같은 방식) |
 
 ## 충돌 메모
 
