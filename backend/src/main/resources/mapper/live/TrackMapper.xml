@@ -9,7 +9,16 @@
     VALUES (#{tripId}, #{lat}, #{lng}, #{accuracy})
   </insert>
 
-  <!-- TODO: ④ selectLastTrack, selectTrackList, deleteTrackList
+  <!-- 바로 앞 GPS 한 점. 같은 시각이면 나중에 들어온 것(track_id 큰 것)이 먼저 -->
+  <select id="selectLastTrack" resultType="com.tripbiseo.live.dto.TrackPoint">
+    SELECT lat, lng
+    FROM trip_track
+    WHERE trip_id = #{tripId}
+    ORDER BY recorded_at DESC, track_id DESC
+    LIMIT 1
+  </select>
+
+  <!-- TODO: ④ selectTrackList, deleteTrackList
        참고: git show backend-v0:backend/src/main/resources/mapper/TripMapper.xml (GPS 부분) -->
 
 </mapper>
