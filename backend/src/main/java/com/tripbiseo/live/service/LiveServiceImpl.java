@@ -1,9 +1,17 @@
 package com.tripbiseo.live.service;
 
+import static com.tripbiseo.common.exception.ApiException.fail;
+
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.common.external.RouteClient;
 import com.tripbiseo.common.external.WeatherClient;
 import com.tripbiseo.live.dto.AltStop;
@@ -29,6 +37,8 @@ import com.tripbiseo.live.dto.RecommendResponse;
 import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.StatusStop;
 import com.tripbiseo.member.service.NotificationService;
+import com.tripbiseo.trip.dto.Stop;
+import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.PlaceService;
 import com.tripbiseo.trip.service.TripService;
 
@@ -46,6 +56,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LiveServiceImpl implements LiveService {
 
+    private static final int ARRIVE_RADIUS_M = 150; // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
+
     private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
     private final PlaceService placeService;               // TODO: ④ 영업 정보·근처 장소·실내 판단
     private final RouteClient routeClient;                 // TODO: ④ 이동 시간 (후보 비교는 isPrecise=false)
@@ -59,17 +71,29 @@ public class LiveServiceImpl implements LiveService {
     //       주의: 날씨는 weatherClient.getForecast(서버가 위치로 직접), 실패하면 weather = null. 구글 검색 대체는 쓰지 않기
     @Override
     public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
+        // 1단계: now, currentStopId, stops[] (reach는 done·here·fixed·ok까지)
+        if (request.getLat() == null || request.getLng() == null) {
+            throw fail(400, "내 위치를 먼저 찾아 주세요.");
+        }
+        Trip trip = tripService.getTrip(memberId, tripId);
+        // TODO: ④ 404·ongoing 검사는 ②의 진짜 getTrip이 나오면 추가
+
+        List<Stop> todayStops = getTodayStops(trip);
+        Stop current = findCurrentStop(todayStops, request.getLat(), request.getLng());
+
         StatusResponse response = new StatusResponse();
-        response.setNow("14:20");
-        response.setCurrentStopId(102L);
+        response.setNow(Geo.toHhmm(Geo.nowMinutes()));
+        response.setCurrentStopId(current == null ? null : current.getId());
+        for (Stop stop : todayStops) {
+            response.getStops().add(toStatusStop(stop, current));
+        }
+
+        // TODO: ④ 2~7단계에서 진짜 값으로 (지금은 가짜 값)
         response.setAlert(sampleAlert());
         response.setLeave(sampleLeave());
         response.setFixed(sampleFixed());
         response.setReplan(false);
         response.setArea(sampleArea(request));
-        response.getStops().add(statusStop(101L, "e70caff5-27cf-5c76-a1f3-201b7032d672", "경복궁", "관광지", 37.5796, 126.977, "10:00", 90, false, "done"));
-        response.getStops().add(statusStop(102L, null, "카페OO", "카페", 37.5745, 126.9849, "13:30", 55, false, "here"));
-        response.getStops().add(statusStop(103L, null, "세종문화회관", "문화시설", 37.5725, 126.9759, "19:00", 120, true, "fixed"));
         response.setNext(sampleNext());
         return response;
     }
@@ -162,6 +186,78 @@ public class LiveServiceImpl implements LiveService {
         return response;
     }
 
+    // ---------------------------------------------------------------- 지금 상황(status) 도우미
+
+    /** 오늘 칸 전부 (다녀온 칸·뺀 칸 포함, 화면에 오늘 일정을 다 보여 줘야 해서) */
+    private List<Stop> getTodayStops(Trip trip) {
+        // ChronoUnit.DAYS.between: 두 날짜 사이가 며칠인지 (시작일이면 0 → 1일째)
+        long today = ChronoUnit.DAYS.between(LocalDate.parse(trip.getStartDate()), Geo.now().toLocalDate()) + 1;
+        List<Stop> stops = new ArrayList<>();
+        for (Stop stop : trip.getStops()) {
+            if (stop.getDay() != null && stop.getDay() == today) {
+                stops.add(stop);
+            }
+        }
+        return stops;
+    }
+
+    /** 지금 있는 칸: 도착했고 아직 출발 안 한 칸, 없으면 150m 안에서 제일 가까운 todo 칸 (없으면 null) */
+    private Stop findCurrentStop(List<Stop> stops, double lat, double lng) {
+        Stop nearest = null;
+        double nearestMeters = ARRIVE_RADIUS_M;
+        for (Stop stop : stops) {
+            if (!isTodo(stop) || stop.getLat() == null || stop.getLng() == null) {
+                continue;
+            }
+            if (stop.getArrivedAt() != null && stop.getDepartedAt() == null) {
+                return stop; // GPS로 도착 기록된 칸이 제일 확실함
+            }
+            double meters = Geo.distanceMeters(lat, lng, stop.getLat(), stop.getLng());
+            if (meters <= nearestMeters) {
+                nearest = stop;
+                nearestMeters = meters;
+            }
+        }
+        return nearest;
+    }
+
+    /** Stop → 화면용 StatusStop. eta는 2단계 전까지 계획 시각 */
+    private StatusStop toStatusStop(Stop stop, Stop current) {
+        StatusStop status = new StatusStop();
+        status.setId(stop.getId());
+        status.setPlaceId(stop.getPlaceId());
+        status.setName(stop.getName());
+        status.setCategory(stop.getCategory());
+        status.setLat(stop.getLat());
+        status.setLng(stop.getLng());
+        status.setTime(stop.getTime());
+        status.setStay(stop.getStay());
+        status.setFixed(stop.getFixed());
+        status.setEta(stop.getTime()); // TODO: ④ 2단계 — 남은 일정이면 예상 도착 시각
+        status.setReach(getReach(stop, current));
+        status.setClosingSoon(false);  // TODO: ④ 5단계 — 영업 정보
+        return status;
+    }
+
+    /** 칸 상태: done(다녀옴·뺌) / here(지금 있는 곳) / fixed(고정 일정) / ok. missed·tight·no·closed는 3·5단계 */
+    private String getReach(Stop stop, Stop current) {
+        if (!isTodo(stop)) {
+            return "done";
+        }
+        if (stop == current) {
+            return "here";
+        }
+        if (Boolean.TRUE.equals(stop.getFixed())) {
+            return "fixed";
+        }
+        return "ok";
+    }
+
+    /** 아직 갈 칸인지 (done·skipped가 아님) */
+    private boolean isTodo(Stop stop) {
+        return "todo".equals(stop.getState());
+    }
+
     // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
     private static LiveAlert sampleAlert() {
         LiveAlert alert = new LiveAlert();
@@ -214,24 +310,6 @@ public class LiveServiceImpl implements LiveService {
         next.getCoords().add(new double[] {37.5725, 126.9759});
         next.setSource("estimate");
         return next;
-    }
-
-    private static StatusStop statusStop(long id, String placeId, String name, String category, double lat, double lng,
-                                         String time, int stay, boolean isFixed, String reach) {
-        StatusStop stop = new StatusStop();
-        stop.setId(id);
-        stop.setPlaceId(placeId);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setTime(time);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setEta(time);
-        stop.setReach(reach);
-        stop.setClosingSoon(false);
-        return stop;
     }
 
     private static AlternativesResponse sampleAlternatives() {
