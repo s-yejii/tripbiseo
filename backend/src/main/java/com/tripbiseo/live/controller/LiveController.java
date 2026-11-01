@@ -22,6 +22,7 @@ import com.tripbiseo.live.dto.RecommendResponse;
 import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.TrackRequest;
 import com.tripbiseo.live.service.LiveService;
+import com.tripbiseo.live.service.StatusService;
 import com.tripbiseo.live.service.TrackService;
 
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 public class LiveController {
 
     private final LiveService liveService;
+    private final StatusService statusService;
     private final TrackService trackService;
     private final LoginUser loginUser;
 
@@ -46,7 +48,7 @@ public class LiveController {
     /** 지금 상황 다시 계산 */
     @PostMapping("/status")
     public StatusResponse getStatus(@PathVariable long id, @RequestBody LocationRequest request) {
-        return liveService.getStatus(loginUser.id(), id, request);
+        return statusService.getStatus(loginUser.id(), id, request);
     }
 
     /** 여행 중 채팅 */
