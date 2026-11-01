@@ -12,10 +12,8 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.exception.ApiException;
-import com.tripbiseo.common.external.Forecast;
 import com.tripbiseo.common.external.Route;
 import com.tripbiseo.common.external.RouteClient;
-import com.tripbiseo.common.external.WeatherClient;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.AreaInfo;
 import com.tripbiseo.live.dto.FixedStatus;
@@ -25,7 +23,6 @@ import com.tripbiseo.live.dto.NextRoute;
 import com.tripbiseo.live.dto.StatusContext;
 import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.StatusStop;
-import com.tripbiseo.live.dto.WeatherInfo;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -45,13 +42,12 @@ public class StatusServiceImpl implements StatusService {
 
     private static final int ARRIVE_RADIUS_M = 150;     // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
-    private static final int RAIN_POP_PERCENT = 60;     // 강수확률이 이 이상이면 비 온다고 봄
 
     private final TripService tripService;
-    private final PlaceService placeService;     // 장소 영업 정보·실내 판단 (②)
-    private final RouteClient routeClient;       // 이동 시간 (후보 비교는 isPrecise=false)
-    private final WeatherClient weatherClient;   // 기상청 단기예보 (공통)
-    private final LiveAlertMaker liveAlertMaker; // 출발 알림·맨 위 알림 만들기 (④ 도우미)
+    private final PlaceService placeService;             // 장소 영업 정보 (②)
+    private final RouteClient routeClient;               // 이동 시간 (후보 비교는 isPrecise=false)
+    private final LiveAlertMaker liveAlertMaker;         // 출발 알림·맨 위 알림 만들기 (④ 도우미)
+    private final LiveWeatherChecker liveWeatherChecker; // 비 소식 + 비 맞을 야외 일정 (④ 도우미)
 
     /** 지금 상황 다시 계산 */
     // TODO: ④ 7단계 replan. 참고: 예전 LiveService.status
@@ -89,10 +85,10 @@ public class StatusServiceImpl implements StatusService {
         response.setFixed(toFixedStatus(fixedStop, etaMap, slack));
         response.setHint(getHint(todayStops, fixedStop, slack, reachMap));
         response.setArea(getArea(fixedStop, nextStop, slack, etaMap, lat, lng));
-        response.setWeather(getWeather(lat, lng, todayStops, current, etaMap));
 
-        // 알림은 LiveAlertMaker가 (계산 결과를 context 하나로 넘김)
+        // 알림은 LiveAlertMaker, 날씨는 LiveWeatherChecker가 (계산 결과를 context 하나로 넘김)
         StatusContext context = toContext(todayStops, current, nextStop, fixedStop, slack, etaMap, openMap);
+        response.setWeather(liveWeatherChecker.check(lat, lng, context));
         LeaveInfo leave = liveAlertMaker.makeLeave(context);
         response.setLeave(leave);
         response.setAlert(liveAlertMaker.makeAlert(context, leave));
@@ -387,73 +383,6 @@ public class StatusServiceImpl implements StatusService {
     /** 아직 갈 칸인지 (done·skipped가 아님) */
     private boolean isTodo(Stop stop) {
         return "todo".equals(stop.getState());
-    }
-
-    // ---------------------------------------------------------------- 날씨 (6단계)
-
-    /** 오늘 지금 이후 비·눈이 오는 첫 시간 + 그때 야외에 있을 칸. 비 소식이 없거나 예보를 못 받으면 null */
-    private WeatherInfo getWeather(double lat, double lng, List<Stop> todayStops, Stop current, Map<Long, Integer> etaMap) {
-        Forecast forecast;
-        try {
-            forecast = weatherClient.getForecast(lat, lng);
-        } catch (ApiException e) {
-            return null; // 기상청 키가 없거나(503) 기상청 오류(502)면 날씨 없이 계속
-        }
-        Forecast.Hour rainHour = findRainHour(forecast);
-        if (rainHour == null) {
-            return null;
-        }
-        int pty = toNumber(rainHour.getPty());
-        WeatherInfo weather = new WeatherInfo();
-        weather.setTime(rainHour.getTime());
-        weather.setPop(toNumber(rainHour.getPop()));
-        weather.setSnow(pty == 2 || pty == 3); // 2 비/눈, 3 눈
-        weather.setOutdoor(findOutdoorStops(todayStops, current, etaMap, Geo.toMinutes(rainHour.getTime())));
-        return weather;
-    }
-
-    /** 오늘, 아직 안 지난 시간 중 비·눈이 오거나(pty ≠ 0) 강수확률 60% 이상인 첫 시간 (없으면 null) */
-    private Forecast.Hour findRainHour(Forecast forecast) {
-        String today = Geo.now().toLocalDate().toString().replace("-", ""); // "2026-11-01" → "20261101"
-        int now = Geo.nowMinutes();
-        for (Forecast.Hour hour : forecast.getHours()) {
-            // 14:00 예보는 14:59까지라서, 끝(시작 + 59분)이 지났으면 지난 시간
-            boolean isPast = Geo.toMinutes(hour.getTime()) + 59 < now;
-            if (!today.equals(hour.getDate()) || isPast) {
-                continue;
-            }
-            if (toNumber(hour.getPty()) != 0 || toNumber(hour.getPop()) >= RAIN_POP_PERCENT) {
-                return hour;
-            }
-        }
-        return null;
-    }
-
-    /** 비 시작 뒤에도 야외에 있을 칸 이름: 지금 칸·남은 칸 중 실내가 아니고 떠날 시각이 비 시작보다 늦은 칸 */
-    private List<String> findOutdoorStops(List<Stop> todayStops, Stop current, Map<Long, Integer> etaMap, int rainStart) {
-        List<String> names = new ArrayList<>();
-        for (Stop stop : todayStops) {
-            int leaveMinutes;
-            if (stop == current) {
-                leaveMinutes = getLeaveMinutes(current);
-            } else if (isRemaining(stop, current)) {
-                leaveMinutes = etaMap.get(stop.getId()) + getStay(stop);
-            } else {
-                continue; // 다녀온 칸·뺀 칸
-            }
-            if (!placeService.isIndoor(stop.getCategory()) && leaveMinutes > rainStart) {
-                names.add(stop.getName());
-            }
-        }
-        return names;
-    }
-
-    /** 예보 값 글자("70") → 숫자. 비어 있거나 숫자가 아니면 0 */
-    private int toNumber(String text) {
-        if (text == null || !text.matches("\\d+")) {
-            return 0;
-        }
-        return Integer.parseInt(text);
     }
 
     // ---------------------------------------------------------------- 영업 정보 (5단계)
