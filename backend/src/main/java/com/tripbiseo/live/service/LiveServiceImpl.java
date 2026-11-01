@@ -5,13 +5,16 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.common.external.Route;
 import com.tripbiseo.common.external.RouteClient;
 import com.tripbiseo.common.external.WeatherClient;
 import com.tripbiseo.live.dto.AltStop;
@@ -56,11 +59,12 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LiveServiceImpl implements LiveService {
 
-    private static final int ARRIVE_RADIUS_M = 150; // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
+    private static final int ARRIVE_RADIUS_M = 150;     // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
+    private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
 
     private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
     private final PlaceService placeService;               // TODO: ④ 영업 정보·근처 장소·실내 판단
-    private final RouteClient routeClient;                 // TODO: ④ 이동 시간 (후보 비교는 isPrecise=false)
+    private final RouteClient routeClient;                 // 이동 시간 (대안 후보 비교는 isPrecise=false)
     private final WeatherClient weatherClient;             // TODO: ④ status의 weather
     private final AiService aiService;                     // TODO: ④ assist 분류, alternatives
     private final NotificationService notificationService; // TODO: ④ 지연·출발 알림을 ①의 알림함에도 남길 때
@@ -71,30 +75,33 @@ public class LiveServiceImpl implements LiveService {
     //       주의: 날씨는 weatherClient.getForecast(서버가 위치로 직접), 실패하면 weather = null. 구글 검색 대체는 쓰지 않기
     @Override
     public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
-        // 1단계: now, currentStopId, stops[] (reach는 done·here·fixed·ok까지)
+        // 1단계: now, currentStopId, stops[] / 2단계: stops[].eta, next
         if (request.getLat() == null || request.getLng() == null) {
             throw fail(400, "내 위치를 먼저 찾아 주세요.");
         }
+        double lat = request.getLat();
+        double lng = request.getLng();
         Trip trip = tripService.getTrip(memberId, tripId);
         // TODO: ④ 404·ongoing 검사는 ②의 진짜 getTrip이 나오면 추가
 
         List<Stop> todayStops = getTodayStops(trip);
-        Stop current = findCurrentStop(todayStops, request.getLat(), request.getLng());
+        Stop current = findCurrentStop(todayStops, lat, lng);
+        Map<Long, Integer> etaMap = getEtaMap(trip, todayStops, current, lat, lng);
 
         StatusResponse response = new StatusResponse();
         response.setNow(Geo.toHhmm(Geo.nowMinutes()));
         response.setCurrentStopId(current == null ? null : current.getId());
         for (Stop stop : todayStops) {
-            response.getStops().add(toStatusStop(stop, current));
+            response.getStops().add(toStatusStop(stop, current, etaMap.get(stop.getId())));
         }
+        response.setNext(getNextRoute(trip, todayStops, current, lat, lng));
 
-        // TODO: ④ 2~7단계에서 진짜 값으로 (지금은 가짜 값)
+        // TODO: ④ 3~7단계에서 진짜 값으로 (지금은 가짜 값)
         response.setAlert(sampleAlert());
         response.setLeave(sampleLeave());
         response.setFixed(sampleFixed());
         response.setReplan(false);
         response.setArea(sampleArea(request));
-        response.setNext(sampleNext());
         return response;
     }
 
@@ -221,8 +228,90 @@ public class LiveServiceImpl implements LiveService {
         return nearest;
     }
 
-    /** Stop → 화면용 StatusStop. eta는 2단계 전까지 계획 시각 */
-    private StatusStop toStatusStop(Stop stop, Stop current) {
+    /** 남은 칸마다 예상 도착 시각(자정부터 센 분). key = 칸 id. 앞 칸 출발 시각에 이동 시간을 차례로 더해 감 */
+    private Map<Long, Integer> getEtaMap(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng) {
+        Map<Long, Integer> etaMap = new HashMap<>();
+        // 출발점: 지금 어떤 칸에 있으면 그 칸에서 (머무는 시간이 끝나면 출발), 이동 중이면 내 위치에서 지금 출발
+        double fromLat = lat;
+        double fromLng = lng;
+        int clock = Geo.nowMinutes();
+        if (current != null) {
+            fromLat = current.getLat();
+            fromLng = current.getLng();
+            clock = Math.max(clock, getLeaveMinutes(current));
+        }
+        int routeCount = 0;
+        for (Stop stop : todayStops) {
+            if (!isRemaining(stop, current)) {
+                continue;
+            }
+            // 가까운 몇 구간만 진짜 길찾기 API, 먼 구간은 거리로 추정 (API 무료 한도 아끼기)
+            boolean isPrecise = routeCount < PRECISE_ROUTE_COUNT;
+            Route route = routeClient.getRoute(fromLat, fromLng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), isPrecise);
+            int arrive = clock + route.getMinutes();
+            etaMap.put(stop.getId(), arrive);
+
+            clock = getStartMinutes(stop, arrive) + getStay(stop);
+            fromLat = stop.getLat();
+            fromLng = stop.getLng();
+            routeCount++;
+        }
+        return etaMap;
+    }
+
+    /** 내 위치 → 다음 남은 칸 길찾기 (남은 칸이 없으면 null) */
+    private NextRoute getNextRoute(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng) {
+        Stop nextStop = null;
+        for (Stop stop : todayStops) {
+            if (isRemaining(stop, current)) {
+                nextStop = stop;
+                break;
+            }
+        }
+        if (nextStop == null) {
+            return null;
+        }
+        Route route = routeClient.getRoute(lat, lng, nextStop.getLat(), nextStop.getLng(), nextStop.getMode(), trip.getTransports(), true);
+        NextRoute next = new NextRoute();
+        next.setId(nextStop.getId());
+        next.setMinutes(route.getMinutes());
+        if (route.getCoords() != null) {
+            next.setCoords(route.getCoords());
+        }
+        next.setSource(route.getSource());
+        return next;
+    }
+
+    /** 남은 일정인지: 아직 갈 칸 + 지금 있는 칸이 아님 + 좌표 있음 (API.md "남은 일정") */
+    private boolean isRemaining(Stop stop, Stop current) {
+        return isTodo(stop) && stop != current && stop.getLat() != null && stop.getLng() != null;
+    }
+
+    /** 지금 칸에서 떠날 시각(분) = 도착 시각 + 머무는 시간. 도착 기록이 없으면 계획 시각으로 */
+    private int getLeaveMinutes(Stop current) {
+        int arrived = Geo.toMinutes(current.getTime());
+        if (current.getArrivedAt() != null && current.getArrivedAt().length() >= 16) {
+            // "2026-11-01T13:30:00"에서 "13:30" 부분만
+            arrived = Geo.toMinutes(current.getArrivedAt().substring(11, 16));
+        }
+        return arrived + getStay(current);
+    }
+
+    /** 칸에서 시작하는 시각: 고정 일정은 일찍 도착해도 계획 시각에 시작 */
+    private int getStartMinutes(Stop stop, int arrive) {
+        if (Boolean.TRUE.equals(stop.getFixed())) {
+            return Math.max(arrive, Geo.toMinutes(stop.getTime()));
+        }
+        return arrive;
+    }
+
+    /** 머무는 시간(분). 없으면 0 */
+    private int getStay(Stop stop) {
+        return stop.getStay() == null ? 0 : stop.getStay();
+    }
+
+    /** Stop → 화면용 StatusStop. eta: 남은 칸이면 예상 도착, 아니면 계획 시각 */
+    private StatusStop toStatusStop(Stop stop, Stop current, Integer eta) {
         StatusStop status = new StatusStop();
         status.setId(stop.getId());
         status.setPlaceId(stop.getPlaceId());
@@ -233,7 +322,7 @@ public class LiveServiceImpl implements LiveService {
         status.setTime(stop.getTime());
         status.setStay(stop.getStay());
         status.setFixed(stop.getFixed());
-        status.setEta(stop.getTime()); // TODO: ④ 2단계 — 남은 일정이면 예상 도착 시각
+        status.setEta(eta == null ? stop.getTime() : Geo.toHhmm(eta));
         status.setReach(getReach(stop, current));
         status.setClosingSoon(false);  // TODO: ④ 5단계 — 영업 정보
         return status;
@@ -300,16 +389,6 @@ public class LiveServiceImpl implements LiveService {
         area.setLat(request.getLat());
         area.setLng(request.getLng());
         return area;
-    }
-
-    private static NextRoute sampleNext() {
-        NextRoute next = new NextRoute();
-        next.setId(103L);
-        next.setMinutes(12);
-        next.getCoords().add(new double[] {37.5745, 126.9849});
-        next.getCoords().add(new double[] {37.5725, 126.9759});
-        next.setSource("estimate");
-        return next;
     }
 
     private static AlternativesResponse sampleAlternatives() {
