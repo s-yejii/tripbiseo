@@ -18,7 +18,19 @@
     LIMIT 1
   </select>
 
-  <!-- TODO: ④ selectTrackList, deleteTrackList
-       참고: git show backend-v0:backend/src/main/resources/mapper/TripMapper.xml (GPS 부분) -->
+  <!-- 여행의 GPS 점 전부, 시간순.
+       day = 기록 날짜 − 여행 시작 날짜 + 1 (시작일이면 1일째), time = HH:mm -->
+  <select id="selectTrackList" resultType="com.tripbiseo.live.dto.TrackPoint">
+    SELECT k.lat,
+           k.lng,
+           (k.recorded_at::date - t.start_date + 1) AS day,
+           to_char(k.recorded_at, 'HH24:MI') AS time
+    FROM trip_track k
+    JOIN trip t ON t.trip_id = k.trip_id
+    WHERE k.trip_id = #{tripId}
+    ORDER BY k.recorded_at, k.track_id
+  </select>
+
+  <!-- TODO: ④ deleteTrackList -->
 
 </mapper>

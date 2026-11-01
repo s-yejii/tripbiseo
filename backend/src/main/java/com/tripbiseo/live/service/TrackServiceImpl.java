@@ -21,7 +21,7 @@ import com.tripbiseo.trip.service.TripService;
 import lombok.RequiredArgsConstructor;
 
 /**
- * ④ GPS. 지금은 가짜 값이에요.
+ * ④ GPS 저장·도착 판정, GPS 기록 조회·삭제.
  * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/LiveService.java (track 메서드)
  */
 @Service
@@ -146,28 +146,15 @@ public class TrackServiceImpl implements TrackService {
     }
 
     /** 여행의 GPS 점 */
-    // TODO: ④ GPS 선. selectTrackList(tripId) — day = 기록 날짜 − 시작 날짜 + 1, time = HH:mm. 참고: 예전 TripMapper.xml findTracks
+    // 내 여행인지는 부르는 쪽(⑤ RetroService)이 getTrip으로 먼저 확인함
     @Override
     public List<TrackPoint> getTrackList(long tripId) {
-        List<TrackPoint> points = new ArrayList<>();
-        points.add(point(37.5794, 126.9768, "10:03"));
-        points.add(point(37.5788, 126.9772, "10:05"));
-        return points;
+        return trackMapper.selectTrackList(tripId);
     }
 
     /** 회원의 위치 기록 모두 지우기 */
     // TODO: ④ 위치 기록 지우기. deleteTrackList(memberId) — trip_track을 trip과 JOIN해서 내 여행 것만
     @Override
     public void deleteTrackList(long memberId) {
-    }
-
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static TrackPoint point(double lat, double lng, String time) {
-        TrackPoint point = new TrackPoint();
-        point.setLat(lat);
-        point.setLng(lng);
-        point.setDay(1);
-        point.setTime(time);
-        return point;
     }
 }
