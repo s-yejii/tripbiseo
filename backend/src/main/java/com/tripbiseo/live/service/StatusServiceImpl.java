@@ -38,6 +38,9 @@ public class StatusServiceImpl implements StatusService {
 
     private static final int ARRIVE_RADIUS_M = 150;     // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
+    private static final int LEAVE_WINDOW_MIN = 10;     // 출발 시각 앞뒤 10분 안이면 출발 알림
+    private static final int TIGHT_SLACK_MIN = 10;      // 고정 일정 여유가 이 이하면 "여유가 얼마 없어요"
+    private static final int NEXT_LATE_MIN = 10;        // 다음 장소에 이보다 더 늦으면 알림
 
     private final TripService tripService;
     private final RouteClient routeClient; // 이동 시간 (후보 비교는 isPrecise=false)
@@ -78,10 +81,11 @@ public class StatusServiceImpl implements StatusService {
         response.setFixed(toFixedStatus(fixedStop, etaMap, slack));
         response.setHint(getHint(todayStops, fixedStop, slack, reachMap));
         response.setArea(getArea(fixedStop, nextStop, slack, etaMap, lat, lng));
+        LeaveInfo leave = getLeave(current, nextStop, etaMap);
+        response.setLeave(leave);
+        response.setAlert(getAlert(todayStops, current, nextStop, fixedStop, slack, etaMap, leave));
 
-        // TODO: ④ 4~7단계에서 진짜 값으로 (지금은 가짜 값)
-        response.setAlert(sampleAlert());
-        response.setLeave(sampleLeave());
+        // TODO: ④ 7단계에서 진짜 값으로 (지금은 가짜 값)
         response.setReplan(false);
         return response;
     }
@@ -365,26 +369,126 @@ public class StatusServiceImpl implements StatusService {
         return "todo".equals(stop.getState());
     }
 
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static LiveAlert sampleAlert() {
-        LiveAlert alert = new LiveAlert();
-        alert.setKey("leave-102-5");
-        alert.setLevel("warn");
-        alert.setTitle("5분 뒤 출발해야 해요");
-        alert.setText("카페OO 출발 14:25 → 청계천");
+    // ---------------------------------------------------------------- 출발·지각 알림 (4단계)
+
+    /**
+     * 출발 알림: 출발 시각 앞뒤 10분 안일 때만 (아니면 null)
+     *  - 지금 어떤 칸에 있으면: 그 칸에서 떠날 시각 (도착 + 머묾)
+     *  - 이동 중이면: 다음 칸에 계획 시각대로 닿으려면 떠나야 하는 시각 (계획 시각 − 이동 시간)
+     */
+    private LeaveInfo getLeave(Stop current, Stop nextStop, Map<Long, Integer> etaMap) {
+        int now = Geo.nowMinutes();
+        if (current != null) {
+            int leaveAt = getLeaveMinutes(current);
+            String to = nextStop == null ? null : nextStop.getName();
+            return makeLeave(current, leaveAt, leaveAt - now, to, true);
+        }
+        if (nextStop == null || isMissed(nextStop)) {
+            return null;
+        }
+        // 이동 중이면 eta = 지금 + 이동 시간이라, 이동 시간 = eta − 지금
+        int moveMinutes = etaMap.get(nextStop.getId()) - now;
+        int leaveAt = Geo.toMinutes(nextStop.getTime()) - moveMinutes;
+        return makeLeave(nextStop, leaveAt, leaveAt - now, nextStop.getName(), false);
+    }
+
+    /** 남은 분이 −10~10 안이면 LeaveInfo, 아니면 null */
+    private LeaveInfo makeLeave(Stop stop, int leaveAt, int minutesLeft, String to, boolean isAtStop) {
+        if (Math.abs(minutesLeft) > LEAVE_WINDOW_MIN) {
+            return null;
+        }
+        LeaveInfo leave = new LeaveInfo();
+        leave.setStopId(stop.getId());
+        leave.setName(stop.getName());
+        leave.setLeaveAt(Geo.toHhmm(leaveAt));
+        leave.setMinutesLeft(minutesLeft);
+        leave.setTo(to);
+        leave.setAtStop(isAtStop);
+        return leave;
+    }
+
+    /**
+     * 화면 맨 위 알림 하나. 여러 개면 위에서부터 먼저 맞는 것 하나만:
+     * 더 머묾 > (영업 끝·휴무: 5단계) > 고정 일정 지각 > 출발 > 지난 일정 > 고정 여유 10분 이하 > 다음 장소 지각
+     */
+    private LiveAlert getAlert(List<Stop> todayStops, Stop current, Stop nextStop, Stop fixedStop, Integer slack,
+                               Map<Long, Integer> etaMap, LeaveInfo leave) {
+        int now = Geo.nowMinutes();
+        if (current != null && now >= getLeaveMinutes(current)) {
+            int overMinutes = now - getLeaveMinutes(current);
+            // key 끝의 숫자는 5분마다 바뀜 → 화면이 5분마다 다시 알려 줌
+            return makeAlert("overdue-" + current.getId() + "-" + overMinutes / 5, "danger",
+                    current.getName() + "에서 " + overMinutes + "분 더 머물렀어요", "계획한 출발 시각이 지났어요. 지금 위치에서 다시 계산했어요");
+        }
+        // TODO: ④ 5단계 — 도착 예상 시각에 문을 닫았거나 휴무인 곳이 있으면 closed- 알림
+        if (slack != null && slack < 0) {
+            // key 끝의 숫자는 10분 더 늦어질 때마다 바뀜 → 그때마다 다시 알려 줌
+            return makeAlert("late-" + fixedStop.getId() + "-" + (-slack) / 10, "danger",
+                    "지금대로면 " + fixedStop.getName() + "에 " + (-slack) + "분 늦어요", "'대안 보기'로 늦지 않는 방법을 확인하세요");
+        }
+        if (leave != null) {
+            return makeLeaveAlert(leave);
+        }
+        Stop missed = findMissedStop(todayStops, current);
+        if (missed != null) {
+            return makeAlert("missed-" + missed.getId(), "warn",
+                    missed.getName() + " 계획 시간이 지났어요", "아직 안 갔다면 '대안 보기'에서 빼거나 바꿀 수 있어요");
+        }
+        if (slack != null && slack <= TIGHT_SLACK_MIN) {
+            return makeAlert("tight-" + fixedStop.getId(), "warn",
+                    fixedStop.getName() + "까지 여유가 " + slack + "분뿐이에요", "다음 장소는 짧게 들르는 게 좋아요");
+        }
+        return makeNextLateAlert(nextStop, etaMap);
+    }
+
+    /** 출발 알림: 남은 분을 key에 넣어 1분마다 새로 울리게 함 (repeat = true) */
+    private LiveAlert makeLeaveAlert(LeaveInfo leave) {
+        int left = leave.getMinutesLeft();
+        String title = left + "분 뒤 출발해야 해요";
+        if (left == 0) {
+            title = "지금 출발해야 해요";
+        } else if (left < 0) {
+            title = "출발 시각이 " + (-left) + "분 지났어요";
+        }
+        String text = leave.getName() + "에 계획대로 닿으려면 " + leave.getLeaveAt() + "에 출발";
+        if (leave.isAtStop()) {
+            text = leave.getName() + " 출발 " + leave.getLeaveAt() + (leave.getTo() == null ? "" : " → " + leave.getTo());
+        }
+        LiveAlert alert = makeAlert("leave-" + leave.getStopId() + "-" + left, left > 0 ? "warn" : "danger", title, text);
         alert.setRepeat(true);
         return alert;
     }
 
-    private static LeaveInfo sampleLeave() {
-        LeaveInfo leave = new LeaveInfo();
-        leave.setStopId(102L);
-        leave.setName("카페OO");
-        leave.setLeaveAt("14:25");
-        leave.setMinutesLeft(5);
-        leave.setTo("청계천");
-        leave.setAtStop(true);
-        return leave;
+    /** 다음 장소에 10분 넘게 늦으면 알림 (아니면 null) */
+    private LiveAlert makeNextLateAlert(Stop nextStop, Map<Long, Integer> etaMap) {
+        if (nextStop == null) {
+            return null;
+        }
+        int lateMinutes = etaMap.get(nextStop.getId()) - Geo.toMinutes(nextStop.getTime());
+        if (lateMinutes <= NEXT_LATE_MIN) {
+            return null;
+        }
+        return makeAlert("next-" + nextStop.getId() + "-" + lateMinutes / 10, "warn",
+                nextStop.getName() + "에 " + lateMinutes + "분 늦게 도착할 것 같아요", "'대안 보기'로 남은 일정을 다시 짤 수 있어요");
     }
 
+    /** 남은 칸 중 첫 지난 일정 (없으면 null) */
+    private Stop findMissedStop(List<Stop> todayStops, Stop current) {
+        for (Stop stop : todayStops) {
+            if (isRemaining(stop, current) && isMissed(stop)) {
+                return stop;
+            }
+        }
+        return null;
+    }
+
+    /** 알림 하나 만들기 */
+    private LiveAlert makeAlert(String key, String level, String title, String text) {
+        LiveAlert alert = new LiveAlert();
+        alert.setKey(key);
+        alert.setLevel(level);
+        alert.setTitle(title);
+        alert.setText(text);
+        return alert;
+    }
 }
