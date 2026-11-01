@@ -94,6 +94,23 @@ const categoryTotals = computed(() => {
   }
   return totals
 })
+
+// 계획보다 평균적으로 가장 더 머무른 분류를 찾음
+const topCategory = computed(() => {
+  let best = null // 지금까지의 1등. 예: { name: '카페', average: 18 }
+
+  // for...in은 객체의 키를 하나씩 꺼내요
+  for (const categoryName in categoryTotals.value) { // categoryName: 분류 이름. 예: '카페'
+    const total = categoryTotals.value[categoryName] // total: 그 분류의 합계와 개수. 예: { sum: 36, count: 2 }
+    const average = Math.round(total.sum / total.count) // average: 한 곳당 계획과의 평균 차이(분). 예: 18
+
+    if (best === null || average > best.average) {
+      best = { name : categoryName, average : average }
+    }
+  }
+  return best
+})
+
 //화면이 열리면 회고 데이터를 가져옴
 onMounted(async () => {
   try{
