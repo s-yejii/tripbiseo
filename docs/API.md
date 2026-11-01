@@ -191,7 +191,7 @@
 | memo | string (null 가능) | | 메모 200자까지 |
 | state | string | | `todo`(갈 곳) / `done`(다녀옴) / `skipped`(뺌). 기본 `todo`. 추가할 때는 보내도 `todo`로 저장 |
 | arrivedAt | string (null 가능) | | GPS로 150m 안에 들어온 시각. `live/track`이 기록하고 요청 값은 무시 |
-| departedAt | string (null 가능) | | 200m 밖으로 두 번 연속 나간 시각 |
+| departedAt | string (null 가능) | | 출발한 시각. 200m 밖으로 두 번 연속 나갔거나, 다음 칸에 도착한 시각 |
 
 ```json
 { "id": 101, "tripId": 12, "day": 1, "placeId": "e70caff5-27cf-5c76-a1f3-201b7032d672",
@@ -604,7 +604,10 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 **요청** `lat`, `lng`, `accuracy`(선택, GPS 정확도 m)
 
-**동작** 오늘 `todo` 칸 150m 안이면 `arrivedAt` 기록. 도착한 칸에서 200m 밖이 두 번 연속이면 `departedAt` 기록 + `state = done`.
+**동작** "지금 있는 칸"(도착했고 아직 출발 안 함)은 한 번에 하나만 둬요.
+- 오늘 `todo` 칸 중 제일 가까운 칸이 지금 칸이 아니고, 지금 점·바로 앞 점 둘 다 150m 안이면 그 칸 `arrivedAt` 기록. 지금 칸이 있었으면 그 칸은 `departedAt` 기록 + `state = done`
+- 그게 아니고 지금 칸에서 지금 점·바로 앞 점 둘 다 200m 밖이면 지금 칸 `departedAt` 기록 + `state = done`
+- 여행의 첫 점이거나 `accuracy`가 100m보다 크면 저장만 하고 판정하지 않아요
 
 **응답** `{ "ok": true }` · **오류** 공통 오류
 
