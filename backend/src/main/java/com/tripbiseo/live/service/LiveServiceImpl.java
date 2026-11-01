@@ -75,7 +75,7 @@ public class LiveServiceImpl implements LiveService {
     //       주의: 날씨는 weatherClient.getForecast(서버가 위치로 직접), 실패하면 weather = null. 구글 검색 대체는 쓰지 않기
     @Override
     public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
-        // 1단계: now, currentStopId, stops[] / 2단계: stops[].eta, next
+        // 1단계: now, currentStopId, stops[] / 2단계: eta, next / 3단계: fixed, reach, hint, area
         if (request.getLat() == null || request.getLng() == null) {
             throw fail(400, "내 위치를 먼저 찾아 주세요.");
         }
@@ -86,22 +86,29 @@ public class LiveServiceImpl implements LiveService {
 
         List<Stop> todayStops = getTodayStops(trip);
         Stop current = findCurrentStop(todayStops, lat, lng);
+        Stop nextStop = findNextStop(todayStops, current);
+        Stop fixedStop = findFixedStop(todayStops, current);
         Map<Long, Integer> etaMap = getEtaMap(trip, todayStops, current, lat, lng);
+        Map<Long, String> reachMap = getReachMap(trip, todayStops, current, fixedStop, lat, lng);
+        // 여유(분) = 고정 일정 계획 시각 − 예상 도착. 음수면 지각
+        Integer slack = fixedStop == null ? null : Geo.toMinutes(fixedStop.getTime()) - etaMap.get(fixedStop.getId());
 
         StatusResponse response = new StatusResponse();
         response.setNow(Geo.toHhmm(Geo.nowMinutes()));
         response.setCurrentStopId(current == null ? null : current.getId());
         for (Stop stop : todayStops) {
-            response.getStops().add(toStatusStop(stop, current, etaMap.get(stop.getId())));
+            String reach = getReach(stop, current, reachMap);
+            response.getStops().add(toStatusStop(stop, etaMap.get(stop.getId()), reach));
         }
-        response.setNext(getNextRoute(trip, todayStops, current, lat, lng));
+        response.setNext(getNextRoute(trip, nextStop, lat, lng));
+        response.setFixed(toFixedStatus(fixedStop, etaMap, slack));
+        response.setHint(getHint(todayStops, fixedStop, slack, reachMap));
+        response.setArea(getArea(fixedStop, nextStop, slack, etaMap, lat, lng));
 
-        // TODO: ④ 3~7단계에서 진짜 값으로 (지금은 가짜 값)
+        // TODO: ④ 4~7단계에서 진짜 값으로 (지금은 가짜 값)
         response.setAlert(sampleAlert());
         response.setLeave(sampleLeave());
-        response.setFixed(sampleFixed());
         response.setReplan(false);
-        response.setArea(sampleArea(request));
         return response;
     }
 
@@ -259,15 +266,125 @@ public class LiveServiceImpl implements LiveService {
         return etaMap;
     }
 
-    /** 내 위치 → 다음 남은 칸 길찾기 (남은 칸이 없으면 null) */
-    private NextRoute getNextRoute(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng) {
-        Stop nextStop = null;
+    /** 다음 남은 칸 (없으면 null) */
+    private Stop findNextStop(List<Stop> todayStops, Stop current) {
         for (Stop stop : todayStops) {
             if (isRemaining(stop, current)) {
-                nextStop = stop;
-                break;
+                return stop;
             }
         }
+        return null;
+    }
+
+    /** 남은 칸 중 첫 고정 일정 (없으면 null) */
+    private Stop findFixedStop(List<Stop> todayStops, Stop current) {
+        for (Stop stop : todayStops) {
+            if (isRemaining(stop, current) && Boolean.TRUE.equals(stop.getFixed())) {
+                return stop;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 고정 일정 전의 남은 칸마다 "들렀다가 고정 일정에 맞출 수 있나". key = 칸 id
+     * ok: 내 위치 → 그 칸 → 머묾 → 고정 일정이 남은 시간 안 / tight: 머묾을 절반으로 줄이면 안 / no: 그래도 안 됨
+     */
+    private Map<Long, String> getReachMap(Trip trip, List<Stop> todayStops, Stop current, Stop fixedStop, double lat, double lng) {
+        Map<Long, String> reachMap = new HashMap<>();
+        if (fixedStop == null) {
+            return reachMap;
+        }
+        int fixedMinutes = Geo.toMinutes(fixedStop.getTime());
+        int available = fixedMinutes - Geo.nowMinutes();
+        for (Stop stop : todayStops) {
+            boolean isBeforeFixed = Geo.toMinutes(stop.getTime()) <= fixedMinutes;
+            if (!isRemaining(stop, current) || stop == fixedStop || !isBeforeFixed) {
+                continue;
+            }
+            // 후보를 여러 개 비교하니 거리로 추정 (isPrecise=false)
+            int go = routeClient.getRoute(lat, lng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), false).getMinutes();
+            int back = routeClient.getRoute(stop.getLat(), stop.getLng(), fixedStop.getLat(), fixedStop.getLng(),
+                    fixedStop.getMode(), trip.getTransports(), false).getMinutes();
+            reachMap.put(stop.getId(), judgeReach(go, getStay(stop), back, available));
+        }
+        return reachMap;
+    }
+
+    /** 가기 + 머묾 + 고정 일정으로 가기가 남은 시간 안이면 ok, 머묾 절반이면 tight, 아니면 no */
+    private String judgeReach(int go, int stay, int back, int available) {
+        if (go + stay + back <= available) {
+            return "ok";
+        }
+        if (go + stay / 2 + back <= available) {
+            return "tight";
+        }
+        return "no";
+    }
+
+    /** 고정 일정 정보 (없으면 null) */
+    private FixedStatus toFixedStatus(Stop fixedStop, Map<Long, Integer> etaMap, Integer slack) {
+        if (fixedStop == null) {
+            return null;
+        }
+        FixedStatus fixed = new FixedStatus();
+        fixed.setId(fixedStop.getId());
+        fixed.setName(fixedStop.getName());
+        fixed.setTime(fixedStop.getTime());
+        fixed.setLat(fixedStop.getLat());
+        fixed.setLng(fixedStop.getLng());
+        fixed.setEta(Geo.toHhmm(etaMap.get(fixedStop.getId())));
+        fixed.setSlackMin(slack);
+        return fixed;
+    }
+
+    /** 고정 일정에 늦을 때만 조언 한 줄 (그대로 갈 수 있는 곳 / 시간만 줄이면 되는 곳) */
+    private String getHint(List<Stop> todayStops, Stop fixedStop, Integer slack, Map<Long, String> reachMap) {
+        if (slack == null || slack >= 0) {
+            return null;
+        }
+        String okName = null;
+        String tightName = null;
+        for (Stop stop : todayStops) {
+            String reach = reachMap.get(stop.getId());
+            if (okName == null && "ok".equals(reach)) {
+                okName = stop.getName();
+            }
+            if (tightName == null && "tight".equals(reach)) {
+                tightName = stop.getName();
+            }
+        }
+        if (tightName != null) {
+            String okPart = okName == null ? "" : okName + "은(는) 그대로 갈 수 있어요! ";
+            return okPart + tightName + " 시간만 줄이면 " + fixedStop.getName() + "에 맞출 수 있어요.";
+        }
+        if (okName != null) {
+            return okName + "은(는) 그대로 갈 수 있어요. 한 곳을 빼면 " + fixedStop.getName() + "에 맞출 수 있어요.";
+        }
+        return null;
+    }
+
+    /** '지금 갈 수 있는 구역' 기준: 고정 일정(없으면 다음 일정)까지 여유. 남은 일정이 없으면 null */
+    private AreaInfo getArea(Stop fixedStop, Stop nextStop, Integer slack, Map<Long, Integer> etaMap, double lat, double lng) {
+        Stop basis = fixedStop != null ? fixedStop : nextStop;
+        if (basis == null) {
+            return null;
+        }
+        AreaInfo area = new AreaInfo();
+        if (fixedStop != null) {
+            area.setSlackMin(slack);
+        } else {
+            area.setSlackMin(Geo.toMinutes(nextStop.getTime()) - etaMap.get(nextStop.getId()));
+        }
+        area.setBasis(basis.getName());
+        area.setBasisTime(basis.getTime());
+        area.setLat(lat);
+        area.setLng(lng);
+        return area;
+    }
+
+    /** 내 위치 → 다음 남은 칸 길찾기 (남은 칸이 없으면 null) */
+    private NextRoute getNextRoute(Trip trip, Stop nextStop, double lat, double lng) {
         if (nextStop == null) {
             return null;
         }
@@ -311,7 +428,7 @@ public class LiveServiceImpl implements LiveService {
     }
 
     /** Stop → 화면용 StatusStop. eta: 남은 칸이면 예상 도착, 아니면 계획 시각 */
-    private StatusStop toStatusStop(Stop stop, Stop current, Integer eta) {
+    private StatusStop toStatusStop(Stop stop, Integer eta, String reach) {
         StatusStop status = new StatusStop();
         status.setId(stop.getId());
         status.setPlaceId(stop.getPlaceId());
@@ -323,23 +440,38 @@ public class LiveServiceImpl implements LiveService {
         status.setStay(stop.getStay());
         status.setFixed(stop.getFixed());
         status.setEta(eta == null ? stop.getTime() : Geo.toHhmm(eta));
-        status.setReach(getReach(stop, current));
+        status.setReach(reach);
         status.setClosingSoon(false);  // TODO: ④ 5단계 — 영업 정보
         return status;
     }
 
-    /** 칸 상태: done(다녀옴·뺌) / here(지금 있는 곳) / fixed(고정 일정) / ok. missed·tight·no·closed는 3·5단계 */
-    private String getReach(Stop stop, Stop current) {
+    /**
+     * 칸 상태 (위에서부터 먼저 맞는 것): done(다녀옴·뺌) / here(지금 있는 곳) / missed(계획 시간 지남) /
+     * fixed(고정 일정) / ok·tight·no(reachMap). closed는 5단계
+     */
+    private String getReach(Stop stop, Stop current, Map<Long, String> reachMap) {
         if (!isTodo(stop)) {
             return "done";
         }
         if (stop == current) {
             return "here";
         }
+        if (isMissed(stop)) {
+            return "missed";
+        }
         if (Boolean.TRUE.equals(stop.getFixed())) {
             return "fixed";
         }
-        return "ok";
+        return reachMap.getOrDefault(stop.getId(), "ok");
+    }
+
+    /** 지난 일정: 고정 일정이 아니고, 도착 기록이 없는데 계획한 머무름까지 이미 끝났어야 하는 칸 */
+    private boolean isMissed(Stop stop) {
+        if (Boolean.TRUE.equals(stop.getFixed()) || stop.getArrivedAt() != null) {
+            return false;
+        }
+        int plannedEnd = Geo.toMinutes(stop.getTime()) + getStay(stop);
+        return plannedEnd < Geo.nowMinutes();
     }
 
     /** 아직 갈 칸인지 (done·skipped가 아님) */
@@ -367,28 +499,6 @@ public class LiveServiceImpl implements LiveService {
         leave.setTo("청계천");
         leave.setAtStop(true);
         return leave;
-    }
-
-    private static FixedStatus sampleFixed() {
-        FixedStatus fixed = new FixedStatus();
-        fixed.setId(103L);
-        fixed.setName("세종문화회관");
-        fixed.setTime("19:00");
-        fixed.setEta("18:40");
-        fixed.setSlackMin(20);
-        fixed.setLat(37.5725);
-        fixed.setLng(126.9759);
-        return fixed;
-    }
-
-    private static AreaInfo sampleArea(LocationRequest request) {
-        AreaInfo area = new AreaInfo();
-        area.setSlackMin(20);
-        area.setBasis("세종문화회관");
-        area.setBasisTime("19:00");
-        area.setLat(request.getLat());
-        area.setLng(request.getLng());
-        return area;
     }
 
     private static AlternativesResponse sampleAlternatives() {
