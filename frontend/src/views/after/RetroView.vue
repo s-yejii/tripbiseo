@@ -78,6 +78,22 @@ const compare = computed(() => {
   return rows
 })
 
+
+const categoryTotals = computed(() => {
+  const totals = {}
+  if (retro.value === null) return totals
+
+  for (const place of retro.value.stops) {
+    if (place.actualStay ===null) continue
+    if (place.category === null) continue
+    const categoryName = place.category.split(',')[0]
+    if (totals[categoryName] === undefined)
+      totals[categoryName] = { sum : 0, count: 0 }
+    totals[categoryName].count = totals[categoryName].count + 1
+    totals[categoryName].sum = (place.actualStay - place.stay) + totals[categoryName].sum
+  }
+  return totals
+})
 //화면이 열리면 회고 데이터를 가져옴
 onMounted(async () => {
   try{
