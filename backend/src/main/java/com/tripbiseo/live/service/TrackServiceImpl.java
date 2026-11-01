@@ -153,8 +153,8 @@ public class TrackServiceImpl implements TrackService {
     }
 
     /** 회원의 위치 기록 모두 지우기 */
-    // TODO: ④ 위치 기록 지우기. deleteTrackList(memberId) — trip_track을 trip과 JOIN해서 내 여행 것만
     @Override
     public void deleteTrackList(long memberId) {
+        trackMapper.deleteTrackList(memberId);
     }
 }

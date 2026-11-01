@@ -24,5 +24,6 @@ public interface TrackMapper {
     /** 여행의 GPS 점 전부, 시간순 (⑤ 회고 지도 GPS 선) */
     List<TrackPoint> selectTrackList(long tripId);
 
-    // TODO: ④ int deleteTrackList(long memberId); — 위치 기록 모두 지우기 (trip JOIN으로 내 여행만)
+    /** 이 회원의 모든 여행 GPS 기록 지우기 (① 위치 기록 지우기). 지운 줄 수를 돌려줌 */
+    int deleteTrackList(long memberId);
 }

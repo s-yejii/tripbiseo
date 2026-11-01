@@ -31,6 +31,10 @@
     ORDER BY k.recorded_at, k.track_id
   </select>
 
-  <!-- TODO: ④ deleteTrackList -->
+  <!-- 이 회원의 여행에 달린 GPS만 지움 (trip_track에는 member_id가 없어서 trip으로 확인) -->
+  <delete id="deleteTrackList">
+    DELETE FROM trip_track
+    WHERE trip_id IN (SELECT trip_id FROM trip WHERE member_id = #{memberId})
+  </delete>
 
 </mapper>
