@@ -631,7 +631,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | hint | string (null 가능) | 고정 일정에 늦을 때 조언 한 줄. 예: "OO은(는) 그대로 갈 수 있어요..." |
 | replan | boolean | 다시 짜는 게 좋은가 (지각·영업 끝·지난 일정·더 머묾·다음 장소 10분 넘게 늦음) |
 | area | object (null 가능) | '지금 갈 수 있는 구역' 기준 `{slackMin, basis, basisTime, lat, lng}`. `basis`·`basisTime`은 기준 일정(고정 일정, 없으면 다음 일정), `lat`·`lng`는 보낸 내 위치. 남은 일정이 없으면 `null` |
-| weather | object (null 가능) | 오늘 지금 이후 비·눈(또는 강수확률 60% 이상) 첫 시간 `{time, pop, snow, outdoor}`. `outdoor`는 남은 야외 일정 이름. 예보가 없거나 실패하면 `null` |
+| weather | object (null 가능) | 오늘 지금 이후 비·눈(또는 강수확률 60% 이상) 첫 시간 `{time, pop, snow, outdoor}`. `outdoor`는 지금 칸·남은 칸 중 야외이고 비 시작 뒤에도 머무는(떠날 시각 > 비 시작) 일정 이름. 예보가 없거나 실패하면 `null` |
 | stops[] | object[] | **오늘의 모든 칸** (done·skipped 포함): `id, placeId, name, category, lat, lng, time, stay, fixed` + 아래 |
 | stops[].eta | string | 남은 일정이면 예상 도착, 아니면 계획 `time` |
 | stops[].reach | string | `done`(done·skipped) / `here`(지금 있는 곳) / `closed` / `missed`(계획 시간 지남) / `fixed` / `ok` / `tight`(시간 줄이면 OK) / `no`(고정 일정에 못 돌아옴) |
