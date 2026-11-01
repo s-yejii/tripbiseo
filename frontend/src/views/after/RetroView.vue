@@ -49,7 +49,7 @@ function stop() {
 onUnmounted(() => clearInterval(timer))
 const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사용
 const retro = ref(null)//서버 응답 . 받기 전에는 null
-const errorMessage = ref(``)
+const errorMessage = ref(``) // 회고를 못 불러왔을 때 화면에 보여 줄 문구
 
 const BAR_FULL_MINUTES = 240 // 막대가 꽉 차는 기준 시간(분) // 240분으로 정한 이유는 한 장소에 4시간 이상 머무는 일은 거의 없을것 같아서 주관임.
 
@@ -58,39 +58,41 @@ function toBarWidth(minutes) {
   return Math.min(100, (minutes / BAR_FULL_MINUTES) * 100)
 }
 
+// 계획 vs 실제 막대: 실제로 머문 기록이 있는 장소만 한 줄씩 만듦
 const compare = computed(() => {
   const rows = []
   if(retro.value === null)
   return rows
 
   for(const place of retro.value.stops) {
-    if(place.actualStay === null) continue 
+    if(place.actualStay === null) continue // 머문 기록이 없으면 비교할 수 없어서 건너뜀
 
-    const diff = place.actualStay - place.stay
+    const diff = place.actualStay - place.stay // 실제 - 계획. 예: 80 - 60 = 20분 더 머묾
     rows.push({
       name: place.name,
       plan: toBarWidth(place.stay),
       real: toBarWidth(place.actualStay),
-      diff: (diff > 0 ? '+' : '') + diff + '분',
-      cls: diff > 0 ? 'c-warning' : 'muted',
+      diff: (diff > 0 ? '+' : '') + diff + '분', // 더 머물렀으면 앞에 + 를 붙임
+      cls: diff > 0 ? 'c-warning' : 'muted', // 더 머문 곳만 눈에 띄는 색으로 표시
     })
   }
   return rows
 })
 
 
+// 분류별로 계획과의 시간 차이 합계와 장소 개수를 모음. 예: { 카페: { sum: 36, count: 2 } }
 const categoryTotals = computed(() => {
   const totals = {}
   if (retro.value === null) return totals
 
   for (const place of retro.value.stops) {
-    if (place.actualStay ===null) continue
-    if (place.category === null) continue
-    const categoryName = place.category.split(',')[0]
-    if (totals[categoryName] === undefined)
+    if (place.actualStay ===null) continue // 머문 기록이 없는 곳은 뺌
+    if (place.category === null) continue // 분류가 없는 곳은 뺌
+    const categoryName = place.category.split(',')[0] // 쉼표 앞 첫 분류만 씀. 예: '카페,디저트' → '카페'
+    if (totals[categoryName] === undefined) // 처음 나온 분류면 0부터 시작
       totals[categoryName] = { sum : 0, count: 0 }
-    totals[categoryName].count = totals[categoryName].count + 1
-    totals[categoryName].sum = (place.actualStay - place.stay) + totals[categoryName].sum
+    totals[categoryName].count = totals[categoryName].count + 1 // 장소 개수 1 늘림
+    totals[categoryName].sum = (place.actualStay - place.stay) + totals[categoryName].sum // 이번 차이를 합계에 더함
   }
   return totals
 })
@@ -172,9 +174,11 @@ function toggleInfo(no) {
       </div>
 
       <div class="scroll" style="top: 340px; padding-top: 4px; gap: 14px; bottom: 102px">
+<!-- 여행 제목과 날짜를 API 값으로 보여 줌 -->
 <div><h1 v-if="retro" class="h-title">{{ retro.title }}</h1><p v-if="retro" class="t-cap">{{ retro.startDate }} ~ {{ retro.endDate }}</p></div>
 <p v-if="errorMessage" class="t-cap">{{ errorMessage }}</p>
         <div class="stats">
+       <!-- 다녀온 곳 수 / 전체 장소 수 -->
        <div v-if="retro" class="stat"><b>{{ retro.visited }}/{{ retro.stops.length }}</b><span class="t-cap">다녀온 곳</span></div>
           <div class="stat"><b>6.8km</b><span class="t-cap">걸은 거리</span></div>
 

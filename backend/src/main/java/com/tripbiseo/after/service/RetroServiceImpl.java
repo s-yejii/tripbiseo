@@ -30,9 +30,10 @@ public class RetroServiceImpl implements RetroService {
         response.setTitle(trip.getTitle());
         response.setStartDate(trip.getStartDate());
         response.setEndDate(trip.getEndDate());
-        int visited = 0;
+        int visited = 0; // 실제로 다녀온 장소 수
         for (Stop stop : trip.getStops()) {
 
+            // 도착 기록이 있으면 다녀온 곳으로 셈
             if (stop.getArrivedAt() != null) {
                 visited++;
             }
@@ -55,12 +56,14 @@ public class RetroServiceImpl implements RetroService {
         retro.setStay(stop.getStay());
         retro.setState(stop.getState());
 
+        // 도착 기록이 있을 때만 실제 도착 시각을 채움. 없으면 null로 둠
         if (stop.getArrivedAt() != null) {
             LocalDateTime arrived = LocalDateTime.parse(stop.getArrivedAt());
 
             // 시각만 꺼내 앞 5글자만 잘라 적는 코드입니다.
             retro.setActualArrive(arrived.toLocalTime().toString().substring(0, 5));
 
+            // 출발 기록까지 있어야 머문 시간을 계산할 수 있음
             if (stop.getDepartedAt() != null) {
 
                 LocalDateTime departed = LocalDateTime.parse(stop.getDepartedAt());
