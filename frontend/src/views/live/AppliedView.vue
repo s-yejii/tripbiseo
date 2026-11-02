@@ -1,11 +1,23 @@
 <script setup>
 // S17 바뀐 일정 (④): 대안을 적용한 뒤 무엇이 바뀌었는지 색으로 보여 줘요. 5분 안에는 되돌릴 수 있어요
+// 방금 서버에 적용한 결과(store.applied, live/apply 응답)가 있으면 그걸 보여 주고, 없으면 시연용 각본 화면
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import { modes } from '@/data/places'
+import { useTripStore } from '@/stores/trip'
+import { imageFor } from '@/utils/mapView'
 import { showToast } from '@/utils/toast'
 
 const router = useRouter()
+const store = useTripStore()
+const applied = store.applied
+// 서버 tag → 오른쪽 배지 글자·색
+const TAGS = {
+  done: { text: '다녀옴', cls: 'badge--navy' },
+  kept: { text: '그대로', cls: 'badge--navy' },
+  changed: { text: '바뀜', cls: 'badge--danger' },
+  added: { text: '새로 추가', cls: 'badge--coral' },
+}
 
 // 가짜 데이터: 적용한 뒤 남은 일정 (change: 바뀐 내용 표시)
 //   tag: 오른쪽 배지 / was·now: 바뀌기 전·후 / leg: 앞 장소에서 오는 이동
@@ -23,7 +35,35 @@ function undo() {
 
 <template>
   <div class="scr scr-Applied">
-    <div class="app">
+    <!-- ================= 서버 적용 결과 ================= -->
+    <div v-if="applied" class="app">
+      <TopBar title="바뀐 일정" icon="close" to="/live" />
+      <div class="scroll" style="padding-top: 4px; gap: 14px; bottom: 24px">
+        <div class="banner banner--success">
+          <i class="ic ic--l i-success" aria-hidden="true"></i>
+          <span class="banner__body">
+            <span class="t-strong tn">{{ applied.message }}</span>
+            <span v-if="applied.nextAlert" class="t-cap">{{ applied.nextAlert }}</span>
+          </span>
+        </div>
+        <ol class="tl" style="list-style: none; margin: 0; padding: 0">
+          <li v-for="stop in applied.stops" :key="(stop.id || '') + stop.name" class="stop" :class="{ 'is-done': stop.tag === 'done' }">
+            <span class="stop__time">{{ stop.time }}</span>
+            <span class="stop__card">
+              <img class="thumb" :src="imageFor(stop.category)" alt="" />
+              <span class="stop__body">
+                <span class="stop__name">{{ stop.name }}</span>
+                <span class="stop__meta">{{ stop.stay }}분<template v-if="stop.note"> · {{ stop.note }}</template></span>
+              </span>
+              <span class="badge" :class="(TAGS[stop.tag] || TAGS.kept).cls">{{ (TAGS[stop.tag] || TAGS.kept).text }}</span>
+            </span>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- ================= 시연용 각본 ================= -->
+    <div v-else class="app">
       <TopBar title="바뀐 일정" icon="close" to="/live">
         <button type="button" class="btn btn--sm btn--secondary" style="margin-right: 8px" @click="undo"><i class="ic ic--s i-undo" aria-hidden="true"></i>되돌리기</button>
       </TopBar>

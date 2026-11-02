@@ -4,8 +4,12 @@
 //   /live      : 여행 시작 (첫 장소 가기 전, 테이블링 했는지 묻기)
 //   /live/late : 16:21 아직 성내동 카페 → 공연 입장에 14분 늦음
 // 두 상황 모두 지도 아래 칩 줄에서 "AI에게 묻기"(④ AskPanel)와 화장실·쓰레기통(⑤)을 쓸 수 있어요
-import { computed, ref } from 'vue'
+// 진행 중인 여행이 서버에 있으면 "진짜 모드": GPS(또는 ?demo=1 시연 GPS)로 live/track·live/status를 불러 그려요.
+// 서버가 꺼져 있거나 진행 중인 여행이 없으면 아래 시연용 각본 화면 그대로예요.
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useLiveTrip } from '@/utils/useLiveTrip'
+import { imageFor, toMapPositions } from '@/utils/mapView'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
@@ -21,6 +25,73 @@ import { showToast } from '@/utils/toast'
 const route = useRoute()
 const router = useRouter()
 const late = route.meta.late === true
+
+// ---------------------------------------------------------------- 진짜 모드 (서버 live/status)
+const live = useLiveTrip()
+const real = computed(() => live.status.value !== null)
+const status = computed(() => live.status.value)
+const LIVE_MAP_BOX = { left: 40, top: 150, width: 310, height: 250 } // 지도 그림 칸 (viewBox 390×514)
+onMounted(() => live.start(route.query.demo === '1'))
+onUnmounted(() => live.stop())
+
+// 오늘 칸 + 내 위치를 같은 비율로 지도 위에 놓음 (마지막 점이 내 위치)
+const realPositions = computed(() => {
+  if (!real.value) return []
+  return toMapPositions([...status.value.stops, live.position.value], LIVE_MAP_BOX)
+})
+const realPins = computed(() => (real.value ? status.value.stops.map((stop, i) => ({ ...stop, no: i + 1, ...realPositions.value[i] })) : []))
+const realMe = computed(() => (real.value ? realPositions.value[realPositions.value.length - 1] : me))
+const realRoute = computed(() => realPins.value.map((pin) => pin.x + ',' + pin.y).join(' '))
+const fixedSlack = computed(() => (real.value && status.value.fixed ? status.value.fixed.slackMin : null))
+const alertLink = computed(() => (real.value && status.value.replan ? '/live/alt' : ''))
+
+function isWarnReach(reach) {
+  return reach === 'tight' || reach === 'no' || reach === 'closed' || reach === 'missed'
+}
+
+// 서버 칸 → 카드 글자 (reach: done 다녀옴 / here 지금 여기 / missed·closed·no 위험 / tight 빠듯 / fixed·ok)
+const realCards = computed(() => realPins.value.map((pin) => {
+  const card = { no: pin.no, img: imageFor(pin.category), title: pin.fixed ? pin.name : pin.no + ' ' + pin.name, fixed: pin.fixed, leg: null, legState: '', state: '', sub: '', subCls: '' }
+  if (pin.reach === 'done') {
+    card.state = 'done'
+    card.sub = pin.time + ' 다녀옴'
+  } else if (pin.reach === 'here') {
+    card.state = 'now'
+    card.sub = '지금 여기'
+    card.subCls = 'c-coral'
+  } else if (pin.reach === 'closed') {
+    card.sub = pin.closedReason || '도착할 때 문을 닫아요'
+    card.subCls = 'c-danger'
+  } else if (pin.reach === 'missed') {
+    card.sub = pin.time + ' 계획 시간이 지났어요'
+    card.subCls = 'c-warning'
+  } else {
+    card.sub = (pin.fixed ? pin.time + ' 고정 · ' : '') + pin.eta + ' 도착 예상'
+    card.subCls = isWarnReach(pin.reach) ? 'c-warning' : ''
+  }
+  return card
+}))
+
+// 시트 위 큰 글자: 출발 알림이 있으면 출발 시각, 없으면 다음 장소까지
+const realHead = computed(() => {
+  if (!real.value) return null
+  const leave = status.value.leave
+  if (leave) {
+    const left = leave.minutesLeft
+    return { cap: leave.name + (leave.to ? ' → ' + leave.to : ''), big: leave.leaveAt + ' 출발', cls: left > 0 ? '' : 'c-warning' }
+  }
+  const next = status.value.next
+  const nextStop = next ? realPins.value.find((pin) => pin.id === next.id) : null
+  if (nextStop) return { cap: '다음 ' + nextStop.name + '까지 ' + next.minutes + '분', big: nextStop.eta, cls: '' }
+  return { cap: '오늘 남은 일정이 없어요', big: status.value.now, cls: '' }
+})
+
+// AI 채팅에서 일정에 넣으면 지금 상황을 다시 받아요
+async function onRealAdd(place) {
+  asking.value = false
+  showToast(place.message || place.name + '을(를) 다음 일정으로 넣었어요')
+  await live.refresh()
+}
 
 const me = late ? { x: 215, y: 285 } : { x: 44, y: 352 } // 지금 위치 (지도 그림 위, 아래 칩 줄에 가리지 않게)
 const selected = ref(late ? 4 : 1) // 선택한 카드·핀 번호
@@ -162,6 +233,73 @@ const infoBox = computed(() => {
 <template>
   <div class="scr scr-Live">
     <div class="app">
+      <!-- ================= 진짜 모드 (서버 live/status) ================= -->
+      <template v-if="real">
+        <div class="map" aria-hidden="true">
+          <img class="base live" src="/img/mapB.svg" alt="" style="top: -126px" />
+          <svg class="route live-route" viewBox="0 0 390 514">
+            <polyline :points="realRoute" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 9" />
+          </svg>
+        </div>
+        <button
+          v-for="pin in realPins"
+          :key="pin.id"
+          type="button"
+          class="pin"
+          :class="{ 'pin--fixed': pin.fixed, 'pin--done': pin.reach === 'done', 'pin--warn': isWarnReach(pin.reach), 'pin--sel': selected === pin.no }"
+          :style="{ left: pin.x + 'px', top: pin.y + 'px' }"
+          :aria-label="pin.no + ' ' + pin.name"
+          @click="selected = pin.no"
+        >
+          <i v-if="pin.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
+          <i v-else-if="pin.reach === 'done'" class="ic ic--s i-check" aria-hidden="true" style="width: 13px; height: 13px"></i>
+          <template v-else>{{ pin.no }}</template>
+        </button>
+        <span class="me" :style="{ left: realMe.x + 'px', top: realMe.y + 'px' }" aria-label="지금 위치"></span>
+
+        <header class="topbar topbar--float">
+          <RouterLink to="/" class="iconbtn iconbtn--float" aria-label="홈으로"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
+          <span style="flex: 1"></span>
+        </header>
+
+        <AppNoti
+          v-if="status.alert && notiOpen"
+          :warn="status.alert.level === 'danger'"
+          icon="i-warning"
+          :title="status.alert.title"
+          :body="status.alert.text"
+          :to="alertLink"
+          @close="notiOpen = false"
+        />
+
+        <AskPanel v-if="asking" :me="realMe" :late="status.replan" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onRealAdd" />
+        <AmenityChips v-else :me="realMe" @ask="openAsk" />
+
+        <BottomSheet v-if="!asking" class="sheet--peek live-sheet" aria-label="오늘 일정">
+          <div class="live-head">
+            <div style="flex: 1">
+              <p class="t-cap">{{ realHead.cap }}</p>
+              <p class="t-big" :class="realHead.cls" style="margin: 0">{{ realHead.big }}</p>
+            </div>
+            <span v-if="fixedSlack !== null" class="badge" :class="fixedSlack < 0 ? 'badge--warning' : 'badge--success'">
+              <i class="ic ic--s i-lock" aria-hidden="true"></i>{{ fixedSlack < 0 ? '예약 ' + -fixedSlack + '분 늦음' : '예약 여유 ' + fixedSlack + '분' }}
+            </span>
+          </div>
+          <LiveCards :cards="realCards" :selected="selected" @pick="selected = $event.no" @scrolled="selected = $event" />
+          <p v-if="status.hint" class="t-cap live-event c-warning"><i class="ic ic--s i-warning" aria-hidden="true"></i>{{ status.hint }}</p>
+          <p v-else-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비 소식{{ status.weather.outdoor.length ? ' · ' + status.weather.outdoor.join(', ') + '에서 우산을 챙겨요' : '' }}</p>
+        </BottomSheet>
+
+        <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
+          <div class="cta__row">
+            <RouterLink to="/live/alt" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
+            <RouterLink to="/live/route" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
+          </div>
+        </div>
+      </template>
+
+      <!-- ================= 시연용 각본 (서버 여행이 없을 때) ================= -->
+      <template v-else>
       <!-- 지도 + 동선 -->
       <div class="map" aria-hidden="true">
         <img class="base live" src="/img/mapB.svg" alt="" style="top: -126px" />
@@ -314,6 +452,7 @@ const infoBox = computed(() => {
 
       <TablingModal v-if="showTabling" @close="showTabling = false" @save="saveTabling" />
       <SegSheet v-if="segCard" :from="segFrom" :to="segTo" :leg="segCard.leg" @close="segCard = null" />
+      </template>
     </div>
   </div>
 </template>

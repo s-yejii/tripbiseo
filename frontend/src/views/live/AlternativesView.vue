@@ -1,12 +1,45 @@
 <script setup>
 // S16-a 대안 · 시간 줄이기 (④): 남은 장소의 머무는 시간을 줄여서 예약에 맞춰요
 // 장소를 누르면 S16-a2 슬라이더에서 몇 분 머물지 정해요
+// 진행 중인 여행과 GPS가 있으면 서버 대안(POST /live/alternatives) A·B·C를 카드로 보여 주고, 고르면 적용(POST /live/apply)해요.
+// 없으면 아래 시연용 각본 화면 그대로예요.
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import AltTabs from '@/components/live/AltTabs.vue'
 import { importance } from '@/data/places'
+import { applyAlternative, getAlternatives } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
+import { showToast } from '@/utils/toast'
 
 const router = useRouter()
+const store = useTripStore()
+
+// ---------------------------------------------------------------- 서버 대안
+const server = ref(null) // live/alternatives 응답 (없으면 각본)
+const applying = ref(false)
+
+onMounted(async () => {
+  const tripId = store.tripId || (await store.findOngoingTripId())
+  if (!tripId || !store.position) return
+  try {
+    server.value = await getAlternatives(tripId, store.position.lat, store.position.lng)
+  } catch (e) {
+    showToast(e.message)
+  }
+})
+
+async function applyServer(alternative) {
+  applying.value = true
+  try {
+    store.applied = await applyAlternative(store.tripId, alternative.key, alternative.stops, store.position.lat, store.position.lng)
+    router.push('/live/applied')
+  } catch (e) {
+    showToast(e.message)
+  } finally {
+    applying.value = false
+  }
+}
 
 // 가짜 데이터: 남은 일정과 줄일 수 있는지 (백엔드가 붙으면 대안 계산 API 결과)
 const lateMinutes = 14
@@ -23,7 +56,34 @@ function apply() {
 
 <template>
   <div class="scr scr-Alternatives">
-    <div class="app">
+    <!-- ================= 서버 대안 A·B·C ================= -->
+    <div v-if="server" class="app">
+      <TopBar :title="server.title" back="/live" />
+      <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 24px">
+        <p class="t-cap">{{ server.subtitle }}</p>
+        <section v-for="alternative in server.alternatives" :key="alternative.key" class="tsum" :aria-label="'대안 ' + alternative.key">
+          <div class="tsum__top">
+            <span class="tsum__lbl"><b>{{ alternative.key }}</b> · {{ alternative.shortName }}</span>
+            <span v-if="alternative.recommended" class="badge badge--coral">추천</span>
+          </div>
+          <b class="t-sub">{{ alternative.title }}</b>
+          <p class="t-cap">{{ alternative.reason }}</p>
+          <p class="t-cap tn" :class="alternative.slackMin < 0 ? 'c-danger' : 'c-success'">
+            {{ alternative.finalArrive }} 도착 · {{ alternative.slackMin < 0 ? -alternative.slackMin + '분 늦음' : alternative.slackMin + '분 여유' }}
+            <template v-if="alternative.closedCount"> · 닫힌 곳 {{ alternative.closedCount }}곳</template>
+          </p>
+          <ol class="t-cap" style="margin: 0; padding-left: 18px">
+            <li v-for="stop in alternative.stops" :key="(stop.id || '') + stop.name">
+              {{ stop.eta }} {{ stop.name }} · {{ stop.stay }}분<b v-if="stop.change" class="c-navy"> ({{ stop.change }})</b>
+            </li>
+          </ol>
+          <button type="button" class="btn btn--primary btn--md" :disabled="applying" @click="applyServer(alternative)">이 대안으로 바꾸기</button>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================= 시연용 각본 ================= -->
+    <div v-else class="app">
       <TopBar title="대안 고르기" back="/live/delay">
         <span class="badge badge--warning tn" style="margin-right: 8px"><i class="ic ic--s i-warning" aria-hidden="true"></i>{{ lateMinutes }}분 늦음</span>
       </TopBar>
