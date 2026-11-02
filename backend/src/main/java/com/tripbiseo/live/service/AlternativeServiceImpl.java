@@ -49,6 +49,7 @@ public class AlternativeServiceImpl implements AlternativeService {
     private static final int SWAP_RADIUS_M = 1500;  // C 장소 바꾸기: 뺄 곳에서 이 반경(m) 안에서 찾음
     private static final int DEFAULT_STAY_MIN = 60;   // 대안 적용: 머무는 시간이 없으면 60분 (API.md)
     private static final int NEW_STOP_START_MIN = 30; // 대안 적용: 새 칸에 시각이 없으면 지금부터 30분 뒤
+    private static final int LEAVE_ALERT_BEFORE_MIN = 10; // 대안 적용: 출발 이만큼 전부터 알림
     private static final String[] ALTERNATIVE_KEYS = {"A", "B", "C"}; // 대안 이름표 (만들어진 순서대로)
     private static final String[] INDOOR_WORDS = {"비", "실내", "추워", "더워", "날씨"}; // 요청에 있으면 실내 위주
 
@@ -443,9 +444,7 @@ public class AlternativeServiceImpl implements AlternativeService {
     }
 
     /** 고른 대안을 일정에 반영 */
-    // TODO: ④ 대안 적용. stops 없으면 400 "적용할 대안이 없어요." → id가 남은 칸이면 eta·stay로 updateStop(고정 일정 시각은 그대로),
-    //       id가 없으면 createStop, 대안에 없는 남은 칸은 skipStops → 오늘 칸 tag(done/kept/changed/added). 참고: 예전 LiveService.apply/nextAlert.
-    //       주의: ②의 쓰기 메서드를 여러 번 부르니 @Transactional 유지
+    // ②의 쓰기 메서드(createStop·updateStop·skipStops)를 여러 번 부르니, 하나라도 실패하면 전부 되돌리게 @Transactional
     @Override
     @Transactional
     public ApplyResponse applyAlternative(long memberId, long tripId, ApplyRequest request) {
@@ -466,14 +465,13 @@ public class AlternativeServiceImpl implements AlternativeService {
         List<Long> keptIds = applyChosenStops(memberId, tripId, trip, request.getStops(), remainingStops, noteMap);
         skipUnchosenStops(memberId, tripId, remainingStops, keptIds);
 
-        // TODO: ④ 3단계 바뀐 일정을 다시 읽어서 응답 만들기 (아래는 아직 가짜 값)
+        // 3. 바뀐 일정을 다시 읽어서 응답 만들기
+        List<Stop> updatedTodayStops = liveStopFinder.getTodayStops(tripService.getTrip(memberId, tripId));
         ApplyResponse response = new ApplyResponse();
-        response.setKey(request.getKey() == null ? "A" : request.getKey());
-        response.setMessage("세종문화회관에 늦지 않게 일정을 바꿨어요!");
-        response.setNextAlert("청계천에서 출발할 시각(15:07) 10분 전부터 1분마다 알려드릴게요. 늦게 도착하면 도착한 시각 기준으로 다시 맞춰요.");
-        response.getStops().add(appliedStop(102L, "13:30", "카페OO", "카페", 55, "done", null));
-        response.getStops().add(appliedStop(103L, "14:37", "청계천", "관광지", 30, "changed", "60분 → 30분"));
-        response.getStops().add(appliedStop(105L, "19:00", "세종문화회관", "문화시설", 120, "kept", null));
+        response.setKey(request.getKey());
+        response.setMessage(getApplyMessage(remainingStops));
+        response.setNextAlert(getNextAlert(updatedTodayStops));
+        response.setStops(toAppliedStops(updatedTodayStops, todayStops, current, noteMap));
         return response;
     }
 
@@ -564,16 +562,70 @@ public class AlternativeServiceImpl implements AlternativeService {
         return stop;
     }
 
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static AppliedStop appliedStop(long id, String time, String name, String category, int stay, String tag, String note) {
-        AppliedStop stop = new AppliedStop();
-        stop.setId(id);
-        stop.setTime(time);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setStay(stay);
-        stop.setTag(tag);
-        stop.setNote(note);
-        return stop;
+    // ---------------------------------------------------------------- 대안 적용 응답 (4번 3단계)
+
+    /** 적용 후 안내 문구: 남은 고정 일정이 있으면 "{고정 일정}에 늦지 않게 일정을 바꿨어요!" */
+    private String getApplyMessage(List<Stop> remainingStops) {
+        Stop fixedStop = liveStopFinder.findFixedStop(remainingStops, null);
+        if (fixedStop == null) {
+            return "일정을 바꿨어요!";
+        }
+        return fixedStop.getName() + "에 늦지 않게 일정을 바꿨어요!";
+    }
+
+    /** 다음 출발 알림 안내: 아직 갈 칸(고정 일정 제외) 중 "출발 10분 전"이 아직 안 지난 첫 칸. 없으면 null */
+    private String getNextAlert(List<Stop> todayStops) {
+        int now = Geo.nowMinutes();
+        for (Stop stop : todayStops) {
+            boolean isTodoStop = liveStopFinder.isTodo(stop) && !Boolean.TRUE.equals(stop.getFixed());
+            int leaveAt = liveStopFinder.getLeaveMinutes(stop); // 도착(기록 없으면 계획 시각) + 머묾
+            if (isTodoStop && leaveAt - LEAVE_ALERT_BEFORE_MIN > now) {
+                return stop.getName() + "에서 출발할 시각(" + Geo.toHhmm(leaveAt) + ") " + LEAVE_ALERT_BEFORE_MIN
+                        + "분 전부터 1분마다 알려드릴게요. 늦게 도착하면 도착한 시각 기준으로 다시 맞춰요.";
+            }
+        }
+        return null;
+    }
+
+    /** 바뀐 오늘 칸(뺀 칸 제외)마다 표시를 붙여 화면용으로. note: "60분 → 30분"·"새로 추가" */
+    private List<AppliedStop> toAppliedStops(List<Stop> updatedTodayStops, List<Stop> beforeTodayStops, Stop current,
+                                             Map<Long, String> noteMap) {
+        List<AppliedStop> appliedStops = new ArrayList<>();
+        for (Stop stop : updatedTodayStops) {
+            if (!"skipped".equals(stop.getState())) {
+                String tag = getApplyTag(stop, beforeTodayStops, current, noteMap);
+                String note = "added".equals(tag) ? "새로 추가" : noteMap.get(stop.getId());
+                appliedStops.add(toAppliedStop(stop, tag, note));
+            }
+        }
+        return appliedStops;
+    }
+
+    /** 칸 표시: done(다녀옴·지금 있는 곳) > added(적용 전에 없던 칸) > changed(머묾이 바뀜) > kept(그대로) */
+    private String getApplyTag(Stop stop, List<Stop> beforeTodayStops, Stop current, Map<Long, String> noteMap) {
+        boolean isHere = current != null && current.getId().equals(stop.getId());
+        if (!liveStopFinder.isTodo(stop) || isHere) {
+            return "done";
+        }
+        if (findStopById(beforeTodayStops, stop.getId()) == null) {
+            return "added";
+        }
+        if (noteMap.containsKey(stop.getId())) {
+            return "changed";
+        }
+        return "kept";
+    }
+
+    /** Stop → 화면용 AppliedStop */
+    private AppliedStop toAppliedStop(Stop stop, String tag, String note) {
+        AppliedStop appliedStop = new AppliedStop();
+        appliedStop.setId(stop.getId());
+        appliedStop.setTime(stop.getTime());
+        appliedStop.setName(stop.getName());
+        appliedStop.setCategory(stop.getCategory());
+        appliedStop.setStay(stop.getStay());
+        appliedStop.setTag(tag);
+        appliedStop.setNote(note);
+        return appliedStop;
     }
 }
