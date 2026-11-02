@@ -26,4 +26,5 @@ public class StatusContext {
     private List<Stop> missedStops = new ArrayList<>();  // 남은 칸 중 지난 일정
     private Map<Long, Integer> etaMap = new HashMap<>(); // 칸 id → 예상 도착(분)
     private Map<Long, OpenInfo> openMap = new HashMap<>(); // 칸 id → 영업 정보
+    private WeatherInfo weather;                         // 다음 경로 비 소식, 없으면 null (LiveWeatherChecker가 채움)
 }

@@ -1,7 +1,5 @@
 package com.tripbiseo.live.service;
 
-import static com.tripbiseo.common.exception.ApiException.fail;
-
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,7 +25,6 @@ import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.PlaceService;
-import com.tripbiseo.trip.service.TripService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -41,7 +38,7 @@ public class StatusServiceImpl implements StatusService {
 
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
 
-    private final TripService tripService;
+    private final LiveTripReader liveTripReader;         // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
     private final PlaceService placeService;             // 장소 영업 정보 (②)
     private final RouteClient routeClient;               // 이동 시간 (후보 비교는 isPrecise=false)
     private final LiveStopFinder liveStopFinder;         // 오늘 칸·지금 칸·남은 칸 고르기 (④ 도우미)
@@ -53,13 +50,9 @@ public class StatusServiceImpl implements StatusService {
     public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
         // 1단계: now, currentStopId, stops[] / 2단계: eta, next / 3단계: fixed, reach, hint, area
         // 4단계: leave, alert / 5단계: 영업 정보 / 6단계: weather / 7단계: replan
-        if (request.getLat() == null || request.getLng() == null) {
-            throw fail(400, "내 위치를 먼저 찾아 주세요.");
-        }
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng()); // 공통 오류 검사
         double lat = request.getLat();
         double lng = request.getLng();
-        Trip trip = tripService.getTrip(memberId, tripId);
-        // TODO: ④ 404·ongoing 검사는 ②의 진짜 getTrip이 나오면 추가
 
         List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
         Stop current = liveStopFinder.findCurrentStop(todayStops, lat, lng);
@@ -86,7 +79,8 @@ public class StatusServiceImpl implements StatusService {
 
         // 알림은 LiveAlertMaker, 날씨는 LiveWeatherChecker가 (계산 결과를 context 하나로 넘김)
         StatusContext context = toContext(todayStops, current, nextStop, fixedStop, slack, etaMap, openMap);
-        response.setWeather(liveWeatherChecker.check(lat, lng, context));
+        context.setWeather(liveWeatherChecker.check(lat, lng, context)); // 알림(rain-)도 이 값을 씀
+        response.setWeather(context.getWeather());
         LeaveInfo leave = liveAlertMaker.makeLeave(context);
         response.setLeave(leave);
         response.setAlert(liveAlertMaker.makeAlert(context, leave));

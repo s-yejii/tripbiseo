@@ -10,9 +10,7 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.exception.ApiException;
-import com.tripbiseo.common.external.WeatherClient;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.AltStop;
 import com.tripbiseo.live.dto.Alternative;
@@ -44,32 +42,26 @@ public class AlternativeServiceImpl implements AlternativeService {
     // B 한 곳 빼기: 뺄 순위 (클수록 먼저 뺌)
     private static final int DROP_RANK_CLOSED = 3;  // 도착하면 문 닫은 곳
     private static final int DROP_RANK_MISSED = 2;  // 계획 시간이 지난 곳
-    private static final int DROP_RANK_OUTDOOR = 1; // 실내를 원할 때 야외 장소
     private static final int DROP_RANK_NORMAL = 0;  // 그 밖 (그중 오래 머무는 곳)
     private static final int SWAP_RADIUS_M = 1500;  // C 장소 바꾸기: 뺄 곳에서 이 반경(m) 안에서 찾음
     private static final int DEFAULT_STAY_MIN = 60;   // 대안 적용: 머무는 시간이 없으면 60분 (API.md)
     private static final int NEW_STOP_START_MIN = 30; // 대안 적용: 새 칸에 시각이 없으면 지금부터 30분 뒤
     private static final int LEAVE_ALERT_BEFORE_MIN = 10; // 대안 적용: 출발 이만큼 전부터 알림
     private static final String[] ALTERNATIVE_KEYS = {"A", "B", "C"}; // 대안 이름표 (만들어진 순서대로)
-    private static final String[] INDOOR_WORDS = {"비", "실내", "추워", "더워", "날씨"}; // 요청에 있으면 실내 위주
 
     private final TripService tripService;                     // 오늘 칸 읽기·고치기 (②)
-    private final PlaceService placeService;                   // 근처 장소·영업 정보·실내 판단 (②)
-    private final WeatherClient weatherClient;                 // TODO: ④ 대안에서 비 오는지
-    private final AiService aiService;                         // TODO: ④ Gemini 대안
+    private final PlaceService placeService;                   // 근처 장소·영업 정보 (②)
     private final LiveStopFinder liveStopFinder;               // 오늘 칸·지금 칸·남은 칸 고르기 (④ 도우미)
+    private final LiveTripReader liveTripReader;               // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
     private final AlternativeCalculator alternativeCalculator; // 바뀐 칸 목록으로 몇 시 도착·여유 계산 (④ 도우미)
 
     /** 대안 A·B·C */
-    // TODO: ④ (여유) aiService.isReady()면 askJsonWithWeather로 Gemini 대안, 실패하면 규칙만.
-    //       주의: 예전 프롬프트의 "위치 (위도, 경도)"는 빼기. 날씨 도구는 인자 없음. 예전 askWithSearch(구글 검색 대체)는 쓰지 않기.
+    // 규칙 대안만 만들어요. 비 올 때 실내로 바꾸는 대안은 만들지 않음 (11/02 결정: 비는 알림만)
+    // TODO: ④ (여유) Gemini 대안 — aiService.askJson으로 규칙 대안을 다듬기. 좌표는 프롬프트에 넣지 않기
     @Override
     public AlternativesResponse makeAlternatives(long memberId, long tripId, AlternativesRequest request) {
-        if (request.getLat() == null || request.getLng() == null) {
-            throw fail(400, "내 위치를 먼저 찾아 주세요.");
-        }
-        // 1. 남은 일정 꺼내기
-        Trip trip = tripService.getTrip(memberId, tripId);
+        // 1. 공통 오류 검사 후 남은 일정 꺼내기
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
         List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
         Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
         List<Stop> remainingStops = getRemainingStops(todayStops, current);
@@ -159,19 +151,18 @@ public class AlternativeServiceImpl implements AlternativeService {
     private List<Alternative> makeRuleAlternatives(Trip trip, Stop current, List<Stop> remainingStops, AlternativesRequest request) {
         double lat = request.getLat();
         double lng = request.getLng();
-        boolean isIndoorWanted = isIndoorRequest(request.getRequest());
         List<Alternative> alternatives = new ArrayList<>();
         alternatives.add(makeTrimAlternative(trip, current, remainingStops, lat, lng));
 
-        Stop dropStop = findDropStop(remainingStops, isIndoorWanted);
+        Stop dropStop = findDropStop(remainingStops);
         if (dropStop == null) {
             return alternatives; // 고정 일정만 남아서 뺄 곳·바꿀 곳이 없음
         }
-        Alternative dropAlternative = makeDropAlternative(trip, current, remainingStops, lat, lng, dropStop, isIndoorWanted);
+        Alternative dropAlternative = makeDropAlternative(trip, current, remainingStops, lat, lng, dropStop);
         if (dropAlternative != null) {
             alternatives.add(dropAlternative);
         }
-        Alternative swapAlternative = makeSwapAlternative(trip, current, remainingStops, lat, lng, dropStop, isIndoorWanted);
+        Alternative swapAlternative = makeSwapAlternative(trip, current, remainingStops, lat, lng, dropStop);
         if (swapAlternative != null) {
             alternatives.add(swapAlternative);
         }
@@ -220,7 +211,7 @@ public class AlternativeServiceImpl implements AlternativeService {
 
     /** B 한 곳 빼기: dropStop을 빼고 나머지는 계획대로. 빼면 남는 곳이 없으면 null */
     private Alternative makeDropAlternative(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng,
-                                            Stop dropStop, boolean isIndoorWanted) {
+                                            Stop dropStop) {
         // 1. 빼면 남는 곳이 없으면 B를 만들지 않음
         if (remainingStops.size() == 1) {
             return null;
@@ -241,15 +232,15 @@ public class AlternativeServiceImpl implements AlternativeService {
         alternative.setChanges(1);
         alternative.setShortName("한 곳 빼기");
         alternative.setTitle(dropStop.getName() + " 빼기");
-        alternative.setReason(getDropReason(getDropRank(dropStop, isIndoorWanted)));
+        alternative.setReason(getDropReason(getDropRank(dropStop)));
         return alternative;
     }
 
     /** C 장소 바꾸기: dropStop을 근처에서 그 시간에 영업 중인 평점 높은 곳으로 바꿈. 바꿀 곳이 없으면 null */
     private Alternative makeSwapAlternative(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng,
-                                            Stop dropStop, boolean isIndoorWanted) {
+                                            Stop dropStop) {
         // 1. 바꿀 장소 찾기
-        Place newPlace = findSwapPlace(dropStop, remainingStops, isIndoorWanted);
+        Place newPlace = findSwapPlace(dropStop, remainingStops);
         if (newPlace == null) {
             return null;
         }
@@ -273,19 +264,19 @@ public class AlternativeServiceImpl implements AlternativeService {
         alternative.setChanges(1);
         alternative.setShortName("장소 변경");
         alternative.setTitle(dropStop.getName() + " 대신 " + newPlace.getName());
-        alternative.setReason((isIndoorWanted ? "실내" : "가까운") + " 평점 좋은 곳(그 시간에 영업 중)으로 바꿔요.");
+        alternative.setReason("가까운 평점 좋은 곳(그 시간에 영업 중)으로 바꿔요.");
         return alternative;
     }
 
     /** 바꿀 장소: dropStop 근처 1.5km 안에서 바꿀 수 있는 곳 중 평점이 가장 높은 곳 (없으면 null) */
-    private Place findSwapPlace(Stop dropStop, List<Stop> remainingStops, boolean isIndoorWanted) {
+    private Place findSwapPlace(Stop dropStop, List<Stop> remainingStops) {
         // getNearbyPlaceList: ②의 메서드, DB에서 PostGIS로 반경 안 장소를 가까운 순으로
         List<Place> candidates = placeService.getNearbyPlaceList(dropStop.getLat(), dropStop.getLng(), SWAP_RADIUS_M, null);
         int arrive = Math.max(Geo.toMinutes(dropStop.getTime()), Geo.nowMinutes());
         int stay = liveStopFinder.getStay(dropStop);
         Place bestPlace = null;
         for (Place place : candidates) {
-            if (!isSwapCandidate(place, remainingStops, isIndoorWanted, arrive, stay)) {
+            if (!isSwapCandidate(place, remainingStops, arrive, stay)) {
                 continue;
             }
             if (bestPlace == null || place.getRating() > bestPlace.getRating()) {
@@ -295,12 +286,9 @@ public class AlternativeServiceImpl implements AlternativeService {
         return bestPlace;
     }
 
-    /** 바꿀 수 있는 곳인지: 평점 있음, 오늘 남은 일정에 없음, (실내를 원하면) 실내, 도착할 때 영업 중 */
-    private boolean isSwapCandidate(Place place, List<Stop> remainingStops, boolean isIndoorWanted, int arrive, int stay) {
+    /** 바꿀 수 있는 곳인지: 평점 있음, 오늘 남은 일정에 없음, 도착할 때 영업 중 */
+    private boolean isSwapCandidate(Place place, List<Stop> remainingStops, int arrive, int stay) {
         if (place.getRating() == null || isInStops(place, remainingStops)) {
-            return false;
-        }
-        if (isIndoorWanted && !placeService.isIndoor(place.getCategory())) {
             return false;
         }
         OpenInfo open = placeService.getOpenInfo(place, Geo.now().toLocalDate(), arrive, stay);
@@ -336,7 +324,7 @@ public class AlternativeServiceImpl implements AlternativeService {
     }
 
     /** 뺄 곳 하나: 고정 일정이 아닌 칸 중 뺄 순위가 가장 높은 곳, 같으면 오래 머무는 곳 (없으면 null) */
-    private Stop findDropStop(List<Stop> stops, boolean isIndoorWanted) {
+    private Stop findDropStop(List<Stop> stops) {
         Stop dropStop = null;
         int dropRank = -1;
         for (Stop stop : stops) {
@@ -344,7 +332,7 @@ public class AlternativeServiceImpl implements AlternativeService {
                 continue; // 고정 일정은 빼지 않음
             }
             // TODO: ①②에게 요청함 — trip_stop·Stop에 중요도(importance)가 생기면 "꼭"은 건너뛰고 "빼도 됨"을 먼저
-            int rank = getDropRank(stop, isIndoorWanted);
+            int rank = getDropRank(stop);
             boolean isHigherRank = rank > dropRank;
             boolean isLongerStay = rank == dropRank && liveStopFinder.getStay(stop) > liveStopFinder.getStay(dropStop);
             if (isHigherRank || isLongerStay) {
@@ -355,16 +343,13 @@ public class AlternativeServiceImpl implements AlternativeService {
         return dropStop;
     }
 
-    /** 뺄 순위: 문 닫은 곳 3 > 계획 시간 지난 곳 2 > (실내를 원할 때) 야외 1 > 그 밖 0 */
-    private int getDropRank(Stop stop, boolean isIndoorWanted) {
+    /** 뺄 순위: 문 닫은 곳 > 계획 시간 지난 곳 > 그 밖 */
+    private int getDropRank(Stop stop) {
         if (isClosedAtArrival(stop)) {
             return DROP_RANK_CLOSED;
         }
         if (liveStopFinder.isMissed(stop)) {
             return DROP_RANK_MISSED;
-        }
-        if (isIndoorWanted && !placeService.isIndoor(stop.getCategory())) {
-            return DROP_RANK_OUTDOOR;
         }
         return DROP_RANK_NORMAL;
     }
@@ -376,9 +361,6 @@ public class AlternativeServiceImpl implements AlternativeService {
         }
         if (rank == DROP_RANK_MISSED) {
             return "계획 시간이 지난 곳을 빼요.";
-        }
-        if (rank == DROP_RANK_OUTDOOR) {
-            return "비를 맞을 수 있는 야외 장소를 빼요.";
         }
         return "한 곳을 빼고 나머지는 계획대로 가요.";
     }
@@ -401,19 +383,6 @@ public class AlternativeServiceImpl implements AlternativeService {
         } catch (ApiException e) {
             return null; // 지워진 장소면 영업 정보 없이 계속
         }
-    }
-
-    /** 사용자 요청에 "비·실내·추워·더워·날씨"가 들어 있으면 실내 위주 */
-    private boolean isIndoorRequest(String request) {
-        if (request == null) {
-            return false;
-        }
-        for (String word : INDOOR_WORDS) {
-            if (request.contains(word)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** 고정 일정 앞 칸부터 차례로 줄여서 need분을 채움. 한 칸에서는 최대 절반까지 */
@@ -448,11 +417,8 @@ public class AlternativeServiceImpl implements AlternativeService {
     @Override
     @Transactional
     public ApplyResponse applyAlternative(long memberId, long tripId, ApplyRequest request) {
-        if (request.getLat() == null || request.getLng() == null) {
-            throw fail(400, "내 위치를 먼저 찾아 주세요.");
-        }
-        // 1. 남은 일정 꺼내기 (고른 대안과 비교할 원래 일정)
-        Trip trip = tripService.getTrip(memberId, tripId);
+        // 1. 공통 오류 검사 후 남은 일정 꺼내기 (고른 대안과 비교할 원래 일정)
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
         if (request.getStops() == null || request.getStops().isEmpty()) {
             throw fail(400, "적용할 대안이 없어요.");
         }

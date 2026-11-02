@@ -6,6 +6,7 @@ import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.LeaveInfo;
 import com.tripbiseo.live.dto.LiveAlert;
 import com.tripbiseo.live.dto.StatusContext;
+import com.tripbiseo.live.dto.WeatherInfo;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Stop;
 
@@ -78,7 +79,20 @@ public class LiveAlertMaker {
             return newAlert("tight-" + fixedStop.getId(), "warn",
                     fixedStop.getName() + "까지 여유가 " + slack + "분뿐이에요", "다음 장소는 짧게 들르는 게 좋아요");
         }
-        return makeNextLateAlert(context);
+        LiveAlert nextLateAlert = makeNextLateAlert(context);
+        return nextLateAlert != null ? nextLateAlert : makeRainAlert(context);
+    }
+
+    /** 다음 경로 비 알림 (가장 낮은 순위). key에 비 시작 시각을 넣어 예보가 바뀌면 다시 울림 */
+    private LiveAlert makeRainAlert(StatusContext context) {
+        WeatherInfo weather = context.getWeather();
+        if (weather == null || weather.getOutdoor().isEmpty()) {
+            return null; // 비 소식이 없거나, 비 올 때 야외에 있을 곳이 없으면 알리지 않음
+        }
+        String what = weather.isSnow() ? "눈" : "비";
+        return newAlert("rain-" + weather.getTime().replace(":", ""), "warn",
+                weather.getTime() + "부터 " + what + " 소식이 있어요 (강수확률 " + weather.getPop() + "%)",
+                String.join(", ", weather.getOutdoor()) + "에 있을 때예요. 우산을 챙기세요");
     }
 
     /**

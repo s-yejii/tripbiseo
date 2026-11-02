@@ -1,7 +1,5 @@
 package com.tripbiseo.live.service;
 
-import static com.tripbiseo.common.exception.ApiException.fail;
-
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -33,7 +31,8 @@ public class TrackServiceImpl implements TrackService {
     private static final int MAX_ACCURACY_M = 100;  // GPS 오차가 이보다 크면 저장만 하고 판정 안 함
 
     private final TrackMapper trackMapper;
-    private final TripService tripService;
+    private final TripService tripService;         // 도착·출발 기록은 trip_stop 주인(②)의 메서드로
+    private final LiveTripReader liveTripReader;   // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
 
     /** GPS 한 점 저장 + 도착·출발 판정 */
     // 규칙: 지금 있는 칸은 하나만. 제일 가까운 칸이 바뀌면(150m 안 두 번) 새 칸 도착 + 전 칸 다녀옴.
@@ -41,12 +40,8 @@ public class TrackServiceImpl implements TrackService {
     @Override
     @Transactional
     public void createTrack(long memberId, long tripId, TrackRequest request) {
-        // 1. 위치 검사 (API.md 공통 오류 1번)
-        if (request.getLat() == null || request.getLng() == null) {
-            throw fail(400, "내 위치를 먼저 찾아 주세요.");
-        }
-        // TODO: ④ 2·3번 검사(404, ongoing 아님)는 ②의 진짜 getTrip이 나오면 추가
-        Trip trip = tripService.getTrip(memberId, tripId);
+        // 1. 공통 오류 검사 (위치 → 404 → 진행 중 아님). GPS를 저장하기 전에 해야 시작 안 한 여행에 점이 안 쌓임
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
 
         // 2. 바로 앞 점을 먼저 읽고(저장 뒤에 읽으면 방금 넣은 점이 나옴) 지금 점 저장
         TrackPoint before = trackMapper.selectLastTrack(tripId);
@@ -137,12 +132,12 @@ public class TrackServiceImpl implements TrackService {
 
     /** 칸 도착 기록 (arrived_at = 지금) */
     private void arriveStop(long memberId, long tripId, Stop stop) {
-        // TODO: 2번에게 요청함 — tripService.arriveStop(memberId, tripId, stop.getId());
+        tripService.arriveStop(memberId, tripId, stop.getId());
     }
 
     /** 칸 출발 기록 (departed_at = 지금, state = done) */
     private void leaveStop(long memberId, long tripId, Stop stop) {
-        // TODO: 2번에게 요청함 — tripService.departStop(memberId, tripId, stop.getId());
+        tripService.departStop(memberId, tripId, stop.getId());
     }
 
     /** 여행의 GPS 점 */

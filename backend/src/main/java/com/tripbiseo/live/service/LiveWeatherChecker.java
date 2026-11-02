@@ -30,11 +30,17 @@ public class LiveWeatherChecker {
     private final WeatherClient weatherClient; // 기상청 단기예보 (공통)
     private final PlaceService placeService;   // 실내 판단 (②)
 
-    /** 비 소식 + 비 맞을 야외 일정. 비 소식이 없거나 예보를 못 받으면 null */
+    /**
+     * 다음 경로 비 소식 + 비 맞을 야외 일정. 비 소식이 없거나 예보를 못 받으면 null.
+     * 예보 위치는 다음 칸 (없으면 내 위치). 기상청 격자가 5km라 같은 동네면 결과가 거의 같아요.
+     */
     public WeatherInfo check(double lat, double lng, StatusContext context) {
+        Stop nextStop = context.getNextStop();
+        double forecastLat = nextStop == null ? lat : nextStop.getLat();
+        double forecastLng = nextStop == null ? lng : nextStop.getLng();
         Forecast forecast;
         try {
-            forecast = weatherClient.getForecast(lat, lng);
+            forecast = weatherClient.getForecast(forecastLat, forecastLng);
         } catch (ApiException e) {
             return null; // 기상청 키가 없거나(503) 기상청 오류(502)면 날씨 없이 계속
         }
