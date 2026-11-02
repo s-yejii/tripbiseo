@@ -21,10 +21,15 @@ public class LiveStopFinder {
 
     private static final int ARRIVE_RADIUS_M = 150; // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
 
+    /** 오늘이 여행 며칠째인지 (시작일이면 1) */
+    public int getToday(Trip trip) {
+        // ChronoUnit.DAYS.between: 두 날짜 사이가 며칠인지 (시작일이면 0 → 1일째)
+        return (int) ChronoUnit.DAYS.between(LocalDate.parse(trip.getStartDate()), Geo.now().toLocalDate()) + 1;
+    }
+
     /** 오늘 칸 전부 (다녀온 칸·뺀 칸 포함) */
     public List<Stop> getTodayStops(Trip trip) {
-        // ChronoUnit.DAYS.between: 두 날짜 사이가 며칠인지 (시작일이면 0 → 1일째)
-        long today = ChronoUnit.DAYS.between(LocalDate.parse(trip.getStartDate()), Geo.now().toLocalDate()) + 1;
+        int today = getToday(trip);
         List<Stop> stops = new ArrayList<>();
         for (Stop stop : trip.getStops()) {
             if (stop.getDay() != null && stop.getDay() == today) {
