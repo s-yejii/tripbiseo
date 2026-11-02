@@ -50,7 +50,8 @@ onUnmounted(() => clearInterval(timer))
 const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사용
 const retro = ref(null)//서버 응답 . 받기 전에는 null
 const errorMessage = ref(``) // 회고를 못 불러왔을 때 화면에 보여 줄 문구
-
+const mapBox = ref(null) // 지도를 그릴 칸
+const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
 const BAR_FULL_MINUTES = 240 // 막대가 꽉 차는 기준 시간(분) // 240분으로 정한 이유는 한 장소에 4시간 이상 머무는 일은 거의 없을것 같아서 주관임.
 
 // 머문 시간을 %로 해주는 것
@@ -142,13 +143,44 @@ const bannerTip = computed(() => {
 onMounted(async () => {
   try{
     retro.value = await get('/trips/' + route.query.id +'/retro')
-
+    await loadMap() 
   }catch  (error){
     errorMessage.value = error.message
 
 
   }
 })
+
+// kakao map 소환
+
+async function loadMap() {
+  const config = await get('/config/public')
+  if(config.kakaoJsKey === undefined) { // 키가 없으면 서버가 빈 객체 {}를 줌
+    errorMessage.value = '지도를 불러오지 못했습니다'
+    return
+
+  }
+
+// <script> 태그를 코드로 만든후 키를 불러와 카카오 맵 불러옴
+const script = document.createElement('script')
+script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=' + config.kakaoJsKey
+script.onload = () => {
+    // load: autoload=false로 미뤄 둔 준비를 시작하고, 끝나면 안의 함수를 실행함
+
+  kakao.maps.load(()=> {
+    drawMap()
+  })
+}
+document.head.appendChild(script) // 페이지에 붙이는 순간 다운로드가 시작돼요
+}
+// 첫 번째 장소를 가운데로 해서 지도를 그림
+function drawMap() {
+  if (retro.value.stops.length === 0) return 
+  const firstStop = retro.value.stops[0]
+  const center = new kakao.maps.LatLng(firstStop.lat , firstStop.lng)
+  new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
+}
+
 
 
 function toggleInfo(no) {
@@ -160,7 +192,7 @@ function toggleInfo(no) {
   <div class="scr scr-Retro">
     <div class="app">
       <div class="retro-map" aria-hidden="true">
-        <div class="map"><img class="base" src="/img/mapA.svg" alt="" style="top: -186px" /></div>
+        <div class="map"><div ref = "mapBox" style ="width: 100%; height: 100%"></div></div>
         <svg class="route" viewBox="0 0 390 330" style="position: absolute; inset: 0">
           <polyline :points="routePoints" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -241,6 +273,7 @@ function toggleInfo(no) {
 
 <style>
 .scr-Retro .retro-map{position:absolute;left:0;right:0;top:0;height:330px;overflow:hidden}
+.scr-Retro .map{z-index: 0 }
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
 .scr-Retro .retro-cmp{display:flex;flex-direction:column;gap:6px}
