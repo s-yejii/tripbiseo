@@ -445,6 +445,19 @@ public class AlternativeServiceImpl implements AlternativeService {
     @Override
     @Transactional
     public ApplyResponse applyAlternative(long memberId, long tripId, ApplyRequest request) {
+        if (request.getLat() == null || request.getLng() == null) {
+            throw fail(400, "내 위치를 먼저 찾아 주세요.");
+        }
+        // 1. 남은 일정 꺼내기 (고른 대안과 비교할 원래 일정)
+        Trip trip = tripService.getTrip(memberId, tripId);
+        if (request.getStops() == null || request.getStops().isEmpty()) {
+            throw fail(400, "적용할 대안이 없어요.");
+        }
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
+        List<Stop> remainingStops = getRemainingStops(todayStops, current);
+
+        // TODO: ④ 2단계 칸마다 반영(updateStop·createStop·skipStops), 3단계 응답 만들기 (아래는 아직 가짜 값)
         ApplyResponse response = new ApplyResponse();
         response.setKey(request.getKey() == null ? "A" : request.getKey());
         response.setMessage("세종문화회관에 늦지 않게 일정을 바꿨어요!");
