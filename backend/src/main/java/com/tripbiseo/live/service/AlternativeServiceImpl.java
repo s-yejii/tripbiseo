@@ -3,7 +3,9 @@ package com.tripbiseo.live.service;
 import static com.tripbiseo.common.exception.ApiException.fail;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,8 @@ public class AlternativeServiceImpl implements AlternativeService {
     private static final int DROP_RANK_OUTDOOR = 1; // 실내를 원할 때 야외 장소
     private static final int DROP_RANK_NORMAL = 0;  // 그 밖 (그중 오래 머무는 곳)
     private static final int SWAP_RADIUS_M = 1500;  // C 장소 바꾸기: 뺄 곳에서 이 반경(m) 안에서 찾음
+    private static final int DEFAULT_STAY_MIN = 60;   // 대안 적용: 머무는 시간이 없으면 60분 (API.md)
+    private static final int NEW_STOP_START_MIN = 30; // 대안 적용: 새 칸에 시각이 없으면 지금부터 30분 뒤
     private static final String[] ALTERNATIVE_KEYS = {"A", "B", "C"}; // 대안 이름표 (만들어진 순서대로)
     private static final String[] INDOOR_WORDS = {"비", "실내", "추워", "더워", "날씨"}; // 요청에 있으면 실내 위주
 
@@ -457,7 +461,12 @@ public class AlternativeServiceImpl implements AlternativeService {
         Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
         List<Stop> remainingStops = getRemainingStops(todayStops, current);
 
-        // TODO: ④ 2단계 칸마다 반영(updateStop·createStop·skipStops), 3단계 응답 만들기 (아래는 아직 가짜 값)
+        // 2. 칸마다 ②에게 부탁: 남은 칸은 수정, 새 장소는 추가, 대안에 없는 남은 칸은 빼기
+        Map<Long, String> noteMap = new HashMap<>(); // 칸 id → "60분 → 30분" (3단계 응답에 씀)
+        List<Long> keptIds = applyChosenStops(memberId, tripId, trip, request.getStops(), remainingStops, noteMap);
+        skipUnchosenStops(memberId, tripId, remainingStops, keptIds);
+
+        // TODO: ④ 3단계 바뀐 일정을 다시 읽어서 응답 만들기 (아래는 아직 가짜 값)
         ApplyResponse response = new ApplyResponse();
         response.setKey(request.getKey() == null ? "A" : request.getKey());
         response.setMessage("세종문화회관에 늦지 않게 일정을 바꿨어요!");
@@ -466,6 +475,93 @@ public class AlternativeServiceImpl implements AlternativeService {
         response.getStops().add(appliedStop(103L, "14:37", "청계천", "관광지", 30, "changed", "60분 → 30분"));
         response.getStops().add(appliedStop(105L, "19:00", "세종문화회관", "문화시설", 120, "kept", null));
         return response;
+    }
+
+    // ---------------------------------------------------------------- 대안 적용 도우미 (4번)
+
+    /**
+     * 고른 대안의 칸마다: id가 남은 칸이면 수정(updateStop), id가 없으면 새 칸 추가(createStop).
+     * id가 있는데 남은 칸이 아니면(다녀온 칸·남의 칸) 무시. 대안에 남은 칸 id 목록을 돌려줌
+     */
+    private List<Long> applyChosenStops(long memberId, long tripId, Trip trip, List<AltStop> chosenStops,
+                                        List<Stop> remainingStops, Map<Long, String> noteMap) {
+        List<Long> keptIds = new ArrayList<>(); // 대안에 남은 칸 id (여기 없는 남은 칸은 나중에 뺌)
+        for (AltStop chosen : chosenStops) {
+            if (chosen.getId() == null) {
+                addNewStop(memberId, tripId, trip, chosen); // 새 장소 → 넣어 줘
+            } else {
+                Stop original = findStopById(remainingStops, chosen.getId());
+                if (original != null) {
+                    updateChosenStop(memberId, tripId, original, chosen, noteMap); // 원래 칸 → 바꿔 줘
+                    keptIds.add(original.getId());
+                }
+            }
+        }
+        return keptIds;
+    }
+
+    /** 고른 대안의 새 장소를 오늘 일정에 추가 (②의 createStop). 좌표가 없으면 건너뜀 (API.md) */
+    private void addNewStop(long memberId, long tripId, Trip trip, AltStop chosen) {
+        if (chosen.getLat() == null || chosen.getLng() == null) {
+            return;
+        }
+        tripService.createStop(memberId, tripId, toAddedStop(chosen, liveStopFinder.getToday(trip)));
+    }
+
+    /** 남은 칸 하나를 고른 대안대로 수정: 머묾, 시각(고정 일정은 그대로). 머묾이 바뀌면 "60분 → 30분"을 noteMap에 */
+    private void updateChosenStop(long memberId, long tripId, Stop original, AltStop chosen, Map<Long, String> noteMap) {
+        int beforeStay = liveStopFinder.getStay(original);
+        int afterStay = chosen.getStay() == null ? DEFAULT_STAY_MIN : chosen.getStay();
+        boolean isFixed = Boolean.TRUE.equals(original.getFixed());
+
+        Stop update = new Stop();
+        update.setTime(isFixed || chosen.getEta() == null ? original.getTime() : chosen.getEta());
+        update.setStay(afterStay);
+        update.setMode(original.getMode()); // ②의 updateStop은 mode·memo를 보낸 값으로 덮어써서, 원래 값을 그대로 보냄
+        update.setMemo(original.getMemo());
+        tripService.updateStop(memberId, tripId, original.getId(), update);
+
+        if (beforeStay != afterStay) {
+            noteMap.put(original.getId(), beforeStay + "분 → " + afterStay + "분");
+        }
+    }
+
+    /** 대안에 없는 남은 칸을 한 번에 skipped로 (②의 skipStops) */
+    private void skipUnchosenStops(long memberId, long tripId, List<Stop> remainingStops, List<Long> keptIds) {
+        List<Long> skipIds = new ArrayList<>();
+        for (Stop stop : remainingStops) {
+            if (!keptIds.contains(stop.getId())) {
+                skipIds.add(stop.getId());
+            }
+        }
+        if (!skipIds.isEmpty()) {
+            tripService.skipStops(memberId, tripId, skipIds);
+        }
+    }
+
+    /** 칸 목록에서 id가 같은 칸 (없으면 null) */
+    private Stop findStopById(List<Stop> stops, Long id) {
+        for (Stop stop : stops) {
+            if (stop.getId().equals(id)) {
+                return stop;
+            }
+        }
+        return null;
+    }
+
+    /** 고른 대안의 새 장소 → 저장할 새 칸. 시각이 없으면 지금 + 30분, 머묾이 없으면 60분 */
+    private Stop toAddedStop(AltStop chosen, int today) {
+        Stop stop = new Stop();
+        stop.setDay(today);
+        stop.setPlaceId(chosen.getPlaceId());
+        stop.setName(chosen.getName());
+        stop.setCategory(chosen.getCategory());
+        stop.setLat(chosen.getLat());
+        stop.setLng(chosen.getLng());
+        stop.setTime(chosen.getEta() == null ? Geo.toHhmm(Geo.nowMinutes() + NEW_STOP_START_MIN) : chosen.getEta());
+        stop.setStay(chosen.getStay() == null ? DEFAULT_STAY_MIN : chosen.getStay());
+        stop.setFixed(false);
+        return stop;
     }
 
     // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
