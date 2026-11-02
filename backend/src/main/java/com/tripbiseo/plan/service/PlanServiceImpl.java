@@ -1,99 +1,366 @@
 package com.tripbiseo.plan.service;
 
+import static com.tripbiseo.common.exception.ApiException.fail;
+
+import java.time.LocalDate;
+import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.util.Geo;
-import com.tripbiseo.member.service.MemberService;
+import com.tripbiseo.plan.dto.AiConditions;
+import com.tripbiseo.plan.dto.AiDraft;
+import com.tripbiseo.plan.dto.AiDraftStop;
 import com.tripbiseo.plan.dto.FixedVisit;
 import com.tripbiseo.plan.dto.PlanChatRequest;
 import com.tripbiseo.plan.dto.PlanChatResponse;
 import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
+import com.tripbiseo.plan.dto.PlanNote;
+import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.service.PlaceService;
 
 import lombok.RequiredArgsConstructor;
 
 /**
- * ③ AI 일정. 지금은 가짜 값이에요.
- * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/PlanService.java
- * 공통 주의: 프롬프트에 GPS 좌표·회원 정보를 넣지 않기 (무료 등급). Map 대신 DTO로 받기 — aiService.askJson(prompt, PlanConditions.class)
+ * ③ AI 일정: 대화 → 여행 조건, 조건 → 일정 초안 (저장은 안 함).
+ * 초안 = RAG: ① 후보를 DB에서 찾고(PlanCandidateFinder) ② Gemini가 후보 id 중에서 고르고 순서를 정하고
+ *       ③ 서버가 id를 다시 확인(후보 밖이면 이름으로 실제 장소 찾기, 못 찾으면 notes에 적고 뺌).
+ * Gemini가 실패하면 꼭 갈 곳·고정 일정만으로 초안 (오류 내지 않음). 좌표·회원 정보는 프롬프트에 넣지 않음.
+ * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/PlanService.java (chat/generate/fallback)
  */
 @Service
 @RequiredArgsConstructor
 public class PlanServiceImpl implements PlanService {
 
-    private final AiService aiService;          // TODO: ③ Gemini 호출
-    private final PlaceService placeService;    // TODO: ③ 후보 장소: getAreaPlaceList(지역), getNearbyPlaceList(내 위치 2km), getPlaceByName
-    private final MemberService memberService;  // TODO: ③ getStyle(memberId)로 여행 스타일 반영
+    private static final List<String> DEFAULT_TRANSPORTS = List.of("subway", "bus", "walk");
+    private static final int MAX_MESSAGE_LENGTH = 300;
+    private static final int MAX_TITLE_LENGTH = 60;
+    private static final int MAX_PROMPT_CANDIDATES = 90;
+    private static final int TODAY_START_AFTER_MIN = 30;  // 오늘 출발이면 지금부터 30분 뒤부터
+    private static final int FALLBACK_START_MIN = 600;    // AI 없이: 10:00부터 2시간 간격
+    private static final int FALLBACK_GAP_MIN = 120;
+    private static final int MIN_STAY = 10;
+    private static final int MAX_STAY = 600;
 
-    /** 사용자 말 → 여행 조건 */
-    // TODO: ③ 조건 정리. message 1~300자 검사 → aiService.askJson(prompt, 조건 DTO) → 보낸 조건에 새 값만 덮어쓰기 → 기본값 채우기.
-    //       참고: 예전 PlanService.chat. 주의: 예전 str/maps 같은 static 도우미 대신 DTO 필드로
+    private final AiService aiService;
+    private final PlaceService placeService;
+    private final PlanCandidateFinder planCandidateFinder; // 후보 장소 찾기 (RAG의 찾기)
+
+    /** 사용자 말 → 여행 조건. 보낸 조건은 남기고 Gemini가 새로 뽑은 값만 덮어씀. Gemini 실패는 오류 그대로 (API.md) */
     @Override
     public PlanChatResponse chatPlan(PlanChatRequest request) {
+        String message = request.getMessage() == null ? "" : request.getMessage().trim();
+        if (message.isEmpty() || message.length() > MAX_MESSAGE_LENGTH) {
+            throw fail(400, "메시지를 1~300자로 입력해 주세요.");
+        }
         PlanConditions conditions = request.getConditions() == null ? new PlanConditions() : request.getConditions();
-        String today = Geo.now().toLocalDate().toString();
-        conditions.setTitle("종로 하루");
-        conditions.setRegion("서울 종로");
-        conditions.setStartDate(today);
-        conditions.setEndDate(today);
-        conditions.setPeople(2);
-        conditions.setTransports(List.of("subway", "bus", "walk"));
-        conditions.setMustVisit(List.of("경복궁"));
-        FixedVisit fixed = new FixedVisit();
-        fixed.setName("세종문화회관");
-        fixed.setTime("19:00");
-        conditions.setFixed(List.of(fixed));
-        conditions.setStyle("여유롭게");
+        AiConditions answer = aiService.askJson(makeChatPrompt(conditions, message), AiConditions.class);
+        mergeConditions(conditions, answer);
+        fillDefaults(conditions);
 
         PlanChatResponse response = new PlanChatResponse();
-        response.setReply("종로 하루 여행으로 정리했어요. 맞나요?");
+        boolean hasReply = answer != null && answer.getReply() != null && !answer.getReply().isBlank();
+        response.setReply(hasReply ? answer.getReply() : "조건을 정리했어요. 확인해 주세요.");
         response.setConditions(conditions);
         return response;
     }
 
-    /** 조건 → 일정 초안 */
-    // TODO: ③ 일정 초안. 후보 장소 → Gemini가 고르고 순서 → 서버가 시각 계산 → Stop 초안(②의 저장 규칙: time HH:mm, stay 10~600).
-    //       참고: 예전 PlanService.generate/fallback. 주의: Gemini 실패(ApiException)는 catch해서 notes에 적고 꼭 갈 곳만으로.
-    //       region이 "내 위치"면 lat·lng 주변 2km 후보 (좌표는 Gemini에 보내지 않음). 위치도 없으면 422
+    /** 조건 → 일정 초안: 후보 찾기 → Gemini 고르기(실패하면 꼭 갈 곳만) → 실제 장소로 바꾸기 */
     @Override
     public PlanGenerateResponse generatePlan(long memberId, PlanGenerateRequest request) {
-        PlanConditions conditions = request.getConditions() == null ? new PlanConditions() : request.getConditions();
-        String today = Geo.now().toLocalDate().toString();
-        PlanGenerateResponse response = new PlanGenerateResponse();
-        response.setTitle(conditions.getTitle() == null ? "새 여행" : conditions.getTitle());
-        response.setStartDate(conditions.getStartDate() == null ? today : conditions.getStartDate());
-        response.setEndDate(conditions.getEndDate() == null ? response.getStartDate() : conditions.getEndDate());
-        response.setPeople(conditions.getPeople() == null ? 1 : conditions.getPeople());
-        response.setTransports(conditions.getTransports() == null ? new ArrayList<>() : conditions.getTransports());
-        response.getStops().add(draftStop("e70caff5-27cf-5c76-a1f3-201b7032d672", "경복궁", "관광지", "서울 종로구 사직로 161",
-                37.5796, 126.977, "10:00", 90, false));
-        response.getStops().add(draftStop(null, "세종문화회관", "문화시설", "서울 종로구 세종대로 175",
-                37.5725, 126.9759, "19:00", 120, true));
+        PlanConditions conditions = request.getConditions();
+        if (conditions == null) {
+            throw fail(400, "여행 조건이 없어요.");
+        }
+        PlanGenerateResponse response = makeEmptyDraft(conditions);
+        int days = (int) ChronoUnit.DAYS.between(LocalDate.parse(response.getStartDate()), LocalDate.parse(response.getEndDate())) + 1;
+        String region = conditions.getRegion() == null ? "" : conditions.getRegion();
+        boolean isNearMe = planCandidateFinder.isNearMe(region);
+        Double baseLat = isNearMe ? request.getLat() : null; // 다른 지역을 말했으면 내 위치는 쓰지 않음
+        Double baseLng = isNearMe ? request.getLng() : null;
+
+        Map<String, Place> candidates = findCandidates(conditions, region, isNearMe, baseLat, baseLng, response.getNotes());
+        List<AiDraftStop> picked = pickStops(conditions, request.getMessages(), candidates, days, response);
+        addPickedStops(response, picked, candidates, days, baseLat, baseLng);
+        if (response.getStops().isEmpty()) {
+            boolean isMissingLocation = isNearMe && request.getLat() == null;
+            throw fail(422, isMissingLocation ? "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요."
+                                              : "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요.");
+        }
+        // day → time 순 (sort에 넘기는 규칙: day가 같으면 time 글자 순, "09:00" < "10:00")
+        response.getStops().sort((first, second) -> first.getDay().equals(second.getDay())
+                ? first.getTime().compareTo(second.getTime()) : first.getDay() - second.getDay());
         return response;
     }
 
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static Stop draftStop(String placeId, String name, String category, String address,
-                                  double lat, double lng, String time, int stay, boolean isFixed) {
-        Stop stop = new Stop();
+    // ---------------------------------------------------------------- 대화 → 조건
+
+    /** 이전 조건과 오늘 날짜를 주고 JSON으로만 답하게 함 (좌표 없음) */
+    private String makeChatPrompt(PlanConditions conditions, String message) {
+        LocalDate today = Geo.now().toLocalDate();
+        String dayName = today.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.KOREAN);
+        return "너는 여행 일정 비서야. 오늘은 " + today + "(" + dayName + ")이야.\n"
+             + "사용자 말에서 여행 조건을 뽑아 JSON만 출력해. 말하지 않은 값은 null로 둬(이전 조건을 유지할게).\n"
+             + "이동 수단(transports)은 사용자가 직접 말했을 때만 채우고 짐작하지 마. \"내 위치·여기·이 근처\"라고 하면 region은 \"내 위치\".\n"
+             + "이전 조건:\n" + toConditionText(conditions)
+             + "사용자: \"" + message + "\"\n"
+             + "{\"reply\": \"조건을 정리했다는 한두 문장 + 확인 부탁\", \"title\": \"여행 이름(15자 이내)\", \"region\": \"지역(예: 서울 종로)\", "
+             + "\"startDate\": \"YYYY-MM-DD\", \"endDate\": \"YYYY-MM-DD\", \"people\": 정수, \"transports\": [\"bus\"|\"subway\"|\"walk\"|\"taxi\"|\"car\"], "
+             + "\"mustVisit\": [\"꼭 갈 장소\"], \"fixed\": [{\"name\": \"시간이 정해진 일정 장소\", \"time\": \"HH:mm\"}], \"style\": \"여행 스타일 한 줄\"}";
+    }
+
+    /** 조건 → 프롬프트용 글 */
+    private String toConditionText(PlanConditions conditions) {
+        StringBuilder text = new StringBuilder(); // StringBuilder: 글자를 여러 번 이어 붙일 때
+        appendLine(text, "title", conditions.getTitle());
+        appendLine(text, "region", conditions.getRegion());
+        appendLine(text, "startDate", conditions.getStartDate());
+        appendLine(text, "endDate", conditions.getEndDate());
+        appendLine(text, "people", conditions.getPeople() == null ? null : String.valueOf(conditions.getPeople()));
+        appendLine(text, "transports", conditions.getTransports() == null ? null : String.join(",", conditions.getTransports()));
+        appendLine(text, "mustVisit", conditions.getMustVisit() == null ? null : String.join(",", conditions.getMustVisit()));
+        if (conditions.getFixed() != null) {
+            for (FixedVisit fixed : conditions.getFixed()) {
+                appendLine(text, "fixed", fixed.getName() + " " + fixed.getTime());
+            }
+        }
+        appendLine(text, "style", conditions.getStyle());
+        return text.length() == 0 ? "(없음)\n" : text.toString();
+    }
+
+    private void appendLine(StringBuilder text, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            text.append("- ").append(key).append(": ").append(value).append("\n");
+        }
+    }
+
+    /** Gemini가 새로 뽑은 값만 덮어씀 (빈 목록은 이전 값을 지우지 않음) */
+    private void mergeConditions(PlanConditions conditions, AiConditions answer) {
+        if (answer == null) {
+            return;
+        }
+        if (hasText(answer.getTitle())) {
+            conditions.setTitle(answer.getTitle());
+        }
+        if (hasText(answer.getRegion())) {
+            conditions.setRegion(answer.getRegion());
+        }
+        if (hasText(answer.getStartDate())) {
+            conditions.setStartDate(answer.getStartDate());
+        }
+        if (hasText(answer.getEndDate())) {
+            conditions.setEndDate(answer.getEndDate());
+        }
+        if (answer.getPeople() != null) {
+            conditions.setPeople(answer.getPeople());
+        }
+        mergeLists(conditions, answer);
+        if (hasText(answer.getStyle())) {
+            conditions.setStyle(answer.getStyle());
+        }
+    }
+
+    private void mergeLists(PlanConditions conditions, AiConditions answer) {
+        if (answer.getTransports() != null && !answer.getTransports().isEmpty()) {
+            conditions.setTransports(answer.getTransports());
+        }
+        if (answer.getMustVisit() != null && !answer.getMustVisit().isEmpty()) {
+            conditions.setMustVisit(answer.getMustVisit());
+        }
+        if (answer.getFixed() != null && !answer.getFixed().isEmpty()) {
+            conditions.setFixed(answer.getFixed());
+        }
+    }
+
+    /** 기본값: 시작일 오늘, 끝날 = 시작일, 인원 1, 수단 지하철·버스·도보 */
+    private void fillDefaults(PlanConditions conditions) {
+        if (!hasText(conditions.getStartDate())) {
+            conditions.setStartDate(Geo.now().toLocalDate().toString());
+        }
+        if (!hasText(conditions.getEndDate())) {
+            conditions.setEndDate(conditions.getStartDate());
+        }
+        if (conditions.getPeople() == null) {
+            conditions.setPeople(1);
+        }
+        if (conditions.getTransports() == null || conditions.getTransports().isEmpty()) {
+            conditions.setTransports(DEFAULT_TRANSPORTS);
+        }
+    }
+
+    // ---------------------------------------------------------------- 조건 → 초안
+
+    /** 조건 값으로 빈 초안 (transports는 조건에 없으면 [] — API.md) */
+    private PlanGenerateResponse makeEmptyDraft(PlanConditions conditions) {
+        PlanGenerateResponse response = new PlanGenerateResponse();
+        String today = Geo.now().toLocalDate().toString();
+        response.setTitle(hasText(conditions.getTitle()) ? cut(conditions.getTitle(), MAX_TITLE_LENGTH) : "새 여행");
+        response.setStartDate(hasText(conditions.getStartDate()) ? conditions.getStartDate() : today);
+        response.setEndDate(hasText(conditions.getEndDate()) ? conditions.getEndDate() : response.getStartDate());
+        response.setPeople(conditions.getPeople() == null ? 1 : conditions.getPeople());
+        response.setTransports(conditions.getTransports() == null ? new ArrayList<>() : conditions.getTransports());
+        return response;
+    }
+
+    /** R 찾기: 내 위치 근처 + 꼭 갈 곳과 주변 + 지역. 꼭 갈 곳을 못 찾으면 notes에 */
+    private Map<String, Place> findCandidates(PlanConditions conditions, String region, boolean isNearMe,
+                                              Double baseLat, Double baseLng, List<PlanNote> notes) {
+        Map<String, Place> candidates = planCandidateFinder.newCandidates();
+        if (baseLat != null && baseLng != null) {
+            planCandidateFinder.addNearMe(candidates, baseLat, baseLng);
+        }
+        if (conditions.getMustVisit() != null) {
+            for (String name : conditions.getMustVisit()) {
+                if (planCandidateFinder.addMustVisit(candidates, name, baseLat, baseLng) == null) {
+                    notes.add(makeNote(name + "의 위치를 찾지 못했어요", placeService.getNaverUrl(name, null)));
+                }
+            }
+        }
+        if (!isNearMe) {
+            planCandidateFinder.addArea(candidates, region);
+        }
+        return candidates;
+    }
+
+    /** G 고르기: Gemini가 후보 안에서 고름. 키가 없거나 실패하면 꼭 갈 곳·고정 일정만 (notes에 안내) */
+    private List<AiDraftStop> pickStops(PlanConditions conditions, List<String> messages, Map<String, Place> candidates,
+                                        int days, PlanGenerateResponse response) {
+        if (aiService.isReady()) {
+            try {
+                AiDraft draft = aiService.askJson(makeDraftPrompt(conditions, messages, candidates, days, response.getStartDate()), AiDraft.class);
+                if (draft != null && hasText(draft.getTitle())) {
+                    response.setTitle(cut(draft.getTitle(), MAX_TITLE_LENGTH));
+                }
+                if (draft != null && !draft.getStops().isEmpty()) {
+                    return draft.getStops();
+                }
+            } catch (ApiException e) {
+                response.getNotes().add(makeNote("AI 연결이 안 돼서 꼭 갈 곳만 순서대로 담았어요 (" + e.getMessage() + ")", null));
+                return makeFallbackStops(conditions);
+            }
+        }
+        response.getNotes().add(makeNote("AI 연결이 안 돼서 꼭 갈 곳만 순서대로 담았어요", null));
+        return makeFallbackStops(conditions);
+    }
+
+    /** 후보 목록(id | 이름 | 분류 | 평점 | 주소)과 규칙을 주고 JSON으로만 답하게 함. 좌표는 넣지 않음 */
+    private String makeDraftPrompt(PlanConditions conditions, List<String> messages, Map<String, Place> candidates, int days, String startDate) {
+        StringBuilder list = new StringBuilder();
+        int count = 0;
+        for (Place place : candidates.values()) {
+            if (count++ >= MAX_PROMPT_CANDIDATES) {
+                break;
+            }
+            list.append(place.getId()).append(" | ").append(place.getName()).append(" | ").append(place.getCategory());
+            if (place.getRating() != null) {
+                list.append(" | ★").append(place.getRating()).append("(").append(place.getReviewCount()).append(")");
+            }
+            list.append(" | ").append(place.getAddress()).append("\n");
+        }
+        String todayRule = "";
+        if (startDate.equals(Geo.now().toLocalDate().toString())) {
+            todayRule = "오늘 출발하는 여행이야. 1일차 일정은 " + Geo.toHhmm(Geo.nowMinutes() + TODAY_START_AFTER_MIN) + " 이후로만 짜.\n";
+        }
+        return "여행 일정을 짜 줘. 시간 계산은 대략이면 돼(서버가 실제 이동 시간으로 다시 검사해).\n"
+             + "조건:\n" + toConditionText(conditions)
+             + "사용자가 한 말: " + (messages == null ? "" : String.join(" / ", messages)) + "\n"
+             + "규칙: 아래 후보 목록에서 고르고 id를 그대로 적어. 꼭 갈 곳과 시간 고정 일정은 반드시 넣고, 고정 일정은 그 시각으로.\n"
+             + "꼭 갈 곳이 '분식집·카페'처럼 종류면 후보 중 그 종류에서 골라. 목록에 없는 장소가 꼭 필요하면 id는 null, name은 실제 상호명으로.\n"
+             + "하루 4~6곳, 여러 날이면 날마다 나눠서, 점심(12시 전후)·저녁 시간엔 식당, 가까운 곳끼리 이어서.\n"
+             + "기간: " + days + "일 (day는 1부터)\n" + todayRule
+             + "후보(id | 이름 | 분류 | 평점 | 주소):\n" + list
+             + "JSON만: {\"title\": \"여행 이름\", \"stops\": [{\"day\": 1, \"id\": \"후보 id 또는 null\", \"name\": \"장소 이름\", \"time\": \"HH:mm\", \"stay\": 머무는 분, \"fixed\": false}]}";
+    }
+
+    /** AI 없이: 꼭 갈 곳을 10시부터 2시간 간격, 고정 일정은 그 시각 */
+    private List<AiDraftStop> makeFallbackStops(PlanConditions conditions) {
+        List<AiDraftStop> stops = new ArrayList<>();
+        int clock = FALLBACK_START_MIN;
+        if (conditions.getMustVisit() != null) {
+            for (String name : conditions.getMustVisit()) {
+                stops.add(makeDraftStop(name, Geo.toHhmm(clock), 90, false));
+                clock += FALLBACK_GAP_MIN;
+            }
+        }
+        if (conditions.getFixed() != null) {
+            for (FixedVisit fixed : conditions.getFixed()) {
+                stops.add(makeDraftStop(fixed.getName(), fixed.getTime(), 120, true));
+            }
+        }
+        return stops;
+    }
+
+    private AiDraftStop makeDraftStop(String name, String time, int stay, boolean isFixed) {
+        AiDraftStop stop = new AiDraftStop();
         stop.setDay(1);
-        stop.setPlaceId(placeId);
         stop.setName(name);
-        stop.setCategory(category);
-        stop.setAddress(address);
-        stop.setLat(lat);
-        stop.setLng(lng);
         stop.setTime(time);
         stop.setStay(stay);
         stop.setFixed(isFixed);
+        return stop;
+    }
+
+    /** 검사 + 실제 장소로: 후보 id면 그 장소, 아니면 이름으로 찾기, 못 찾으면 notes에 적고 뺌 */
+    private void addPickedStops(PlanGenerateResponse response, List<AiDraftStop> picked, Map<String, Place> candidates,
+                                int days, Double baseLat, Double baseLng) {
+        Place first = candidates.isEmpty() ? null : candidates.values().iterator().next();
+        Double nearLat = baseLat != null ? baseLat : first == null ? null : first.getLat();
+        Double nearLng = baseLng != null ? baseLng : first == null ? null : first.getLng();
+        for (AiDraftStop pick : picked) {
+            Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
+            if (place == null) {
+                place = placeService.getPlaceByName(pick.getName(), nearLat, nearLng);
+            }
+            if (place == null) {
+                String name = pick.getName() == null ? "" : pick.getName();
+                response.getNotes().add(makeNote(name + "의 위치를 찾지 못해 뺐어요", placeService.getNaverUrl(name, null)));
+                continue;
+            }
+            response.getStops().add(toDraftStop(pick, place, days));
+        }
+    }
+
+    /** 초안 칸 (②의 저장 규칙: day 1~기간, time HH:mm, stay 10~600) */
+    private Stop toDraftStop(AiDraftStop pick, Place place, int days) {
+        Stop stop = new Stop();
+        int day = pick.getDay() == null ? 1 : pick.getDay();
+        stop.setDay(Math.min(days, Math.max(1, day)));
+        stop.setPlaceId(place.getId());
+        stop.setName(place.getName());
+        stop.setCategory(place.getCategory());
+        stop.setAddress(place.getAddress());
+        stop.setLat(place.getLat());
+        stop.setLng(place.getLng());
+        boolean isTime = pick.getTime() != null && pick.getTime().matches("([01]\\d|2[0-3]):[0-5]\\d");
+        stop.setTime(isTime ? pick.getTime() : "10:00");
+        stop.setStay(pick.getStay() == null ? 60 : Math.max(MIN_STAY, Math.min(MAX_STAY, pick.getStay())));
+        stop.setFixed(Boolean.TRUE.equals(pick.getFixed()));
         stop.setState("todo");
         return stop;
+    }
+
+    private PlanNote makeNote(String text, String url) {
+        PlanNote note = new PlanNote();
+        note.setText(text);
+        note.setUrl(url);
+        return note;
+    }
+
+    private boolean hasText(String text) {
+        return text != null && !text.isBlank();
+    }
+
+    private String cut(String text, int maxLength) {
+        return text.length() > maxLength ? text.substring(0, maxLength) : text;
     }
 }
