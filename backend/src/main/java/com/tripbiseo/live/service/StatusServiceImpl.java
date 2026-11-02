@@ -50,11 +50,10 @@ public class StatusServiceImpl implements StatusService {
     private final LiveWeatherChecker liveWeatherChecker; // 비 소식 + 비 맞을 야외 일정 (④ 도우미)
 
     /** 지금 상황 다시 계산 */
-    // TODO: ④ 7단계 replan. 참고: 예전 LiveService.status
     @Override
     public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
         // 1단계: now, currentStopId, stops[] / 2단계: eta, next / 3단계: fixed, reach, hint, area
-        // 4단계: leave, alert / 5단계: 영업 정보 / 6단계: weather
+        // 4단계: leave, alert / 5단계: 영업 정보 / 6단계: weather / 7단계: replan
         if (request.getLat() == null || request.getLng() == null) {
             throw fail(400, "내 위치를 먼저 찾아 주세요.");
         }
@@ -93,8 +92,8 @@ public class StatusServiceImpl implements StatusService {
         response.setLeave(leave);
         response.setAlert(liveAlertMaker.makeAlert(context, leave));
 
-        // TODO: ④ 7단계에서 진짜 값으로 (지금은 가짜 값)
-        response.setReplan(false);
+        // 7단계: 다시 짜는 게 좋은지 (알림과 같은 기준이라 LiveAlertMaker가 판단)
+        response.setReplan(liveAlertMaker.isReplanNeeded(context));
         return response;
     }
 

@@ -51,7 +51,7 @@ public class LiveAlertMaker {
         Stop current = context.getCurrent();
         Stop fixedStop = context.getFixedStop();
         Integer slack = context.getSlack();
-        if (current != null && context.getNow() >= context.getLeaveAt()) {
+        if (isOverdue(context)) {
             int overMinutes = context.getNow() - context.getLeaveAt();
             // key 끝의 숫자는 5분마다 바뀜 → 화면이 5분마다 다시 알려 줌
             return newAlert("overdue-" + current.getId() + "-" + overMinutes / 5, "danger",
@@ -61,7 +61,7 @@ public class LiveAlertMaker {
         if (closedAlert != null) {
             return closedAlert;
         }
-        if (slack != null && slack < 0) {
+        if (isLate(slack)) {
             // key 끝의 숫자는 10분 더 늦어질 때마다 바뀜 → 그때마다 다시 알려 줌
             return newAlert("late-" + fixedStop.getId() + "-" + (-slack) / 10, "danger",
                     "지금대로면 " + fixedStop.getName() + "에 " + (-slack) + "분 늦어요", "'대안 보기'로 늦지 않는 방법을 확인하세요");
@@ -81,7 +81,38 @@ public class LiveAlertMaker {
         return makeNextLateAlert(context);
     }
 
-    // ---------------------------------------------------------------- 도우미
+    /**
+     * 일정을 다시 짜는 게 좋은지 (화면에 지연 배너·'대안 보기'를 띄울지)
+     * 더 머묾 · 영업 끝·휴무·머묾 부족 · 고정 일정 지각 · 지난 일정 · 다음 장소 10분 넘게 늦음 중 하나라도 맞으면 true.
+     * makeAlert는 하나만 고르므로 결과를 쓰지 않고 조건을 하나씩 다시 검사해요. (출발 알림·여유 10분 이하는 다시 짤 일이 아님)
+     */
+    public boolean isReplanNeeded(StatusContext context) {
+        if (isOverdue(context)) {
+            return true;
+        }
+        if (makeClosedAlert(context) != null) {
+            return true;
+        }
+        if (isLate(context.getSlack())) {
+            return true;
+        }
+        if (!context.getMissedStops().isEmpty()) {
+            return true;
+        }
+        return makeNextLateAlert(context) != null;
+    }
+
+    // makeAlert에서
+
+    /** 지금 칸에서 계획한 출발 시각이 지났는지 (더 머묾) */
+    private boolean isOverdue(StatusContext context) {
+        return context.getCurrent() != null && context.getNow() >= context.getLeaveAt();
+    }
+
+    /** 고정 일정에 늦는지 (여유가 음수) */
+    private boolean isLate(Integer slack) {
+        return slack != null && slack < 0;
+    }
 
     /** 남은 분이 −10~10 안이면 LeaveInfo, 아니면 null */
     private LeaveInfo toLeave(Stop stop, int leaveAt, int minutesLeft, String to, boolean isAtStop) {
