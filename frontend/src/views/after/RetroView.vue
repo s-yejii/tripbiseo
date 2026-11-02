@@ -81,7 +81,7 @@ const compare = computed(() => {
 
 
 // 분류별로 계획과의 시간 차이 합계와 장소 개수를 모음. 예: { 카페: { sum: 36, count: 2 } }
-const categoryTotals = computed(() => {
+const topCategory = computed(() => {
   const totals = {}
   if (retro.value === null) return totals
 
@@ -113,10 +113,36 @@ const topCategory = computed(() => {
   return best
 })
 
+// 배너 첫 줄 문구. 비교할 기록이 없으면 null
+const bannerTitle = computed(() => {
+  if (topCategory.value === null) return null
+
+  const name = topCategory.value.name
+  const average = topCategory.value.average
+
+  if (average > 0) return name + '에선 평균 ' + average + '분 더 머물렀어요'
+  if (average < 0) return name + '에선 평균 ' + Math.abs(average) + '분 덜 머물렀어요'
+  return name + '에선 계획대로 머물렀어요'
+})
+
+
+// 배너 두 번째 줄 문구. 기록이 없거나 평균 차이가 0이면 null
+const bannerTip = computed(() => {
+  if (topCategory.value === null) return null
+
+  const name = topCategory.value.name
+  const average = topCategory.value.average
+
+  if (average > 0) return '다음 여행엔 ' + name + ' 시간을 넉넉히 잡아 보세요'
+  if (average < 0) return '다음 여행엔 ' + name + ' 시간을 줄여도 괜찮을거 같아요'
+  return null
+})
+
 //화면이 열리면 회고 데이터를 가져옴
 onMounted(async () => {
   try{
     retro.value = await get('/trips/' + route.query.id +'/retro')
+
   }catch  (error){
     errorMessage.value = error.message
 
@@ -196,10 +222,10 @@ function toggleInfo(no) {
             <span class="cmp__bars"><i :style="{ width: row.plan + '%', background: 'var(--line-strong)' }"></i><i :style="{ width: row.real + '%', background: 'var(--navy)' }"></i></span>
             <b class="tn" :class="row.cls" style="font-size: 13px; text-align: right">{{ row.diff }}</b>
           </div>
-          <div class="banner banner--info" style="margin-top: 6px">
+          <div v-if="bannerTitle" class="banner banner--info" style="margin-top: 6px">
             <i class="ic i-info" aria-hidden="true"></i>
-            <span class="banner__body"><span class="t-strong">카페에선 평균 18분 더 머물렀어요</span><span class="t-cap">다음 일정엔 카페 시간을 넉넉히 잡을게요</span></span>
-          </div>
+          <span class="banner__body"><span class="t-strong">{{ bannerTitle }}</span><span v-if="bannerTip" class="t-cap">{{ bannerTip }}</span></span></div>
+
         </section>
       </div>
 
