@@ -9,8 +9,8 @@ import { post } from '@/api/http'
 
 const router = useRouter()
 
-const agreeTerms = ref(true)
-const agreeLocation = ref(true)
+const agreeTerms = ref(false)
+const agreeLocation = ref(false)
 const userId = ref('')
 const password = ref('')
 const password2 = ref('')
