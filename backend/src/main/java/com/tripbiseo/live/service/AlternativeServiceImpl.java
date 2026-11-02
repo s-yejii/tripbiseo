@@ -12,6 +12,7 @@ import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.WeatherClient;
 import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.live.dto.AltStop;
 import com.tripbiseo.live.dto.Alternative;
 import com.tripbiseo.live.dto.AlternativesRequest;
 import com.tripbiseo.live.dto.AlternativesResponse;
@@ -44,6 +45,7 @@ public class AlternativeServiceImpl implements AlternativeService {
     private static final int DROP_RANK_OUTDOOR = 1; // 실내를 원할 때 야외 장소
     private static final int DROP_RANK_NORMAL = 0;  // 그 밖 (그중 오래 머무는 곳)
     private static final int SWAP_RADIUS_M = 1500;  // C 장소 바꾸기: 뺄 곳에서 이 반경(m) 안에서 찾음
+    private static final String[] ALTERNATIVE_KEYS = {"A", "B", "C"}; // 대안 이름표 (만들어진 순서대로)
     private static final String[] INDOOR_WORDS = {"비", "실내", "추워", "더워", "날씨"}; // 요청에 있으면 실내 위주
 
     private final TripService tripService;                     // 오늘 칸 읽기·고치기 (②)
@@ -54,14 +56,14 @@ public class AlternativeServiceImpl implements AlternativeService {
     private final AlternativeCalculator alternativeCalculator; // 바뀐 칸 목록으로 몇 시 도착·여유 계산 (④ 도우미)
 
     /** 대안 A·B·C */
-    // TODO: ④ 대안. 남은 일정 없으면 400 "오늘 남은 일정이 없어요." → 규칙 대안(A 시간 단축 / B 한 곳 빼기 / C 장소 변경) →
-    //       aiService.isReady()면 askJsonWithWeather로 Gemini 대안, 실패하면 규칙만. 3개 채우고 key A·B·C, recommended 하나.
-    //       참고: 예전 LiveService.alternatives/fit/chain/shape/substitute/recommendBest.
+    // TODO: ④ (여유) aiService.isReady()면 askJsonWithWeather로 Gemini 대안, 실패하면 규칙만.
     //       주의: 예전 프롬프트의 "위치 (위도, 경도)"는 빼기. 날씨 도구는 인자 없음. 예전 askWithSearch(구글 검색 대체)는 쓰지 않기.
-    //             근처 후보는 placeService.getNearbyPlaceList(PostGIS)로
     @Override
     public AlternativesResponse makeAlternatives(long memberId, long tripId, AlternativesRequest request) {
-        // 1단계: 남은 일정 꺼내기
+        if (request.getLat() == null || request.getLng() == null) {
+            throw fail(400, "내 위치를 먼저 찾아 주세요.");
+        }
+        // 1. 남은 일정 꺼내기
         Trip trip = tripService.getTrip(memberId, tripId);
         List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
         Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
@@ -70,13 +72,82 @@ public class AlternativeServiceImpl implements AlternativeService {
             throw fail(400, "오늘 남은 일정이 없어요.");
         }
 
+        // 2. 대안 A·B·C 만들기
+        List<Alternative> alternatives = makeRuleAlternatives(trip, current, remainingStops, request);
+
+        // 3. 마무리: 영업 정보·닫힌 곳 수 → 이름표 A·B·C → 추천 하나
+        for (Alternative alternative : alternatives) {
+            fillOpenInfo(alternative);
+        }
+        setKeys(alternatives);
+        chooseRecommended(alternatives);
+
         AlternativesResponse response = new AlternativesResponse();
-        response.setTitle("남은 일정 대안"); // TODO: ④ 6단계에서 고정 일정이 있으면 "{고정 일정}에 늦지 않는 대안"
+        response.setTitle(getTitle(remainingStops));
         response.setSubtitle("지금 위치·시각에서 다시 계산했어요");
         response.setSource("rule");
-        response.setAlternatives(makeRuleAlternatives(trip, current, remainingStops, request));
-        // TODO: ④ 6단계 key(A·B·C)·recommended 채우기
+        response.setAlternatives(alternatives);
         return response;
+    }
+
+    // ---------------------------------------------------------------- 마무리 (6단계)
+
+    /** 대안의 칸마다 도착 시각 기준 영업 정보(닫는 시각·닫힌 이유)를 채우고, 도착할 때 닫힌 곳 수를 셈 */
+    private void fillOpenInfo(Alternative alternative) {
+        int closedCount = 0;
+        for (AltStop altStop : alternative.getStops()) {
+            int stay = altStop.getStay() == null ? 0 : altStop.getStay();
+            OpenInfo open = findOpenInfo(altStop.getPlaceId(), Geo.toMinutes(altStop.getEta()), stay);
+            if (open == null) {
+                continue; // 영업 정보를 모름
+            }
+            altStop.setCloseAt(open.getCloseAt());
+            altStop.setClosedReason(open.getClosedReason());
+            altStop.setClosingSoon(Boolean.TRUE.equals(open.getClosingSoon()));
+            if (Boolean.FALSE.equals(open.getOpen())) {
+                closedCount++;
+            }
+        }
+        alternative.setClosedCount(closedCount);
+    }
+
+    /** 만들어진 순서대로 key A·B·C (C가 없으면 A·B만) */
+    private void setKeys(List<Alternative> alternatives) {
+        for (int i = 0; i < alternatives.size(); i++) {
+            alternatives.get(i).setKey(ALTERNATIVE_KEYS[i]);
+        }
+    }
+
+    /** 추천 대안 하나: 안 늦고 닫힌 곳 없는 대안 중 바뀐 칸이 가장 적은 것. 없으면 여유가 가장 많은 것 */
+    private void chooseRecommended(List<Alternative> alternatives) {
+        // 1번째: 좋은 대안(안 늦음 + 닫힌 곳 없음) 중 바뀐 칸이 가장 적은 것. 같으면 먼저 나온 것
+        Alternative best = null;
+        for (Alternative alternative : alternatives) {
+            boolean isGood = alternative.getSlackMin() >= 0 && alternative.getClosedCount() == 0;
+            if (isGood && (best == null || alternative.getChanges() < best.getChanges())) {
+                best = alternative;
+            }
+        }
+        // 2번째: 좋은 대안이 없으면 덜 늦는 것 (여유가 가장 많은 것)
+        if (best == null) {
+            for (Alternative alternative : alternatives) {
+                if (best == null || alternative.getSlackMin() > best.getSlackMin()) {
+                    best = alternative;
+                }
+            }
+        }
+        if (best != null) { // A는 항상 만들어져서 실제로 null일 일은 없지만, 목록이 비어 있어도 터지지 않게
+            best.setRecommended(true);
+        }
+    }
+
+    /** 화면 제목: 남은 고정 일정이 있으면 "{고정 일정}에 늦지 않는 대안", 없으면 "남은 일정 대안" */
+    private String getTitle(List<Stop> remainingStops) {
+        Stop fixedStop = liveStopFinder.findFixedStop(remainingStops, null);
+        if (fixedStop == null) {
+            return "남은 일정 대안";
+        }
+        return fixedStop.getName() + "에 늦지 않는 대안";
     }
 
     /** 규칙 대안 A·B·C (만들 수 없는 대안은 빠짐). B와 C는 같은 "뺄 곳"을 씀: B는 빼고, C는 다른 곳으로 바꿈 */
@@ -309,16 +380,21 @@ public class AlternativeServiceImpl implements AlternativeService {
 
     /** 계획 시각(이미 지났으면 지금)에 도착했을 때 문을 닫았나. 장소·영업시간을 모르면 false */
     private boolean isClosedAtArrival(Stop stop) {
-        if (stop.getPlaceId() == null) {
-            return false; // DB에 없는 장소라 영업시간을 모름
+        int arrive = Math.max(Geo.toMinutes(stop.getTime()), Geo.nowMinutes());
+        OpenInfo open = findOpenInfo(stop.getPlaceId(), arrive, liveStopFinder.getStay(stop));
+        return open != null && Boolean.FALSE.equals(open.getOpen());
+    }
+
+    /** 장소의 영업 정보 (arrive: 도착 시각(분), stay: 머무는 분). DB에 없는 장소·지워진 장소면 null */
+    private OpenInfo findOpenInfo(String placeId, int arrive, int stay) {
+        if (placeId == null) {
+            return null; // DB에 없는 장소라 영업시간을 모름
         }
         try {
-            Place place = placeService.getPlace(stop.getPlaceId());
-            int arrive = Math.max(Geo.toMinutes(stop.getTime()), Geo.nowMinutes());
-            OpenInfo open = placeService.getOpenInfo(place, Geo.now().toLocalDate(), arrive, liveStopFinder.getStay(stop));
-            return Boolean.FALSE.equals(open.getOpen());
+            Place place = placeService.getPlace(placeId);
+            return placeService.getOpenInfo(place, Geo.now().toLocalDate(), arrive, stay);
         } catch (ApiException e) {
-            return false; // 지워진 장소면 영업 정보 없이 계속
+            return null; // 지워진 장소면 영업 정보 없이 계속
         }
     }
 
