@@ -47,7 +47,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LiveServiceImpl implements LiveService {
 
-    private static final int TRIM_STAY_DIVIDE = 2; // A 시간 단축: 머무는 시간을 이 수로 나눔 (절반)
+    private static final int TRIM_STAY_DIVIDE = 2;  // A 시간 단축: 한 칸에서 최대 이만큼 나눈 만큼까지 줄임 (절반)
+    private static final int TRIM_BUFFER_MIN = 5;   // A 시간 단축: 늦는 시간보다 이만큼 더 줄여서 여유를 둠
 
     private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
     private final PlaceService placeService;               // TODO: ④ 근처 장소·영업 정보·실내 판단
@@ -70,7 +71,12 @@ public class LiveServiceImpl implements LiveService {
             response.setCategory("카페");
         } else if (message.contains("바꿔") || message.contains("늦")) {
             response.setKind("alternatives");
-            response.setData(sampleAlternatives());
+            AlternativesRequest alternativesRequest = new AlternativesRequest();
+            alternativesRequest.setLat(request.getLat());
+            alternativesRequest.setLng(request.getLng());
+            alternativesRequest.setReason("request");
+            alternativesRequest.setRequest(message);
+            response.setData(makeAlternatives(memberId, tripId, alternativesRequest));
         } else {
             response.setKind("text");
             response.setText("다음 일정은 19:00 세종문화회관이에요. 지금 20분 여유가 있어요.");
@@ -156,31 +162,24 @@ public class LiveServiceImpl implements LiveService {
 
     // ---------------------------------------------------------------- 대안 A·B·C (3~5단계)
 
-    /** A 시간 단축: 가는 곳은 그대로, 고정 일정이 아닌 칸의 머무는 시간만 절반으로 */
+    /**
+     * A 시간 단축: 가는 곳은 그대로, 머무는 시간만 줄임.
+     * 고정 일정에 늦을 때만, 늦는 시간 + 5분을 고정 일정 앞 칸에서 차례로 줄임 (한 칸에 최대 절반)
+     */
     private Alternative makeTrimAlternative(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng) {
-        // 1. 칸 복사 + 머묾 줄이기 (원본을 고치면 B·C 계산까지 바뀌어서 복사본을 고침)
-        List<Stop> trimmedStops = new ArrayList<>();
-        for (Stop stop : remainingStops) {
-            Stop copy = copyStop(stop);
-            if (!Boolean.TRUE.equals(stop.getFixed())) {
-                copy.setStay(liveStopFinder.getStay(stop) / TRIM_STAY_DIVIDE);
-            }
-            trimmedStops.add(copy);
-        }
-
-        // 2. 계산기에 넣기 → 칸마다 도착 시각, 기준 칸 도착·여유
+        // 1. 그대로 갔을 때 계산 (원본을 고치면 B·C 계산까지 바뀌어서 복사본으로)
+        List<Stop> trimmedStops = copyStops(remainingStops);
         Alternative alternative = calculateAlternative(trip, current, trimmedStops, lat, lng);
 
-        // 3. 머묾이 바뀐 칸에 "60분 → 30분" 적고, 바뀐 칸 수 세기
-        int changes = 0;
-        for (int i = 0; i < remainingStops.size(); i++) {
-            int before = liveStopFinder.getStay(remainingStops.get(i));
-            int after = liveStopFinder.getStay(trimmedStops.get(i));
-            if (before != after) {
-                alternative.getStops().get(i).setChange(before + "분 → " + after + "분");
-                changes++;
-            }
+        // 2. 고정 일정에 늦으면 → 늦는 만큼 + 5분 줄이고 다시 계산
+        boolean hasFixed = liveStopFinder.findFixedStop(remainingStops, null) != null;
+        if (hasFixed && alternative.getSlackMin() < 0) {
+            trimStays(trimmedStops, -alternative.getSlackMin() + TRIM_BUFFER_MIN);
+            alternative = calculateAlternative(trip, current, trimmedStops, lat, lng);
         }
+
+        // 3. 머묾이 바뀐 칸에 "60분 → 45분" 적기
+        int changes = markStayChanges(alternative, remainingStops, trimmedStops);
 
         // 4. 화면에 보일 이름 채우기
         alternative.setChanges(changes);
@@ -188,6 +187,42 @@ public class LiveServiceImpl implements LiveService {
         alternative.setTitle("머무는 시간 줄이기");
         alternative.setReason("가는 곳은 그대로, 머무는 시간만 줄여요.");
         return alternative;
+    }
+
+    /** 고정 일정 앞 칸부터 차례로 줄여서 need분을 채움. 한 칸에서는 최대 절반까지 */
+    private void trimStays(List<Stop> stops, int need) {
+        for (Stop stop : stops) {
+            if (Boolean.TRUE.equals(stop.getFixed()) || need <= 0) {
+                break; // 고정 일정 뒤 칸은 늦는 것과 상관없어서 안 줄임
+            }
+            int stay = liveStopFinder.getStay(stop);
+            int cut = Math.min(stay / TRIM_STAY_DIVIDE, need);
+            stop.setStay(stay - cut);
+            need = need - cut;
+        }
+    }
+
+    /** 머묾이 바뀐 칸에 "60분 → 45분"을 적고, 바뀐 칸 수를 돌려줌 */
+    private int markStayChanges(Alternative alternative, List<Stop> beforeStops, List<Stop> afterStops) {
+        int changes = 0;
+        for (int i = 0; i < beforeStops.size(); i++) {
+            int before = liveStopFinder.getStay(beforeStops.get(i));
+            int after = liveStopFinder.getStay(afterStops.get(i));
+            if (before != after) {
+                alternative.getStops().get(i).setChange(before + "분 → " + after + "분");
+                changes++;
+            }
+        }
+        return changes;
+    }
+
+    /** 칸 목록 복사본 */
+    private List<Stop> copyStops(List<Stop> stops) {
+        List<Stop> copies = new ArrayList<>();
+        for (Stop stop : stops) {
+            copies.add(copyStop(stop));
+        }
+        return copies;
     }
 
     /** 칸 복사본 (대안마다 따로 고쳐도 원본이 안 바뀌게) */
