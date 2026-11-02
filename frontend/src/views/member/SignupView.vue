@@ -5,7 +5,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
-import { post } from '@/api/http'
+import { get, post } from '@/api/http'
 
 const router = useRouter()
 
@@ -22,15 +22,20 @@ const codeWrong = ref(false)
 const verified = ref(false)
 const nickname = ref('')
 
-const takenIds = ['haneul', 'trip', 'admin', 'tripmate', 'yeoheng'] // 가짜: 이미 있는 아이디
+const checkedId = ref('') // 중복 확인을 통과한 아이디
+const takenId = ref('')   // 이미 있다고 나온 아이디
 const agreeAll = computed(() => agreeTerms.value && agreeLocation.value)
 
-// 아이디: 영문·숫자만, 중복 금지
+// 아이디 규칙 (서버와 같게: 영문·숫자·_ 4~30자)
+const idFormatOk = computed(() => /^[A-Za-z0-9_]{4,30}$/.test(userId.value))
+
+// 아이디 칸 아래 안내: 규칙 → 중복 확인 결과
 const idCheck = computed(() => {
-  if (!userId.value) return { cls: '', icon: 'i-info', msg: '영문과 숫자만 쓸 수 있어요', ok: false }
-  if (/[^A-Za-z0-9]/.test(userId.value)) return { cls: 'is-error', icon: 'i-danger', msg: '기호와 한글, 띄어쓰기는 쓸 수 없어요', ok: false }
-  if (takenIds.includes(userId.value.toLowerCase())) return { cls: 'is-error', icon: 'i-danger', msg: '이미 쓰고 있는 아이디예요', ok: false }
-  return { cls: 'is-success', icon: 'i-success', msg: '쓸 수 있는 아이디예요', ok: true }
+  if (!userId.value) return { cls: '', icon: 'i-info', msg: '영문·숫자·_ 4~30자', ok: false }
+  if (!idFormatOk.value) return { cls: 'is-error', icon: 'i-danger', msg: '영문·숫자·_ 4~30자만 쓸 수 있어요', ok: false }
+  if (checkedId.value === userId.value) return { cls: 'is-success', icon: 'i-success', msg: '쓸 수 있는 아이디예요', ok: true }
+  if (takenId.value === userId.value) return { cls: 'is-error', icon: 'i-danger', msg: '이미 쓰고 있는 아이디예요', ok: false }
+  return { cls: '', icon: 'i-info', msg: '중복 확인을 눌러 주세요', ok: false }
 })
 
 // 비밀번호 규칙 4가지
@@ -100,6 +105,18 @@ function verify() {
   else verified.value = true
 }
 
+// 중복 확인: 서버에 물어보고 결과를 기억
+async function checkId() {
+  try {
+    // encodeURIComponent: 아이디를 주소에 안전하게 넣기
+    const result = await get('/auth/check-id?username=' + encodeURIComponent(userId.value))
+    if (result.available) checkedId.value = userId.value
+    else takenId.value = userId.value
+  } catch (e) {
+    showToast(e.message)
+  }
+}
+
 // 가입하기: 서버에 가입 → 같은 아이디로 바로 로그인 → 다음 화면
 async function join() {
   const account = { username: userId.value, password: password.value }
@@ -134,7 +151,10 @@ async function join() {
 
         <div class="field" :class="idCheck.cls">
           <label class="field__label" for="su-id">아이디</label>
-          <div class="field__box"><input id="su-id" v-model="userId" type="text" placeholder="영문, 숫자만" autocomplete="username" autocapitalize="off" aria-describedby="su-id-h" /></div>
+          <div class="su-inline">
+          <div class="field__box"><input id="su-id" v-model="userId" type="text" placeholder="영문·숫자·_ 4~30자" autocomplete="username" autocapitalize="off" aria-describedby="su-id-h" /></div>
+          <button type="button" class="btn btn--secondary btn--md" :disabled="!idFormatOk || idCheck.ok" @click="checkId">{{ idCheck.ok ? '확인 완료' : '중복 확인' }}</button>
+          </div>
           <p id="su-id-h" class="field__help"><i class="ic ic--s" :class="idCheck.icon" aria-hidden="true"></i>{{ idCheck.msg }}</p>
         </div>
 
