@@ -24,4 +24,24 @@
     ORDER BY t.start_date DESC, t.trip_id DESC
   </select>
 
+  <!-- GET /api/trips/{id}: 여행 하나. member_id까지 조건에 넣어 남의 여행이면 결과가 없어요. stop_count를 안 읽어서 null -->
+  <select id="selectTrip" resultMap="tripResult">
+    SELECT t.trip_id AS id, t.member_id, t.title,
+           t.start_date::text AS start_date, t.end_date::text AS end_date,
+           t.people, t.transports, t.status
+    FROM trip t
+    WHERE t.trip_id = #{tripId} AND t.member_id = #{memberId}
+  </select>
+
+  <!-- 여행의 일정 칸. Stop과 이름이 다른 컬럼은 AS로 맞추고, 시각은 to_char로 yyyy-MM-ddTHH:mm:ss 글자로 바꿔요 -->
+  <select id="selectStopList" resultType="com.tripbiseo.trip.dto.Stop">
+    SELECT stop_id AS id, trip_id, day_no AS day, place_id, name, category, address, lat, lng,
+           start_time AS time, stay_min AS stay, fixed, move_mode AS mode, memo, state,
+           to_char(arrived_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS arrived_at,
+           to_char(departed_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS departed_at
+    FROM trip_stop
+    WHERE trip_id = #{tripId}
+    ORDER BY day_no, start_time, stop_id
+  </select>
+
 </mapper>
