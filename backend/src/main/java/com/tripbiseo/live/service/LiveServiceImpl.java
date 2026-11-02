@@ -4,15 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.common.ai.AiService;
-import com.tripbiseo.common.external.RouteClient;
-import com.tripbiseo.common.external.WeatherClient;
-import com.tripbiseo.live.dto.AltStop;
-import com.tripbiseo.live.dto.Alternative;
 import com.tripbiseo.live.dto.AlternativesRequest;
-import com.tripbiseo.live.dto.AlternativesResponse;
-import com.tripbiseo.live.dto.AppliedStop;
-import com.tripbiseo.live.dto.ApplyRequest;
-import com.tripbiseo.live.dto.ApplyResponse;
 import com.tripbiseo.live.dto.AssistRequest;
 import com.tripbiseo.live.dto.AssistResponse;
 import com.tripbiseo.live.dto.InsertRequest;
@@ -27,8 +19,8 @@ import com.tripbiseo.trip.service.TripService;
 import lombok.RequiredArgsConstructor;
 
 /**
- * ④ 여행 중 채팅·추천·대안. 지금은 docs/API.md 예시 같은 가짜 값이에요.
- * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/LiveService.java (679줄 → 여기, StatusService, TrackService로 나눔)
+ * ④ 여행 중 채팅·추천·일정에 넣기. 지금은 docs/API.md 예시 같은 가짜 값이에요. 대안은 AlternativeServiceImpl.
+ * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/LiveService.java (679줄 → 여기, StatusService, TrackService, AlternativeService로 나눔)
  * 공통 주의
  *  - 오늘 칸은 tripService.getTrip으로 읽고, 고칠 때도 TripService(createStop·updateStop·skipStops)로. 예전처럼 TripMapper를 직접 쓰지 않기
  *  - 장소 판단은 placeService 메서드로 (예전 PlaceService.openInfo·isIndoor static 호출 대신)
@@ -38,12 +30,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LiveServiceImpl implements LiveService {
 
-    private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
-    private final PlaceService placeService;               // TODO: ④ 근처 장소·영업 정보·실내 판단
-    private final RouteClient routeClient;                 // TODO: ④ 대안 이동 시간 (후보 비교는 isPrecise=false)
-    private final WeatherClient weatherClient;             // TODO: ④ 대안에서 비 오는지
-    private final AiService aiService;                     // TODO: ④ assist 분류, alternatives
+    private final TripService tripService;                 // TODO: ④ 일정에 넣기
+    private final PlaceService placeService;               // TODO: ④ 근처 장소·영업 정보
+    private final AiService aiService;                     // TODO: ④ assist 분류
     private final NotificationService notificationService; // TODO: ④ 지연·출발 알림을 ①의 알림함에도 남길 때
+    private final AlternativeService alternativeService;   // 채팅에서 "일정 바꿔줘"면 대안 만들기 (④)
 
     /** 여행 중 채팅: 말 분류 */
     // TODO: ④ 채팅. message 1~300자 → aiService.askJson(분류 프롬프트, 분류 DTO) → recommend면 ask-radius, change면 makeAlternatives(reason "request"), 그 밖은 text.
@@ -58,7 +49,12 @@ public class LiveServiceImpl implements LiveService {
             response.setCategory("카페");
         } else if (message.contains("바꿔") || message.contains("늦")) {
             response.setKind("alternatives");
-            response.setData(sampleAlternatives());
+            AlternativesRequest alternativesRequest = new AlternativesRequest();
+            alternativesRequest.setLat(request.getLat());
+            alternativesRequest.setLng(request.getLng());
+            alternativesRequest.setReason("request");
+            alternativesRequest.setRequest(message);
+            response.setData(alternativeService.makeAlternatives(memberId, tripId, alternativesRequest));
         } else {
             response.setKind("text");
             response.setText("다음 일정은 19:00 세종문화회관이에요. 지금 20분 여유가 있어요.");
@@ -103,85 +99,5 @@ public class LiveServiceImpl implements LiveService {
         response.setTrip(tripService.getTrip(memberId, tripId));
         response.setMessage("카페OO을(를) 다음 일정으로 넣었어요. 세종문화회관에는 12분 여유가 있어요.");
         return response;
-    }
-
-    /** 대안 A·B·C */
-    // TODO: ④ 대안. 남은 일정 없으면 400 "오늘 남은 일정이 없어요." → 규칙 대안(A 시간 단축 / B 한 곳 빼기 / C 장소 변경) →
-    //       aiService.isReady()면 askJsonWithWeather로 Gemini 대안, 실패하면 규칙만. 3개 채우고 key A·B·C, recommended 하나.
-    //       참고: 예전 LiveService.alternatives/fit/chain/shape/substitute/recommendBest.
-    //       주의: 예전 프롬프트의 "위치 (위도, 경도)"는 빼기. 날씨 도구는 인자 없음. 예전 askWithSearch(구글 검색 대체)는 쓰지 않기.
-    //             근처 후보는 placeService.getNearbyPlaceList(PostGIS)로
-    @Override
-    public AlternativesResponse makeAlternatives(long memberId, long tripId, AlternativesRequest request) {
-        return sampleAlternatives();
-    }
-
-    /** 고른 대안을 일정에 반영 */
-    // TODO: ④ 대안 적용. stops 없으면 400 "적용할 대안이 없어요." → id가 남은 칸이면 eta·stay로 updateStop(고정 일정 시각은 그대로),
-    //       id가 없으면 createStop, 대안에 없는 남은 칸은 skipStops → 오늘 칸 tag(done/kept/changed/added). 참고: 예전 LiveService.apply/nextAlert.
-    //       주의: ②의 쓰기 메서드를 여러 번 부르니 @Transactional 유지
-    @Override
-    @Transactional
-    public ApplyResponse applyAlternative(long memberId, long tripId, ApplyRequest request) {
-        ApplyResponse response = new ApplyResponse();
-        response.setKey(request.getKey() == null ? "A" : request.getKey());
-        response.setMessage("세종문화회관에 늦지 않게 일정을 바꿨어요!");
-        response.setNextAlert("청계천에서 출발할 시각(15:07) 10분 전부터 1분마다 알려드릴게요. 늦게 도착하면 도착한 시각 기준으로 다시 맞춰요.");
-        response.getStops().add(appliedStop(102L, "13:30", "카페OO", "카페", 55, "done", null));
-        response.getStops().add(appliedStop(103L, "14:37", "청계천", "관광지", 30, "changed", "60분 → 30분"));
-        response.getStops().add(appliedStop(105L, "19:00", "세종문화회관", "문화시설", 120, "kept", null));
-        return response;
-    }
-
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static AlternativesResponse sampleAlternatives() {
-        Alternative alternative = new Alternative();
-        alternative.setKey("A");
-        alternative.setShortName("시간 단축");
-        alternative.setTitle("머무는 시간 줄이기");
-        alternative.setReason("가는 곳은 그대로, 머무는 시간만 줄여요.");
-        alternative.setRecommended(true);
-        alternative.setFinalArrive("18:55");
-        alternative.setSlackMin(5);
-        alternative.setChanges(1);
-        alternative.getCoords().add(new double[] {37.5745, 126.9849});
-        alternative.getCoords().add(new double[] {37.5725, 126.9759});
-        alternative.getStops().add(altStop(103L, "청계천", "관광지", 37.569, 126.978, 30, false, "14:37", 12, "60분 → 30분"));
-        alternative.getStops().add(altStop(105L, "세종문화회관", "문화시설", 37.5725, 126.9759, 120, true, "19:00", 15, null));
-        AlternativesResponse response = new AlternativesResponse();
-        response.setTitle("세종문화회관에 늦지 않는 대안");
-        response.setSubtitle("지금 위치·시각에서 다시 계산했어요");
-        response.setSource("rule");
-        response.getAlternatives().add(alternative);
-        return response;
-    }
-
-    private static AltStop altStop(long id, String name, String category, double lat, double lng, int stay, boolean isFixed,
-                                   String eta, int moveMin, String change) {
-        AltStop stop = new AltStop();
-        stop.setId(id);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setEta(eta);
-        stop.setMoveMin(moveMin);
-        stop.setChange(change);
-        stop.setClosingSoon(false);
-        return stop;
-    }
-
-    private static AppliedStop appliedStop(long id, String time, String name, String category, int stay, String tag, String note) {
-        AppliedStop stop = new AppliedStop();
-        stop.setId(id);
-        stop.setTime(time);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setStay(stay);
-        stop.setTag(tag);
-        stop.setNote(note);
-        return stop;
     }
 }

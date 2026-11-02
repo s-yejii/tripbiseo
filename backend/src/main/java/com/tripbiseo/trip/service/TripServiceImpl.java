@@ -1,5 +1,7 @@
 package com.tripbiseo.trip.service;
 
+import static com.tripbiseo.common.exception.ApiException.fail;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,7 +17,7 @@ import com.tripbiseo.trip.mapper.TripMapper;
 import lombok.RequiredArgsConstructor;
 
 /**
- * ② 여행·일정. getTripList만 진짜(완성 예시)이고, 나머지는 화면이 그려지게 가짜 값을 돌려줘요.
+ * ② 여행·일정. getTripList(완성 예시)와 getTrip은 진짜이고, 나머지는 화면이 그려지게 가짜 값을 돌려줘요.
  * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/TripService.java
  * 공통 주의: 회원 번호는 Controller가 LoginUser.id()로 꺼내 넘김(요청마다 member 다시 조회 안 함),
  *           남의 테이블은 SELECT만, 입력 검사 오류 문장은 docs/API.md 그대로
@@ -32,11 +34,15 @@ public class TripServiceImpl implements TripService {
         return tripMapper.selectTripList(memberId);
     }
 
-    /** 여행 + 일정 칸 */
-    // TODO: ② 여행 상세. selectTrip(tripId, memberId) → 없으면 404 "여행을 찾을 수 없어요." → selectStopList로 stops 채우기. 참고: 예전 TripService.get
+    /** 여행 + 일정 칸. 없거나 남의 여행이면 404 */
     @Override
     public Trip getTrip(long memberId, long tripId) {
-        return sampleTrip(memberId, tripId, "planned");
+        Trip trip = tripMapper.selectTrip(tripId, memberId);
+        if (trip == null) {
+            throw fail(404, "여행을 찾을 수 없어요.");
+        }
+        trip.setStops(tripMapper.selectStopList(tripId));
+        return trip;
     }
 
     /** 여행을 일정 칸까지 한 번에 저장 */

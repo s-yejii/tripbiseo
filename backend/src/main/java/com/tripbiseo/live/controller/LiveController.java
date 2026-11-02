@@ -21,6 +21,7 @@ import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
 import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.TrackRequest;
+import com.tripbiseo.live.service.AlternativeService;
 import com.tripbiseo.live.service.LiveService;
 import com.tripbiseo.live.service.StatusService;
 import com.tripbiseo.live.service.TrackService;
@@ -35,6 +36,7 @@ public class LiveController {
 
     private final LiveService liveService;
     private final StatusService statusService;
+    private final AlternativeService alternativeService;
     private final TrackService trackService;
     private final LoginUser loginUser;
 
@@ -72,12 +74,12 @@ public class LiveController {
     /** 대안 A·B·C 만들기 */
     @PostMapping("/alternatives")
     public AlternativesResponse makeAlternatives(@PathVariable long id, @RequestBody AlternativesRequest request) {
-        return liveService.makeAlternatives(loginUser.id(), id, request);
+        return alternativeService.makeAlternatives(loginUser.id(), id, request);
     }
 
     /** 고른 대안을 일정에 반영 */
     @PostMapping("/apply")
     public ApplyResponse applyAlternative(@PathVariable long id, @RequestBody ApplyRequest request) {
-        return liveService.applyAlternative(loginUser.id(), id, request);
+        return alternativeService.applyAlternative(loginUser.id(), id, request);
     }
 }
