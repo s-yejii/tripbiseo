@@ -32,6 +32,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.web.bind.annotation.RequestParam;
+import com.tripbiseo.member.dto.CheckIdResponse;
+
 /**
  * ① 로그인·회원가입 (Spring Security). member 테이블 + BCrypt.
  * 폼 로그인 대신 JSON으로 받고, 성공하면 세션 쿠키(JSESSIONID)로 로그인 상태를 유지합니다.
@@ -101,6 +104,14 @@ public class AuthController {
     public OkResponse signup(@RequestBody SignupRequest body) {
         memberService.createMember(body);
         return new OkResponse();
+    }
+
+    /** 아이디 중복 확인 (가입 전, 로그인 불필요) */
+    @GetMapping("/check-id")
+    public CheckIdResponse checkId(@RequestParam(defaultValue = "") String username) {
+        CheckIdResponse response = new CheckIdResponse();
+        response.setAvailable(memberService.isUsernameAvailable(username));
+        return response;
     }
 
     private Member findMember(String username) {

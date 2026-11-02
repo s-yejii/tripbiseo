@@ -13,6 +13,9 @@ public interface MemberService {
     /** 회원가입: 입력 검사 + BCrypt로 저장. 잘못되면 400, 아이디가 있으면 409 */
     void createMember(SignupRequest request);
 
+    /** 아이디를 쓸 수 있는지 (규칙에 안 맞으면 400) */
+    boolean isUsernameAvailable(String username);
+
     /** 여행 스타일 (③ AI 일정이 부름) */
     MemberStyle getStyle(long memberId);
 }
