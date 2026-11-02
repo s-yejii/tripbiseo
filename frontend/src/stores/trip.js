@@ -1,0 +1,62 @@
+// 여러 화면이 같이 쓰는 여행 상태 (pinia: 화면을 옮겨 다녀도 값이 남는 저장소)
+//   draft    : 새로 만드는 여행 초안 (장소 고르기 → 일정 점검 → 저장)
+//   tripId   : 지금 보고 있는 여행 번호 (여행 중 화면·회고가 씀)
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import { getTripList } from '@/api/trips'
+
+function today() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function emptyDraft() {
+  return { title: '새 여행', startDate: today(), endDate: today(), people: 2, transports: ['subway', 'bus', 'walk'], stops: [] }
+}
+
+export const useTripStore = defineStore('trip', () => {
+  const draft = ref(emptyDraft())
+  const tripId = ref(null)
+
+  // 초안에 장소 카드 하나 추가 (time은 비워 두면 일정 점검이 앞 일정에 이어서 정해 줌)
+  function addDraftPlace(place, isFixed = false, time = null) {
+    draft.value.stops.push({
+      day: 1,
+      placeId: place.id ?? null,
+      name: place.name,
+      category: place.category ?? null,
+      address: place.address ?? null,
+      lat: place.lat,
+      lng: place.lng,
+      time,
+      stay: isFixed ? 120 : 60,
+      fixed: isFixed,
+      mode: null,
+      memo: null,
+    })
+  }
+
+  function resetDraft() {
+    draft.value = emptyDraft()
+  }
+
+  // 서버의 초안(③ generate 응답)을 그대로 초안으로
+  function setDraft(trip) {
+    draft.value = { ...emptyDraft(), ...trip, stops: trip.stops || [] }
+  }
+
+  // 진행 중인 여행 번호 (없으면 오늘 여행 → 없으면 null). 서버가 꺼져 있으면 null
+  async function findOngoingTripId() {
+    try {
+      const trips = await getTripList()
+      const ongoing = trips.find((trip) => trip.status === 'ongoing')
+      const todayTrip = trips.find((trip) => trip.startDate <= today() && today() <= trip.endDate)
+      tripId.value = (ongoing || todayTrip)?.id ?? null
+    } catch {
+      tripId.value = null
+    }
+    return tripId.value
+  }
+
+  return { draft, tripId, addDraftPlace, resetDraft, setDraft, findOngoingTripId }
+})

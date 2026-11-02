@@ -1,7 +1,29 @@
 <script setup>
 // S04-b 내 여행 (②): 지금 여행 중 · 다가오는 여행 · 지난 여행
+// 서버(GET /api/trips)에서 내 여행을 읽어 status로 나눠요. 서버가 꺼져 있으면 시연용 가짜 목록을 보여 줘요.
+import { computed, onMounted, ref } from 'vue'
 import PhotoCard from '@/components/common/PhotoCard.vue'
 import TabBar from '@/components/common/TabBar.vue'
+import { getTripList } from '@/api/trips'
+import { toShortDate } from '@/utils/tripView'
+
+const serverTrips = ref(null) // null: 아직 못 읽음(서버 꺼짐) → 가짜 목록
+onMounted(async () => {
+  try {
+    serverTrips.value = await getTripList()
+  } catch {
+    serverTrips.value = null
+  }
+})
+const ongoing = computed(() => (serverTrips.value || []).find((trip) => trip.status === 'ongoing') || null)
+const planned = computed(() => (serverTrips.value || []).filter((trip) => trip.status === 'planned'))
+const done = computed(() => (serverTrips.value || []).filter((trip) => trip.status === 'done'))
+// 오늘부터 며칠 남았는지
+function daysLeft(startDate) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((new Date(startDate + 'T00:00:00') - today) / 86400000)
+}
 
 // 가짜 데이터: 지난 여행 (백엔드가 붙으면 GET /api/trips 의 status=done)
 const pastTrips = [
@@ -21,7 +43,14 @@ const pastTrips = [
       <div class="scroll" style="bottom: 84px; gap: 20px; padding-top: 4px">
         <section aria-labelledby="t-now" class="trips-sec">
           <h2 id="t-now" class="t-strong muted">지금 여행 중</h2>
-          <PhotoCard to="/live" img="/img/cafe.jpg" :height="132">
+          <PhotoCard v-if="ongoing" to="/live" img="/img/cafe.jpg" :height="132">
+            <span class="photo__txt now-trip">
+              <span style="display: flex; flex-direction: column"><b style="font-size: 18px; line-height: 26px">{{ ongoing.title }}</b><small class="tn">{{ toShortDate(ongoing.startDate) }} · {{ ongoing.stopCount }}곳</small></span>
+              <span class="btn btn--sm" style="background: #fff; color: var(--navy)">여행 이어가기</span>
+            </span>
+          </PhotoCard>
+          <p v-else-if="serverTrips" class="t-cap">진행 중인 여행이 없어요</p>
+          <PhotoCard v-else to="/live" img="/img/cafe.jpg" :height="132">
             <template #badge><span class="badge badge--success"><i class="ic ic--s i-check" aria-hidden="true"></i>여유 15분</span></template>
             <span class="photo__txt now-trip">
               <span style="display: flex; flex-direction: column"><b style="font-size: 18px; line-height: 26px">잔나비 공연 데이트</b><small class="tn">3/6곳 · 다음 성내동 소품샵</small></span>
@@ -33,12 +62,17 @@ const pastTrips = [
         <section aria-labelledby="t-next" class="trips-sec">
           <h2 id="t-next" class="t-strong muted">다가오는 여행</h2>
           <div class="group">
-            <RouterLink to="/trips/detail" class="row">
+            <RouterLink v-for="trip in planned" :key="trip.id" :to="'/trips/today?id=' + trip.id" class="row">
+              <img class="thumb" src="/img/dessert.jpg" alt="" />
+              <span class="row__body"><span class="row__title">{{ trip.title }}</span><span class="row__meta">{{ toShortDate(trip.startDate) }} · {{ trip.stopCount }}곳</span></span>
+              <span class="badge badge--navy tn">{{ daysLeft(trip.startDate) > 0 ? 'D-' + daysLeft(trip.startDate) : '오늘' }}</span>
+            </RouterLink>
+            <RouterLink v-if="!serverTrips" to="/trips/detail" class="row">
               <img class="thumb" src="/img/dessert.jpg" alt="" />
               <span class="row__body"><span class="row__title">성내동 카페 2차</span><span class="row__meta">11/1(토) · 5곳</span></span>
               <span class="badge badge--navy tn">D-8</span>
             </RouterLink>
-            <RouterLink to="/plan/info" class="row">
+            <RouterLink v-if="!serverTrips" to="/plan/info" class="row">
               <img class="thumb" src="/img/busan.jpg" alt="" />
               <span class="row__body">
                 <span class="row__title">부산 1박 2일</span>
@@ -55,9 +89,14 @@ const pastTrips = [
         </section>
 
         <section aria-labelledby="t-past" class="trips-sec">
-          <h2 id="t-past" class="t-strong muted">지난 여행 {{ pastTrips.length }}</h2>
+          <h2 id="t-past" class="t-strong muted">지난 여행 {{ serverTrips ? done.length : pastTrips.length }}</h2>
           <div class="group">
-            <RouterLink v-for="trip in pastTrips" :key="trip.title" to="/retro" class="row">
+            <RouterLink v-for="trip in done" :key="trip.id" :to="'/retro?id=' + trip.id" class="row">
+              <img class="thumb" src="/img/euljiro.jpg" alt="" />
+              <span class="row__body"><span class="row__title">{{ trip.title }}</span><span class="row__meta">{{ toShortDate(trip.startDate) }} · {{ trip.stopCount }}곳</span></span>
+              <i class="ic i-next subtle" aria-hidden="true"></i>
+            </RouterLink>
+            <RouterLink v-for="trip in serverTrips ? [] : pastTrips" :key="trip.title" to="/retro" class="row">
               <img class="thumb" :src="trip.img" alt="" />
               <span class="row__body"><span class="row__title">{{ trip.title }}</span><span class="row__meta">{{ trip.meta }}</span></span>
               <i class="ic i-next subtle" aria-hidden="true"></i>
