@@ -151,6 +151,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 | ② | `TripService.getTrip(memberId, tripId)` | 여행 + 일정 칸 | ③④⑤ |
 | ② | `TripService.createTrip(memberId, trip)` | 여행 저장 | ③ |
 | ② | `TripService.createStop(memberId, tripId, stop)`, `updateStop(memberId, tripId, stopId, stop)`, `skipStops(memberId, tripId, stopIds)` | 일정 칸 넣기·고치기·빼기 | ④ |
+| ② | `TripService.arriveStop(memberId, tripId, stopId)`, `departStop(memberId, tripId, stopId)` | GPS 도착·출발 기록 (출발은 state = done) | ④ |
 | ② | `TripService.createChats(memberId, tripId, messages)` | 대화 기록 저장 | ③④ |
 | ② | `PlaceService.getPlace(placeId)`, `getNearbyPlaceList(lat, lng, radius, category)`, `getAreaPlaceList(region)`, `getPlaceByName(name, lat, lng)` | 장소 하나·반경 안(가까운 순)·지역·이름으로 | ③④ |
 | ② | `PlaceService.getPlaceCard(place, lat, lng)`, `getOpenInfo(place, date, arriveMinutes, stayMinutes)`, `isIndoor(category)`, `getNaverUrl(name, address)` | 장소 카드, 영업 정보, 실내인지, 네이버 지도 링크 | ③④ |

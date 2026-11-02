@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ② 장소 검색. 반경·가까운 순은 PostGIS, 평점 순은 '보정 평점'(리뷰가 적으면 평균 4.6 쪽으로 당김) -->
+<mapper namespace="com.tripbiseo.trip.mapper.PlaceMapper">
+
+  <!-- Place 칸. category는 biz_type, 없으면 관광공사 분류 번호를 이름으로 -->
+  <sql id="placeColumns">
+    id, source, name,
+    COALESCE(NULLIF(biz_type, ''), CASE content_type_id WHEN '12' THEN '관광지' WHEN '14' THEN '문화시설' WHEN '15' THEN '축제·행사'
+      WHEN '28' THEN '레포츠' WHEN '32' THEN '숙박' WHEN '38' THEN '쇼핑' WHEN '39' THEN '음식점' ELSE '관광지' END) AS category,
+    address, tel, latitude AS lat, longitude AS lng, use_time, rest_date, image_url, rating, review_count, amenities, map_url
+  </sql>
+
+  <!-- 보정 평점: (리뷰 수 × 평점 + 100 × 4.6) ÷ (리뷰 수 + 100). 리뷰 3개 5.0보다 리뷰 300개 4.7을 더 믿게 -->
+  <sql id="adjustedRating">(COALESCE(review_count, 0) * COALESCE(rating, 0) + 100 * 4.6) / (COALESCE(review_count, 0) + 100)</sql>
+
+  <!-- 기준점 (ST_MakePoint는 경도, 위도 순서) -->
+  <sql id="basePoint">ST_SetSRID(ST_MakePoint(#{lng}, #{lat}), 4326)::geography</sql>
+
+  <select id="selectPlace" resultType="com.tripbiseo.trip.dto.Place">
+    SELECT <include refid="placeColumns"/> FROM retrip_place WHERE id = #{placeId}
+  </select>
+
+  <!-- 이름 또는 분류(분식집 → 분식). 위치가 있으면 가까운 순(<-> 는 GIST 인덱스를 쓰는 거리 정렬) -->
+  <select id="selectPlaceList" resultType="com.tripbiseo.trip.dto.Place">
+    SELECT <include refid="placeColumns"/>
+    <if test="lat != null and lng != null">, ST_Distance(geom, <include refid="basePoint"/>) AS distance</if>
+    FROM retrip_place
+    WHERE name ILIKE '%' || #{keyword} || '%' OR biz_type ILIKE '%' || #{kind} || '%'
+    ORDER BY
+    <choose>
+      <when test="lat != null and lng != null">geom &lt;-&gt; <include refid="basePoint"/></when>
+      <otherwise>COALESCE(review_count, 0) DESC, name</otherwise>
+    </choose>
+    LIMIT 20
+  </select>
+
+  <!-- 반경 안 (ST_DWithin: 미터 단위 반경, GIST 인덱스 사용) -->
+  <select id="selectNearbyPlaceList" resultType="com.tripbiseo.trip.dto.Place">
+    SELECT * FROM (
+      SELECT <include refid="placeColumns"/>, ST_Distance(geom, <include refid="basePoint"/>) AS distance
+      FROM retrip_place
+      WHERE ST_DWithin(geom, <include refid="basePoint"/>, #{radius})
+    ) p
+    <where>
+      <if test="category != null and category != ''">p.category LIKE '%' || #{category} || '%'</if>
+    </where>
+    ORDER BY p.distance
+    LIMIT #{limit}
+  </select>
+
+  <!-- 일정 만들기 후보: 주소나 이름에 지역 이름이 들어간 곳, 관광지(tour·sample) 먼저, 보정 평점 순 -->
+  <select id="selectAreaPlaceList" resultType="com.tripbiseo.trip.dto.Place">
+    SELECT <include refid="placeColumns"/>
+    FROM retrip_place
+    WHERE address ILIKE '%' || #{region} || '%' OR name ILIKE '%' || #{region} || '%'
+    ORDER BY CASE WHEN source IN ('tour', 'sample') THEN 0 ELSE 1 END, <include refid="adjustedRating"/> DESC
+    LIMIT 60
+  </select>
+
+  <!-- Gemini·사용자가 말한 이름으로 찾기: 같은 이름 → 이름이 들어간 곳 → (3자 이상) 말 안에 장소 이름이 들어간 곳 -->
+  <select id="selectPlaceListByName" resultType="com.tripbiseo.trip.dto.Place">
+    SELECT <include refid="placeColumns"/>
+    FROM retrip_place
+    WHERE name = #{name} OR name ILIKE '%' || #{name} || '%' OR (char_length(name) &gt;= 3 AND #{name} ILIKE '%' || name || '%')
+    ORDER BY (name = #{name}) DESC, COALESCE(review_count, 0) DESC
+    LIMIT 5
+  </select>
+
+  <select id="selectReviewList" resultType="string">
+    SELECT content FROM retrip_review WHERE place_id = #{placeId} ORDER BY length(content) DESC LIMIT #{limit}
+  </select>
+
+</mapper>
