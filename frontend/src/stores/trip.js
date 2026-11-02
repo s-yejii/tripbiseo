@@ -3,6 +3,7 @@
 //   tripId   : 지금 보고 있는 여행 번호 (여행 중 화면·회고가 씀)
 //   position : 여행 중 화면이 마지막으로 받은 GPS { lat, lng } (대안 화면이 같이 씀)
 //   applied  : 방금 적용한 대안 결과 (live/apply 응답, 바뀐 일정 화면이 씀)
+//   planConditions·planMessages : AI 일정 대화로 모은 조건과 사용자가 한 말 (③ 일정 만들기가 씀)
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getTripList } from '@/api/trips'
@@ -21,6 +22,8 @@ export const useTripStore = defineStore('trip', () => {
   const tripId = ref(null)
   const position = ref(null)
   const applied = ref(null)
+  const planConditions = ref(null)
+  const planMessages = ref([])
 
   // 초안에 장소 카드 하나 추가 (time은 비워 두면 일정 점검이 앞 일정에 이어서 정해 줌)
   function addDraftPlace(place, isFixed = false, time = null) {
@@ -62,5 +65,5 @@ export const useTripStore = defineStore('trip', () => {
     return tripId.value
   }
 
-  return { draft, tripId, position, applied, addDraftPlace, resetDraft, setDraft, findOngoingTripId }
+  return { draft, tripId, position, applied, planConditions, planMessages, addDraftPlace, resetDraft, setDraft, findOngoingTripId }
 })

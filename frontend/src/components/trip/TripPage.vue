@@ -64,7 +64,7 @@ async function select(i) {
       <i v-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <template v-else>{{ i + 1 }}</template>
     </button>
-    <RouterLink v-if="tooltip" to="/place" class="tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px', transform: 'translateX(-50%)' }">
+    <RouterLink v-if="tooltip" :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'" class="tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px', transform: 'translateX(-50%)' }">
       <img :src="tooltip.stop.img" alt="" /><b class="t-strong" style="font-size: 14px">{{ tooltip.stop.name }}</b><i class="ic ic--s i-next subtle" aria-hidden="true"></i>
     </RouterLink>
 

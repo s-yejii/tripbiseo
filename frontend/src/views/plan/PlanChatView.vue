@@ -1,9 +1,14 @@
 <script setup>
 // S07 원하는 것 말하기 (③): 하고 싶은 말을 적거나 빠른 칩을 누르면 "일정에 넣을 조건" 카드에 쌓여요
-// 지금은 말한 그대로 조건이 돼요. 백엔드가 붙으면 POST /api/plans/chat (Gemini)이 조건으로 바꿔 줘요
+// 말을 보내면 서버(POST /api/plans/chat, Gemini)가 여행 조건으로 정리하고 AI 답을 보여 줘요.
+// AI 키가 없거나 실패하면 말한 그대로 조건 카드에 쌓아요 (사용자가 한 말은 일정 만들기에 그대로 넘어가요)
 import { nextTick, ref } from 'vue'
 import TopBar from '@/components/common/TopBar.vue'
+import { chatPlan } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
 import { showToast } from '@/utils/toast'
+
+const store = useTripStore()
 
 // 빠른 칩 → 조건
 const quickRules = [
@@ -30,10 +35,18 @@ const logBox = ref(null)
 
 async function say(text, rule) {
   messages.value.push({ me: true, text })
-  rules.value.push(rule)
-  freshIndex.value = rules.value.length - 1
+  store.planMessages.push(text)
   usedChips.value.push(text)
   draft.value = ''
+  try {
+    const res = await chatPlan(text, store.planConditions)
+    store.planConditions = res.conditions
+    messages.value.push({ me: false, text: res.reply })
+  } catch {
+    // AI가 안 되면 말한 그대로 조건 카드에
+  }
+  rules.value.push(rule)
+  freshIndex.value = rules.value.length - 1
   await nextTick()
   logBox.value.scrollTop = logBox.value.scrollHeight
 }
