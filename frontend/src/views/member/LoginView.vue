@@ -3,18 +3,24 @@
 // 지금은 화면 검사만 해요. 백엔드가 붙으면 POST /api/auth/login
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { post } from '@/api/http' // 서버 호출 공통 함수 (팀 뼈대에 있음)
 
 const router = useRouter()
 
-const userId = ref('haneul_trip')
-const password = ref('trip2024!')
+const userId = ref('')   // 가짜 기본값(haneul_trip) 지우기
+const password = ref('')
 const showPassword = ref(false)
 const error = ref('')
 
-function login() {
-  if (!userId.value) return (error.value = '아이디를 넣어 주세요')
-  if (password.value.length < 8) return (error.value = '비밀번호가 맞지 않아요 · 남은 시도 4번')
-  router.push('/permission')
+// async/await: 서버 답이 올 때까지 기다렸다가 다음 줄을 실행해요
+async function login() {
+  if (!userId.value || !password.value) return (error.value = '아이디와 비밀번호를 입력해 주세요.')
+  try {
+    await post('/auth/login', { username: userId.value, password: password.value })
+    router.push('/permission') // 성공하면 다음 화면
+  } catch (e) {
+    error.value = e.message // 실패하면 서버가 보낸 문장을 그대로 보여 줘요
+  }
 }
 </script>
 

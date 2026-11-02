@@ -38,6 +38,7 @@
 | `GET /api/auth/me` | 새로고침 후 로그인 상태 확인 | router/index.js (화면 이동 전마다) | 있음 |
 | `POST /api/auth/logout` | 로그아웃 | member/MyView | 있음 |
 | `POST /api/auth/signup` | 회원가입 | member/SignupView | 있음 |
+| `GET /api/auth/check-id` | 아이디 중복 확인 | member/SignupView | 있음 |
 | `GET /api/config/public` | 카카오 지도 JS 키 | 지도를 그리는 모든 화면 | 있음 |
 | `GET /api/members/me` | 내 정보 (이름·아이디·사진) | member/MyView | 확인 필요 |
 | `PUT /api/members/me` | 이름·프로필 사진 수정 | member/ProfileEditView | 확인 필요 |
@@ -296,6 +297,19 @@
 **응답** `{ "ok": true }`
 
 **오류** 400 "아이디는 영문·숫자·_ 4~30자예요." · 400 "비밀번호는 8~72자예요." · 400 "닉네임은 20자까지예요." · 409 "이미 쓰는 아이디예요."
+
+### `GET /api/auth/check-id`
+가입 전에 아이디를 쓸 수 있는지 확인해요. · 로그인 불필요 · 화면: member/SignupView
+
+**요청** 주소 뒤 `?username=아이디` (예: `/api/auth/check-id?username=sangjae`)
+
+**응답**
+```json
+{ "available": true }
+```
+`available`이 false면 이미 쓰는 아이디예요.
+
+**오류** 400 "아이디는 영문·숫자·_ 4~30자예요."
 
 ### `GET /api/config/public`
 지도를 그릴 카카오 JavaScript 키를 줘요. · 로그인 불필요 · 화면: 지도를 그리는 모든 화면

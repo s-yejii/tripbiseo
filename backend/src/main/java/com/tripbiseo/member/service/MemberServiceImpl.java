@@ -22,6 +22,8 @@ public class MemberServiceImpl implements MemberService {
     private static final int PASSWORD_MIN = 8;
     private static final int PASSWORD_MAX = 72; // BCrypt가 읽는 최대 길이
     private static final int NICKNAME_MAX = 20;
+    private static final String USERNAME_PATTERN = "[A-Za-z0-9_]{4,30}"; // 아이디 규칙
+
 
     private final MemberMapper memberMapper;
     private final PasswordEncoder passwordEncoder;
@@ -38,7 +40,7 @@ public class MemberServiceImpl implements MemberService {
         String username = trim(request.getUsername());
         String password = request.getPassword() == null ? "" : request.getPassword();
         String nickname = trim(request.getNickname());
-        if (!username.matches("[A-Za-z0-9_]{4,30}")) {
+        if (!username.matches(USERNAME_PATTERN)) {
             throw fail(400, "아이디는 영문·숫자·_ 4~30자예요.");
         }
         if (password.length() < PASSWORD_MIN || password.length() > PASSWORD_MAX) {
@@ -59,6 +61,16 @@ public class MemberServiceImpl implements MemberService {
         } catch (DuplicateKeyException e) { // 거의 동시에 같은 아이디로 가입한 경우
             throw fail(409, "이미 쓰는 아이디예요.");
         }
+    }
+
+    /** 아이디를 쓸 수 있는지: 규칙 검사 → DB에 같은 아이디가 없으면 true */
+    @Override
+    public boolean isUsernameAvailable(String username) {
+        String name = trim(username);
+        if (!name.matches(USERNAME_PATTERN)) {
+            throw fail(400, "아이디는 영문·숫자·_ 4~30자예요.");
+        }
+        return memberMapper.selectMemberByUsername(name) == null;
     }
 
     /** 여행 스타일 */
