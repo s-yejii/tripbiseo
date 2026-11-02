@@ -81,7 +81,7 @@ const compare = computed(() => {
 
 
 // 분류별로 계획과의 시간 차이 합계와 장소 개수를 모음. 예: { 카페: { sum: 36, count: 2 } }
-const topCategory = computed(() => {
+const categoryTotals = computed(() => {
   const totals = {}
   if (retro.value === null) return totals
 
