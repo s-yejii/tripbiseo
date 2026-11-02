@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
+import { post } from '@/api/http'
 
 const router = useRouter()
 
@@ -98,6 +99,19 @@ function verify() {
   if (code.value === '000000') codeWrong.value = true
   else verified.value = true
 }
+
+// 가입하기: 서버에 가입 → 같은 아이디로 바로 로그인 → 다음 화면
+async function join() {
+  const account = { username: userId.value, password: password.value }
+  try {
+    await post('/auth/signup', { ...account, nickname: nickname.value.trim() })
+    await post('/auth/login', account)
+    router.push('/permission')
+  } catch (e) {
+    showToast(e.message) // 예: "이미 쓰는 아이디예요." (서버가 보낸 문장)
+  }
+}
+
 </script>
 
 <template>
@@ -169,7 +183,7 @@ function verify() {
       </form>
 
       <div class="cta cta--white">
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!canJoin" @click="router.push('/permission')">가입하기</button>
+        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!canJoin" @click="join">가입하기</button>
         <p v-if="hint" class="cta__hint">{{ hint }}</p>
       </div>
     </div>
