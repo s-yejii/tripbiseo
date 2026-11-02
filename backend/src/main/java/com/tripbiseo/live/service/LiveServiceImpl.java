@@ -47,6 +47,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LiveServiceImpl implements LiveService {
 
+    private static final int TRIM_STAY_DIVIDE = 2; // A 시간 단축: 머무는 시간을 이 수로 나눔 (절반)
+
     private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
     private final PlaceService placeService;               // TODO: ④ 근처 장소·영업 정보·실내 판단
     private final RouteClient routeClient;                 // TODO: ④ 대안 이동 시간 (후보 비교는 isPrecise=false)
@@ -131,8 +133,14 @@ public class LiveServiceImpl implements LiveService {
         if (remainingStops.isEmpty()) {
             throw fail(400, "오늘 남은 일정이 없어요.");
         }
-        // TODO: ④ 2단계부터: remainingStops로 대안 A·B·C 만들기 (지금은 가짜 값)
-        return sampleAlternatives();
+
+        AlternativesResponse response = new AlternativesResponse();
+        response.setTitle("남은 일정 대안"); // TODO: ④ 6단계에서 고정 일정이 있으면 "{고정 일정}에 늦지 않는 대안"
+        response.setSubtitle("지금 위치·시각에서 다시 계산했어요");
+        response.setSource("rule");
+        response.getAlternatives().add(makeTrimAlternative(trip, current, remainingStops, request.getLat(), request.getLng()));
+        // TODO: ④ 4·5단계 B·C 추가, 6단계 key(A·B·C)·recommended 채우기
+        return response;
     }
 
     /** 오늘 칸 중 남은 칸만 순서대로 (지금 있는 칸·다녀온 칸·뺀 칸은 빠짐) */
@@ -144,6 +152,62 @@ public class LiveServiceImpl implements LiveService {
             }
         }
         return remainingStops;
+    }
+
+    // ---------------------------------------------------------------- 대안 A·B·C (3~5단계)
+
+    /** A 시간 단축: 가는 곳은 그대로, 고정 일정이 아닌 칸의 머무는 시간만 절반으로 */
+    private Alternative makeTrimAlternative(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng) {
+        // 1. 칸 복사 + 머묾 줄이기 (원본을 고치면 B·C 계산까지 바뀌어서 복사본을 고침)
+        List<Stop> trimmedStops = new ArrayList<>();
+        for (Stop stop : remainingStops) {
+            Stop copy = copyStop(stop);
+            if (!Boolean.TRUE.equals(stop.getFixed())) {
+                copy.setStay(liveStopFinder.getStay(stop) / TRIM_STAY_DIVIDE);
+            }
+            trimmedStops.add(copy);
+        }
+
+        // 2. 계산기에 넣기 → 칸마다 도착 시각, 기준 칸 도착·여유
+        Alternative alternative = calculateAlternative(trip, current, trimmedStops, lat, lng);
+
+        // 3. 머묾이 바뀐 칸에 "60분 → 30분" 적고, 바뀐 칸 수 세기
+        int changes = 0;
+        for (int i = 0; i < remainingStops.size(); i++) {
+            int before = liveStopFinder.getStay(remainingStops.get(i));
+            int after = liveStopFinder.getStay(trimmedStops.get(i));
+            if (before != after) {
+                alternative.getStops().get(i).setChange(before + "분 → " + after + "분");
+                changes++;
+            }
+        }
+
+        // 4. 화면에 보일 이름 채우기
+        alternative.setChanges(changes);
+        alternative.setShortName("시간 단축");
+        alternative.setTitle("머무는 시간 줄이기");
+        alternative.setReason("가는 곳은 그대로, 머무는 시간만 줄여요.");
+        return alternative;
+    }
+
+    /** 칸 복사본 (대안마다 따로 고쳐도 원본이 안 바뀌게) */
+    private Stop copyStop(Stop stop) {
+        Stop copy = new Stop();
+        copy.setId(stop.getId());
+        copy.setTripId(stop.getTripId());
+        copy.setDay(stop.getDay());
+        copy.setPlaceId(stop.getPlaceId());
+        copy.setName(stop.getName());
+        copy.setCategory(stop.getCategory());
+        copy.setAddress(stop.getAddress());
+        copy.setLat(stop.getLat());
+        copy.setLng(stop.getLng());
+        copy.setTime(stop.getTime());
+        copy.setStay(stop.getStay());
+        copy.setFixed(stop.getFixed());
+        copy.setMode(stop.getMode());
+        copy.setState(stop.getState());
+        return copy;
     }
 
     // ---------------------------------------------------------------- 대안 계산 도우미 (2단계)
@@ -230,45 +294,6 @@ public class LiveServiceImpl implements LiveService {
     }
 
     // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static AlternativesResponse sampleAlternatives() {
-        Alternative alternative = new Alternative();
-        alternative.setKey("A");
-        alternative.setShortName("시간 단축");
-        alternative.setTitle("머무는 시간 줄이기");
-        alternative.setReason("가는 곳은 그대로, 머무는 시간만 줄여요.");
-        alternative.setRecommended(true);
-        alternative.setFinalArrive("18:55");
-        alternative.setSlackMin(5);
-        alternative.setChanges(1);
-        alternative.getCoords().add(new double[] {37.5745, 126.9849});
-        alternative.getCoords().add(new double[] {37.5725, 126.9759});
-        alternative.getStops().add(altStop(103L, "청계천", "관광지", 37.569, 126.978, 30, false, "14:37", 12, "60분 → 30분"));
-        alternative.getStops().add(altStop(105L, "세종문화회관", "문화시설", 37.5725, 126.9759, 120, true, "19:00", 15, null));
-        AlternativesResponse response = new AlternativesResponse();
-        response.setTitle("세종문화회관에 늦지 않는 대안");
-        response.setSubtitle("지금 위치·시각에서 다시 계산했어요");
-        response.setSource("rule");
-        response.getAlternatives().add(alternative);
-        return response;
-    }
-
-    private static AltStop altStop(long id, String name, String category, double lat, double lng, int stay, boolean isFixed,
-                                   String eta, int moveMin, String change) {
-        AltStop stop = new AltStop();
-        stop.setId(id);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setEta(eta);
-        stop.setMoveMin(moveMin);
-        stop.setChange(change);
-        stop.setClosingSoon(false);
-        return stop;
-    }
-
     private static AppliedStop appliedStop(long id, String time, String name, String category, int stay, String tag, String note) {
         AppliedStop stop = new AppliedStop();
         stop.setId(id);
