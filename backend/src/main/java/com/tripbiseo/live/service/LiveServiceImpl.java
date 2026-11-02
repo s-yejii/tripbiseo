@@ -1,11 +1,18 @@
 package com.tripbiseo.live.service;
 
+import static com.tripbiseo.common.exception.ApiException.fail;
+
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.external.Route;
 import com.tripbiseo.common.external.RouteClient;
 import com.tripbiseo.common.external.WeatherClient;
+import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.AltStop;
 import com.tripbiseo.live.dto.Alternative;
 import com.tripbiseo.live.dto.AlternativesRequest;
@@ -21,6 +28,8 @@ import com.tripbiseo.live.dto.RecommendPlace;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
 import com.tripbiseo.member.service.NotificationService;
+import com.tripbiseo.trip.dto.Stop;
+import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.PlaceService;
 import com.tripbiseo.trip.service.TripService;
 
@@ -44,6 +53,7 @@ public class LiveServiceImpl implements LiveService {
     private final WeatherClient weatherClient;             // TODO: ④ 대안에서 비 오는지
     private final AiService aiService;                     // TODO: ④ assist 분류, alternatives
     private final NotificationService notificationService; // TODO: ④ 지연·출발 알림을 ①의 알림함에도 남길 때
+    private final LiveStopFinder liveStopFinder;           // 오늘 칸·지금 칸·남은 칸 고르기 (④ 도우미)
 
     /** 여행 중 채팅: 말 분류 */
     // TODO: ④ 채팅. message 1~300자 → aiService.askJson(분류 프롬프트, 분류 DTO) → recommend면 ask-radius, change면 makeAlternatives(reason "request"), 그 밖은 text.
@@ -113,7 +123,93 @@ public class LiveServiceImpl implements LiveService {
     //             근처 후보는 placeService.getNearbyPlaceList(PostGIS)로
     @Override
     public AlternativesResponse makeAlternatives(long memberId, long tripId, AlternativesRequest request) {
+        // 1단계: 남은 일정 꺼내기
+        Trip trip = tripService.getTrip(memberId, tripId);
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
+        List<Stop> remainingStops = getRemainingStops(todayStops, current);
+        if (remainingStops.isEmpty()) {
+            throw fail(400, "오늘 남은 일정이 없어요.");
+        }
+        // TODO: ④ 2단계부터: remainingStops로 대안 A·B·C 만들기 (지금은 가짜 값)
         return sampleAlternatives();
+    }
+
+    /** 오늘 칸 중 남은 칸만 순서대로 (지금 있는 칸·다녀온 칸·뺀 칸은 빠짐) */
+    private List<Stop> getRemainingStops(List<Stop> todayStops, Stop current) {
+        List<Stop> remainingStops = new ArrayList<>();
+        for (Stop stop : todayStops) {
+            if (liveStopFinder.isRemaining(stop, current)) {
+                remainingStops.add(stop);
+            }
+        }
+        return remainingStops;
+    }
+
+    // ---------------------------------------------------------------- 대안 계산 도우미 (2단계)
+
+    /** 바뀐 칸 목록으로 대안 하나 계산: 칸마다 이동 시간·도착 시각, 경로선, 기준 칸 도착과 여유 */
+    private Alternative calculateAlternative(Trip trip, Stop current, List<Stop> stops, double lat, double lng) {
+        // 2-1 출발점: 지금 어떤 칸에 있으면 그 칸에서 (머무는 시간이 끝나면 출발), 이동 중이면 내 위치에서 지금 출발
+        double fromLat = lat;
+        double fromLng = lng;
+        int clock = Geo.nowMinutes();
+        if (current != null) {
+            fromLat = current.getLat();
+            fromLng = current.getLng();
+            clock = Math.max(clock, liveStopFinder.getLeaveMinutes(current));
+        }
+
+        // 2-2 칸마다 이동 시간·도착 시각 (대안 후보를 여러 개 비교하니 길찾기 API 없이 거리로 추정: isPrecise=false)
+        Alternative alternative = new Alternative();
+        List<Integer> arriveList = new ArrayList<>();
+        for (Stop stop : stops) {
+            Route route = routeClient.getRoute(fromLat, fromLng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), false);
+            int arrive = clock + route.getMinutes();
+            arriveList.add(arrive);
+            alternative.getStops().add(toAltStop(stop, arrive, route.getMinutes()));
+            if (route.getCoords() != null) {
+                alternative.getCoords().addAll(route.getCoords());
+            }
+            clock = liveStopFinder.getStartMinutes(stop, arrive) + liveStopFinder.getStay(stop);
+            fromLat = stop.getLat();
+            fromLng = stop.getLng();
+        }
+
+        // 2-3 기준 칸(첫 고정 일정, 없으면 마지막 칸)에 몇 시 도착, 여유 몇 분
+        setFinalArrive(alternative, stops, arriveList);
+        return alternative;
+    }
+
+    /** 기준 칸 = 첫 고정 일정, 없으면 마지막 칸. 여유(분) = 계획 시각 − 예상 도착, 음수면 지각 */
+    private void setFinalArrive(Alternative alternative, List<Stop> stops, List<Integer> arriveList) {
+        int basisIndex = stops.size() - 1;
+        for (int i = 0; i < stops.size(); i++) {
+            if (Boolean.TRUE.equals(stops.get(i).getFixed())) {
+                basisIndex = i;
+                break;
+            }
+        }
+        int arrive = arriveList.get(basisIndex);
+        alternative.setFinalArrive(Geo.toHhmm(arrive));
+        alternative.setSlackMin(Geo.toMinutes(stops.get(basisIndex).getTime()) - arrive);
+    }
+
+    /** Stop → 화면용 AltStop. eta는 예상 도착, 고정 일정은 계획 시각 그대로 (API.md). change는 대안마다 따로 채움 */
+    private AltStop toAltStop(Stop stop, int arrive, int moveMin) {
+        AltStop altStop = new AltStop();
+        altStop.setId(stop.getId());
+        altStop.setPlaceId(stop.getPlaceId());
+        altStop.setName(stop.getName());
+        altStop.setCategory(stop.getCategory());
+        altStop.setLat(stop.getLat());
+        altStop.setLng(stop.getLng());
+        altStop.setStay(stop.getStay());
+        altStop.setFixed(Boolean.TRUE.equals(stop.getFixed()));
+        altStop.setEta(Boolean.TRUE.equals(stop.getFixed()) ? stop.getTime() : Geo.toHhmm(arrive));
+        altStop.setMoveMin(moveMin);
+        altStop.setClosingSoon(false);
+        return altStop;
     }
 
     /** 고른 대안을 일정에 반영 */
