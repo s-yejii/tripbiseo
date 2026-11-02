@@ -178,14 +178,17 @@ function drawMap() {
   if (retro.value.stops.length === 0) return 
   const firstStop = retro.value.stops[0]
   const center = new kakao.maps.LatLng(firstStop.lat , firstStop.lng)
-  new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
+  const map = new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
+  const bounds = new kakao.maps.LatLngBounds() // LatLngBounds: 넣은 좌표가 모두 들어가는 네모 범위
+  for (const place of retro.value.stops) // place 장소 들른 곳의 목록 중 꺼낸거
+  bounds.extend(new kakao.maps.LatLng(place.lat , place.lng))
+  map.setBounds(bounds)
 }
-
-
 
 function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
 }
+
 </script>
 
 <template>
