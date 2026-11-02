@@ -3,7 +3,6 @@ package com.tripbiseo.live.service;
 import static com.tripbiseo.common.exception.ApiException.fail;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,21 +39,20 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class StatusServiceImpl implements StatusService {
 
-    private static final int ARRIVE_RADIUS_M = 150;     // GPS 도착 기록이 없어도 이 안이면 "지금 있는 곳"
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
 
     private final TripService tripService;
     private final PlaceService placeService;             // 장소 영업 정보 (②)
     private final RouteClient routeClient;               // 이동 시간 (후보 비교는 isPrecise=false)
+    private final LiveStopFinder liveStopFinder;         // 오늘 칸·지금 칸·남은 칸 고르기 (④ 도우미)
     private final LiveAlertMaker liveAlertMaker;         // 출발 알림·맨 위 알림 만들기 (④ 도우미)
     private final LiveWeatherChecker liveWeatherChecker; // 비 소식 + 비 맞을 야외 일정 (④ 도우미)
 
     /** 지금 상황 다시 계산 */
-    // TODO: ④ 7단계 replan. 참고: 예전 LiveService.status
     @Override
     public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
         // 1단계: now, currentStopId, stops[] / 2단계: eta, next / 3단계: fixed, reach, hint, area
-        // 4단계: leave, alert / 5단계: 영업 정보 / 6단계: weather
+        // 4단계: leave, alert / 5단계: 영업 정보 / 6단계: weather / 7단계: replan
         if (request.getLat() == null || request.getLng() == null) {
             throw fail(400, "내 위치를 먼저 찾아 주세요.");
         }
@@ -63,10 +61,10 @@ public class StatusServiceImpl implements StatusService {
         Trip trip = tripService.getTrip(memberId, tripId);
         // TODO: ④ 404·ongoing 검사는 ②의 진짜 getTrip이 나오면 추가
 
-        List<Stop> todayStops = getTodayStops(trip);
-        Stop current = findCurrentStop(todayStops, lat, lng);
-        Stop nextStop = findNextStop(todayStops, current);
-        Stop fixedStop = findFixedStop(todayStops, current);
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, lat, lng);
+        Stop nextStop = liveStopFinder.findNextStop(todayStops, current);
+        Stop fixedStop = liveStopFinder.findFixedStop(todayStops, current);
         Map<Long, Integer> etaMap = getEtaMap(trip, todayStops, current, lat, lng);
         Map<Long, String> reachMap = getReachMap(trip, todayStops, current, fixedStop, lat, lng);
         Map<Long, OpenInfo> openMap = getOpenInfoMap(todayStops, current, etaMap);
@@ -93,45 +91,12 @@ public class StatusServiceImpl implements StatusService {
         response.setLeave(leave);
         response.setAlert(liveAlertMaker.makeAlert(context, leave));
 
-        // TODO: ④ 7단계에서 진짜 값으로 (지금은 가짜 값)
-        response.setReplan(false);
+        // 7단계: 다시 짜는 게 좋은지 (알림과 같은 기준이라 LiveAlertMaker가 판단)
+        response.setReplan(liveAlertMaker.isReplanNeeded(context));
         return response;
     }
 
     // ---------------------------------------------------------------- 지금 상황(status) 도우미
-
-    /** 오늘 칸 전부 (다녀온 칸·뺀 칸 포함, 화면에 오늘 일정을 다 보여 줘야 해서) */
-    private List<Stop> getTodayStops(Trip trip) {
-        // ChronoUnit.DAYS.between: 두 날짜 사이가 며칠인지 (시작일이면 0 → 1일째)
-        long today = ChronoUnit.DAYS.between(LocalDate.parse(trip.getStartDate()), Geo.now().toLocalDate()) + 1;
-        List<Stop> stops = new ArrayList<>();
-        for (Stop stop : trip.getStops()) {
-            if (stop.getDay() != null && stop.getDay() == today) {
-                stops.add(stop);
-            }
-        }
-        return stops;
-    }
-
-    /** 지금 있는 칸: 도착했고 아직 출발 안 한 칸, 없으면 150m 안에서 제일 가까운 todo 칸 (없으면 null) */
-    private Stop findCurrentStop(List<Stop> stops, double lat, double lng) {
-        Stop nearest = null;
-        double nearestMeters = ARRIVE_RADIUS_M;
-        for (Stop stop : stops) {
-            if (!isTodo(stop) || stop.getLat() == null || stop.getLng() == null) {
-                continue;
-            }
-            if (stop.getArrivedAt() != null && stop.getDepartedAt() == null) {
-                return stop; // GPS로 도착 기록된 칸이 제일 확실함
-            }
-            double meters = Geo.distanceMeters(lat, lng, stop.getLat(), stop.getLng());
-            if (meters <= nearestMeters) {
-                nearest = stop;
-                nearestMeters = meters;
-            }
-        }
-        return nearest;
-    }
 
     /** 남은 칸마다 예상 도착 시각(자정부터 센 분). key = 칸 id. 앞 칸 출발 시각에 이동 시간을 차례로 더해 감 */
     private Map<Long, Integer> getEtaMap(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng) {
@@ -143,11 +108,11 @@ public class StatusServiceImpl implements StatusService {
         if (current != null) {
             fromLat = current.getLat();
             fromLng = current.getLng();
-            clock = Math.max(clock, getLeaveMinutes(current));
+            clock = Math.max(clock, liveStopFinder.getLeaveMinutes(current));
         }
         int routeCount = 0;
         for (Stop stop : todayStops) {
-            if (!isRemaining(stop, current)) {
+            if (!liveStopFinder.isRemaining(stop, current)) {
                 continue;
             }
             // 가까운 몇 구간만 진짜 길찾기 API, 먼 구간은 거리로 추정 (API 무료 한도 아끼기)
@@ -156,32 +121,12 @@ public class StatusServiceImpl implements StatusService {
             int arrive = clock + route.getMinutes();
             etaMap.put(stop.getId(), arrive);
 
-            clock = getStartMinutes(stop, arrive) + getStay(stop);
+            clock = liveStopFinder.getStartMinutes(stop, arrive) + liveStopFinder.getStay(stop);
             fromLat = stop.getLat();
             fromLng = stop.getLng();
             routeCount++;
         }
         return etaMap;
-    }
-
-    /** 다음 남은 칸 (없으면 null) */
-    private Stop findNextStop(List<Stop> todayStops, Stop current) {
-        for (Stop stop : todayStops) {
-            if (isRemaining(stop, current)) {
-                return stop;
-            }
-        }
-        return null;
-    }
-
-    /** 남은 칸 중 첫 고정 일정 (없으면 null) */
-    private Stop findFixedStop(List<Stop> todayStops, Stop current) {
-        for (Stop stop : todayStops) {
-            if (isRemaining(stop, current) && Boolean.TRUE.equals(stop.getFixed())) {
-                return stop;
-            }
-        }
-        return null;
     }
 
     /**
@@ -197,14 +142,14 @@ public class StatusServiceImpl implements StatusService {
         int available = fixedMinutes - Geo.nowMinutes();
         for (Stop stop : todayStops) {
             boolean isBeforeFixed = Geo.toMinutes(stop.getTime()) <= fixedMinutes;
-            if (!isRemaining(stop, current) || stop == fixedStop || !isBeforeFixed) {
+            if (!liveStopFinder.isRemaining(stop, current) || stop == fixedStop || !isBeforeFixed) {
                 continue;
             }
             // 후보를 여러 개 비교하니 거리로 추정 (isPrecise=false)
             int go = routeClient.getRoute(lat, lng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), false).getMinutes();
             int back = routeClient.getRoute(stop.getLat(), stop.getLng(), fixedStop.getLat(), fixedStop.getLng(),
                     fixedStop.getMode(), trip.getTransports(), false).getMinutes();
-            reachMap.put(stop.getId(), judgeReach(go, getStay(stop), back, available));
+            reachMap.put(stop.getId(), judgeReach(go, liveStopFinder.getStay(stop), back, available));
         }
         return reachMap;
     }
@@ -297,34 +242,6 @@ public class StatusServiceImpl implements StatusService {
         return next;
     }
 
-    /** 남은 일정인지: 아직 갈 칸 + 지금 있는 칸이 아님 + 좌표 있음 (API.md "남은 일정") */
-    private boolean isRemaining(Stop stop, Stop current) {
-        return isTodo(stop) && stop != current && stop.getLat() != null && stop.getLng() != null;
-    }
-
-    /** 지금 칸에서 떠날 시각(분) = 도착 시각 + 머무는 시간. 도착 기록이 없으면 계획 시각으로 */
-    private int getLeaveMinutes(Stop current) {
-        int arrived = Geo.toMinutes(current.getTime());
-        if (current.getArrivedAt() != null && current.getArrivedAt().length() >= 16) {
-            // "2026-11-01T13:30:00"에서 "13:30" 부분만
-            arrived = Geo.toMinutes(current.getArrivedAt().substring(11, 16));
-        }
-        return arrived + getStay(current);
-    }
-
-    /** 칸에서 시작하는 시각: 고정 일정은 일찍 도착해도 계획 시각에 시작 */
-    private int getStartMinutes(Stop stop, int arrive) {
-        if (Boolean.TRUE.equals(stop.getFixed())) {
-            return Math.max(arrive, Geo.toMinutes(stop.getTime()));
-        }
-        return arrive;
-    }
-
-    /** 머무는 시간(분). 없으면 0 */
-    private int getStay(Stop stop) {
-        return stop.getStay() == null ? 0 : stop.getStay();
-    }
-
     /** Stop → 화면용 StatusStop. eta: 남은 칸이면 예상 도착, 아니면 계획 시각. open: 영업 정보 (없으면 null) */
     private StatusStop toStatusStop(Stop stop, Integer eta, String reach, OpenInfo open) {
         StatusStop status = new StatusStop();
@@ -353,7 +270,7 @@ public class StatusServiceImpl implements StatusService {
      * missed(계획 시간 지남) / fixed(고정 일정) / ok·tight·no(reachMap)
      */
     private String getReach(Stop stop, Stop current, Map<Long, String> reachMap, OpenInfo open) {
-        if (!isTodo(stop)) {
+        if (!liveStopFinder.isTodo(stop)) {
             return "done";
         }
         if (stop == current) {
@@ -362,27 +279,13 @@ public class StatusServiceImpl implements StatusService {
         if (isClosed(open)) {
             return "closed";
         }
-        if (isMissed(stop)) {
+        if (liveStopFinder.isMissed(stop)) {
             return "missed";
         }
         if (Boolean.TRUE.equals(stop.getFixed())) {
             return "fixed";
         }
         return reachMap.getOrDefault(stop.getId(), "ok");
-    }
-
-    /** 지난 일정: 고정 일정이 아니고, 도착 기록이 없는데 계획한 머무름까지 이미 끝났어야 하는 칸 */
-    private boolean isMissed(Stop stop) {
-        if (Boolean.TRUE.equals(stop.getFixed()) || stop.getArrivedAt() != null) {
-            return false;
-        }
-        int plannedEnd = Geo.toMinutes(stop.getTime()) + getStay(stop);
-        return plannedEnd < Geo.nowMinutes();
-    }
-
-    /** 아직 갈 칸인지 (done·skipped가 아님) */
-    private boolean isTodo(Stop stop) {
-        return "todo".equals(stop.getState());
     }
 
     // ---------------------------------------------------------------- 영업 정보 (5단계)
@@ -392,12 +295,12 @@ public class StatusServiceImpl implements StatusService {
         Map<Long, OpenInfo> openMap = new HashMap<>();
         LocalDate today = Geo.now().toLocalDate();
         for (Stop stop : todayStops) {
-            if (!isRemaining(stop, current) || stop.getPlaceId() == null) {
+            if (!liveStopFinder.isRemaining(stop, current) || stop.getPlaceId() == null) {
                 continue;
             }
             Place place = findPlace(stop.getPlaceId());
             if (place != null) {
-                openMap.put(stop.getId(), placeService.getOpenInfo(place, today, etaMap.get(stop.getId()), getStay(stop)));
+                openMap.put(stop.getId(), placeService.getOpenInfo(place, today, etaMap.get(stop.getId()), liveStopFinder.getStay(stop)));
             }
         }
         return openMap;
@@ -426,7 +329,7 @@ public class StatusServiceImpl implements StatusService {
         context.setNow(Geo.nowMinutes());
         context.setTodayStops(todayStops);
         context.setCurrent(current);
-        context.setLeaveAt(current == null ? null : getLeaveMinutes(current));
+        context.setLeaveAt(current == null ? null : liveStopFinder.getLeaveMinutes(current));
         context.setNextStop(nextStop);
         context.setFixedStop(fixedStop);
         context.setSlack(slack);
@@ -440,7 +343,7 @@ public class StatusServiceImpl implements StatusService {
     private List<Stop> findMissedStops(List<Stop> todayStops, Stop current) {
         List<Stop> missedStops = new ArrayList<>();
         for (Stop stop : todayStops) {
-            if (isRemaining(stop, current) && isMissed(stop)) {
+            if (liveStopFinder.isRemaining(stop, current) && liveStopFinder.isMissed(stop)) {
                 missedStops.add(stop);
             }
         }
