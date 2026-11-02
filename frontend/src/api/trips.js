@@ -1,6 +1,6 @@
 // 서버 API 모음. 주소·요청·응답 모양은 docs/API.md 그대로예요.
 // 화면은 이 함수들만 불러요 (주소를 화면마다 직접 쓰지 않게).
-import { get, post, put, del } from '@/api/http'
+import { get, post, put, del, upload } from '@/api/http'
 
 // ② 여행·일정
 export const getTripList = () => get('/trips')
@@ -32,6 +32,11 @@ export const getPlaceDetail = (placeId) => get(`/places/${encodeURIComponent(pla
 // ③ AI 일정
 export const chatPlan = (message, conditions) => post('/plans/chat', { message, conditions })
 export const generatePlan = (conditions, messages, lat, lng) => post('/plans/generate', { conditions, messages, lat, lng })
+export function readCapture(file) {
+  const form = new FormData()
+  form.append('image', file)
+  return upload('/plans/capture', form)
+}
 
 // ④ 여행 중 (본문에 지금 위치 lat, lng가 항상 들어가요)
 export const sendTrack = (tripId, lat, lng, accuracy) => post(`/trips/${tripId}/live/track`, { lat, lng, accuracy })

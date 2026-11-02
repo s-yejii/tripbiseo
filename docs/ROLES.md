@@ -141,7 +141,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 | 주인 | 메서드 | 하는 일 | 부르는 번호 |
 |---|---|---|---|
 | 공통 | `LoginUser.id()` | 지금 로그인한 회원 번호 (Controller에서 꺼내 Service에 넘김) | 전원 |
-| 공통 | `AiService.isReady()`, `askText(prompt)`, `askJson(prompt, DTO클래스)`, `askJsonWithWeather(prompt, lat, lng, DTO클래스)` | Gemini 호출. 실패하면 ApiException → 부르는 쪽이 규칙 기본값 | ③④ |
+| 공통 | `AiService.isReady()`, `askText(prompt)`, `askJson(prompt, DTO클래스)`, `askJsonWithWeather(prompt, lat, lng, DTO클래스)`, `askJsonWithImage(prompt, 사진, 사진종류, DTO클래스)` | Gemini 호출. 실패하면 ApiException → 부르는 쪽이 규칙 기본값 | ③④ |
 | 공통 | `RouteClient.getRoute(…)`, `estimate(…)`, `chooseMode(…)` | 두 지점 사이 이동시간·경로선 (TMAP → ODsay → 추정) | ②④⑤ |
 | 공통 | `WeatherClient.getForecast(lat, lng)` | 기상청 단기예보 | ④ |
 | 공통 | `PlaceSearchClient.searchByName(name, lat, lng)` | DB에 없는 장소 찾기 (TourAPI → 카카오) | ② |

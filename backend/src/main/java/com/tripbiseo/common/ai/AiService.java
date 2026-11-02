@@ -22,4 +22,7 @@ public interface AiService {
      * lat·lng는 서버 안에서 기상청을 부를 때만 쓰고 Gemini에는 보내지 않습니다.
      */
     <T> T askJsonWithWeather(String prompt, double lat, double lng, Class<T> type);
+
+    /** 사진 + 질문 → JSON 답 (OCR: 예약 캡처 읽기). imageType 예: "image/png". 사진은 저장하지 않음 */
+    <T> T askJsonWithImage(String prompt, byte[] image, String imageType, Class<T> type);
 }

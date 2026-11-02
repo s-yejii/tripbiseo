@@ -80,7 +80,7 @@
 | `POST /api/plans/chat` | 사용자 말 → 여행 조건 정리 (Gemini) | plan/PlanChatView | 있음 |
 | `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | plan/GeneratingView → trip/PlanCheckView | 있음 |
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
-| `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 확인 필요 |
+| `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks), plan/ShareAddView | 확인 필요 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 
@@ -573,6 +573,27 @@
 `title·region·mustVisit·fixed·style`은 Gemini가 말하지 않으면 키가 없을 수 있어요.
 
 **오류** 400 "메시지를 1~300자로 입력해 주세요." · Gemini 공통 오류
+
+### `POST /api/plans/capture`
+예약 확인 화면 캡처를 읽어 고정 일정 후보로 돌려줘요 (Gemini가 사진을 읽음, OCR). **저장하지 않아요** — 화면에서 사용자가 확인·수정한 뒤 고정 일정으로 넣어요. · 로그인 필요 · 화면: plan/ReserveCaptureView
+
+**요청** `multipart/form-data`, 파일 칸 이름 `image` (PNG·JPG·WEBP, 5MB까지)
+
+**응답**
+```json
+{ "name": "잔나비 콘서트", "date": "2026-10-24", "time": "18:00", "placeId": null, "address": "서울 송파구 올림픽로 25", "lat": null, "lng": null }
+```
+
+| 필드 | 설명 |
+|---|---|
+| name | 장소·공연 이름 |
+| date, time | `yyyy-MM-dd`, `HH:mm`. 형식이 틀리거나 안 보이면 `null` |
+| placeId, lat, lng | 이름으로 우리 DB(없으면 TourAPI·카카오)에서 찾은 장소. 못 찾으면 `null` |
+| address | 사진의 주소, 없으면 찾은 장소 주소 |
+
+> 예약 번호·전화번호·이름·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
+
+**오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "예약 정보를 읽지 못했어요. 장소 이름과 시간이 보이게 다시 찍어 주세요." · Gemini 공통 오류
 
 ### `POST /api/plans/generate`
 조건으로 일정 초안을 만들어요. 저장은 안 해요. · 로그인 필요 · 화면: plan/GeneratingView → trip/PlanCheckView
