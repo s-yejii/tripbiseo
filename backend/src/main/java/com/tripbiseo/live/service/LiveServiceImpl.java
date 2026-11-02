@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.Route;
 import com.tripbiseo.common.external.RouteClient;
 import com.tripbiseo.common.external.WeatherClient;
@@ -28,6 +29,8 @@ import com.tripbiseo.live.dto.RecommendPlace;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
 import com.tripbiseo.member.service.NotificationService;
+import com.tripbiseo.trip.dto.OpenInfo;
+import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.PlaceService;
@@ -49,6 +52,12 @@ public class LiveServiceImpl implements LiveService {
 
     private static final int TRIM_STAY_DIVIDE = 2;  // A 시간 단축: 한 칸에서 최대 이만큼 나눈 만큼까지 줄임 (절반)
     private static final int TRIM_BUFFER_MIN = 5;   // A 시간 단축: 늦는 시간보다 이만큼 더 줄여서 여유를 둠
+    // B 한 곳 빼기: 뺄 순위 (클수록 먼저 뺌)
+    private static final int DROP_RANK_CLOSED = 3;  // 도착하면 문 닫은 곳
+    private static final int DROP_RANK_MISSED = 2;  // 계획 시간이 지난 곳
+    private static final int DROP_RANK_OUTDOOR = 1; // 실내를 원할 때 야외 장소
+    private static final int DROP_RANK_NORMAL = 0;  // 그 밖 (그중 오래 머무는 곳)
+    private static final String[] INDOOR_WORDS = {"비", "실내", "추워", "더워", "날씨"}; // 요청에 있으면 실내 위주
 
     private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
     private final PlaceService placeService;               // TODO: ④ 근처 장소·영업 정보·실내 판단
@@ -145,7 +154,12 @@ public class LiveServiceImpl implements LiveService {
         response.setSubtitle("지금 위치·시각에서 다시 계산했어요");
         response.setSource("rule");
         response.getAlternatives().add(makeTrimAlternative(trip, current, remainingStops, request.getLat(), request.getLng()));
-        // TODO: ④ 4·5단계 B·C 추가, 6단계 key(A·B·C)·recommended 채우기
+        boolean isIndoorWanted = isIndoorRequest(request.getRequest());
+        Alternative dropAlternative = makeDropAlternative(trip, current, remainingStops, request.getLat(), request.getLng(), isIndoorWanted);
+        if (dropAlternative != null) {
+            response.getAlternatives().add(dropAlternative);
+        }
+        // TODO: ④ 5단계 C 추가, 6단계 key(A·B·C)·recommended 채우기
         return response;
     }
 
@@ -187,6 +201,110 @@ public class LiveServiceImpl implements LiveService {
         alternative.setTitle("머무는 시간 줄이기");
         alternative.setReason("가는 곳은 그대로, 머무는 시간만 줄여요.");
         return alternative;
+    }
+
+    /** B 한 곳 빼기: 뺄 곳 하나를 고르고 나머지는 계획대로. 뺄 곳이 없거나 빼면 남는 곳이 없으면 null */
+    private Alternative makeDropAlternative(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng,
+                                            boolean isIndoorWanted) {
+        // 1. 뺄 곳 고르기
+        Stop dropStop = findDropStop(remainingStops, isIndoorWanted);
+        if (dropStop == null || remainingStops.size() == 1) {
+            return null;
+        }
+
+        // 2. 뺄 곳만 빼고 나머지 목록 만들기 (머묾은 그대로라 복사하지 않음)
+        List<Stop> keptStops = new ArrayList<>();
+        for (Stop stop : remainingStops) {
+            if (stop != dropStop) {
+                keptStops.add(stop);
+            }
+        }
+
+        // 3. 계산기에 넣기
+        Alternative alternative = calculateAlternative(trip, current, keptStops, lat, lng);
+
+        // 4. 화면에 보일 이름 채우기
+        alternative.setChanges(1);
+        alternative.setShortName("한 곳 빼기");
+        alternative.setTitle(dropStop.getName() + " 빼기");
+        alternative.setReason(getDropReason(getDropRank(dropStop, isIndoorWanted)));
+        return alternative;
+    }
+
+    /** 뺄 곳 하나: 고정 일정이 아닌 칸 중 뺄 순위가 가장 높은 곳, 같으면 오래 머무는 곳 (없으면 null) */
+    private Stop findDropStop(List<Stop> stops, boolean isIndoorWanted) {
+        Stop dropStop = null;
+        int dropRank = -1;
+        for (Stop stop : stops) {
+            if (Boolean.TRUE.equals(stop.getFixed())) {
+                continue; // 고정 일정은 빼지 않음
+            }
+            // TODO: ①②에게 요청함 — trip_stop·Stop에 중요도(importance)가 생기면 "꼭"은 건너뛰고 "빼도 됨"을 먼저
+            int rank = getDropRank(stop, isIndoorWanted);
+            boolean isHigherRank = rank > dropRank;
+            boolean isLongerStay = rank == dropRank && liveStopFinder.getStay(stop) > liveStopFinder.getStay(dropStop);
+            if (isHigherRank || isLongerStay) {
+                dropStop = stop;
+                dropRank = rank;
+            }
+        }
+        return dropStop;
+    }
+
+    /** 뺄 순위: 문 닫은 곳 3 > 계획 시간 지난 곳 2 > (실내를 원할 때) 야외 1 > 그 밖 0 */
+    private int getDropRank(Stop stop, boolean isIndoorWanted) {
+        if (isClosedAtArrival(stop)) {
+            return DROP_RANK_CLOSED;
+        }
+        if (liveStopFinder.isMissed(stop)) {
+            return DROP_RANK_MISSED;
+        }
+        if (isIndoorWanted && !placeService.isIndoor(stop.getCategory())) {
+            return DROP_RANK_OUTDOOR;
+        }
+        return DROP_RANK_NORMAL;
+    }
+
+    /** 뺄 순위에 맞는 이유 한 문장 */
+    private String getDropReason(int rank) {
+        if (rank == DROP_RANK_CLOSED) {
+            return "도착하면 문을 닫은 곳을 빼요.";
+        }
+        if (rank == DROP_RANK_MISSED) {
+            return "계획 시간이 지난 곳을 빼요.";
+        }
+        if (rank == DROP_RANK_OUTDOOR) {
+            return "비를 맞을 수 있는 야외 장소를 빼요.";
+        }
+        return "한 곳을 빼고 나머지는 계획대로 가요.";
+    }
+
+    /** 계획 시각(이미 지났으면 지금)에 도착했을 때 문을 닫았나. 장소·영업시간을 모르면 false */
+    private boolean isClosedAtArrival(Stop stop) {
+        if (stop.getPlaceId() == null) {
+            return false; // DB에 없는 장소라 영업시간을 모름
+        }
+        try {
+            Place place = placeService.getPlace(stop.getPlaceId());
+            int arrive = Math.max(Geo.toMinutes(stop.getTime()), Geo.nowMinutes());
+            OpenInfo open = placeService.getOpenInfo(place, Geo.now().toLocalDate(), arrive, liveStopFinder.getStay(stop));
+            return Boolean.FALSE.equals(open.getOpen());
+        } catch (ApiException e) {
+            return false; // 지워진 장소면 영업 정보 없이 계속
+        }
+    }
+
+    /** 사용자 요청에 "비·실내·추워·더워·날씨"가 들어 있으면 실내 위주 */
+    private boolean isIndoorRequest(String request) {
+        if (request == null) {
+            return false;
+        }
+        for (String word : INDOOR_WORDS) {
+            if (request.contains(word)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 고정 일정 앞 칸부터 차례로 줄여서 need분을 채움. 한 칸에서는 최대 절반까지 */
