@@ -5,6 +5,7 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -60,6 +61,22 @@ public class ExternalApi {
             }
         }
         return builder.encode().build().toUri();
+    }
+
+    /**
+     * 값까지 엄격하게 인코딩한 주소 (+ → %2B). ODsay 키처럼 값에 + / = 가 들어갈 수 있을 때 씀.
+     * buildUrl은 +를 그대로 두는데, 받는 서버가 +를 공백으로 읽으면 키 인증이 실패해요.
+     */
+    public URI buildStrictUrl(String base, Map<String, Object> params) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(base);
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            if (entry.getValue() != null) {
+                builder.queryParam(entry.getKey(), "{" + entry.getKey() + "}"); // {이름} 자리에 값이 들어가며 엄격하게 인코딩됨
+                values.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return builder.encode().buildAndExpand(values).toUri();
     }
 
     /** GET 호출 → JSON. label은 오류 문장에 들어갈 이름 (예: "기상청") */

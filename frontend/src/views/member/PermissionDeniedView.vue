@@ -13,7 +13,7 @@ const items = [
 ]
 
 function allowInSettings() {
-  router.push('/')
+  router.replace('/')
   showToast('위치를 허용했어요')
 }
 </script>

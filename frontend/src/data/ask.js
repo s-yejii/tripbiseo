@@ -8,7 +8,7 @@ import { todayStops, reserveTime, planArrive, lateArrive, lateMinutes } from '@/
 import { toTime } from '@/utils/time'
 
 // 입력창 아래 예시 칩
-export const examples = ['근처 카페 추천해 줘', '비 와서 실내로 바꿔 줘', '다음 일정 뭐야?']
+export const examples = ['근처 카페 추천해 줘', '혼밥하기 좋은 식당 추천해 줘', '다음 일정 뭐야?']
 
 // 반경 칩 (m). API는 100~3000m까지 받아요
 export const radiusOptions = [300, 500, 1000]

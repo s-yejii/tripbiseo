@@ -1,23 +1,100 @@
 <script setup>
 // S17 바뀐 일정 (④): 대안을 적용한 뒤 무엇이 바뀌었는지 색으로 보여 줘요. 5분 안에는 되돌릴 수 있어요
+// 방금 적용한 결과(POST /live/apply 응답)와 적용 직전 원래 칸을 비교해요. 위 배너는 적용 뒤 다시 계산한 지금 상황(POST /live/status)
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
-import { modes } from '@/data/places'
+import PageMessage from '@/components/common/PageMessage.vue'
+import { getLiveStatus } from '@/api/trips'
+import { useReplanStore } from '@/stores/replan'
+import { imageFor } from '@/utils/mapView'
+import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 
+const UNDO_CHECK_MS = 15000 // 되돌리기 버튼을 숨길지 다시 보는 간격
+
 const router = useRouter()
+const replan = useReplanStore()
+const after = ref(null) // 적용 뒤 지금 상황
+const isUndoing = ref(false)
+const canUndo = ref(replan.canUndo())
+let undoTimer = null
 
-// 가짜 데이터: 적용한 뒤 남은 일정 (change: 바뀐 내용 표시)
-//   tag: 오른쪽 배지 / was·now: 바뀌기 전·후 / leg: 앞 장소에서 오는 이동
-const stops = [
-  { time: '16:36', name: '성내동 소품샵', img: '/img/sopum.jpg', changed: true, was: '60분', now: '30분', tag: '줄임', tagCls: 'badge--danger', leg: { mode: 'walk', min: 15 } },
-  { time: '17:14', name: '천호 로데오거리', img: '/img/understand.jpg', changed: true, was: '17:44', now: '17:14', after: ' · 40분', tag: '시간 이동', tagCls: 'badge--danger', leg: { mode: 'walk', min: 8 } },
-  { time: '18:30', name: '잔나비 콘서트', img: '/img/concert.svg', fixed: true, meta: '18:14 도착 · 16분 여유', tag: '예약 그대로', tagCls: 'badge--navy', leg: { mode: 'subway', min: 20 } },
-]
+onMounted(async () => {
+  undoTimer = setInterval(() => (canUndo.value = replan.canUndo()), UNDO_CHECK_MS)
+  if (!replan.applied) return
+  try {
+    after.value = await getLiveStatus(replan.tripId, replan.position.lat, replan.position.lng)
+  } catch (e) {
+    showToast(e.message)
+  }
+})
+onUnmounted(() => clearInterval(undoTimer))
 
-function undo() {
-  router.push('/live/delay')
-  showToast('원래 일정으로 되돌렸어요')
+// 적용 전 칸 (id → 칸)
+function beforeOf(id) {
+  return (replan.before || []).find((stop) => stop.id === id) || null
+}
+// 적용한 계산에서 앞에서 오는 이동 분
+function moveOf(row) {
+  if (!replan.plan) return null
+  const found = replan.plan.stops.find((stop) => (row.id && stop.id === row.id) || (!stop.id && stop.name === row.name))
+  return found ? found.moveMin : null
+}
+
+// 한 줄 모양: 배지·글자·색
+function toRow(row) {
+  const old = beforeOf(row.id)
+  const isCurrent = after.value && after.value.currentStopId === row.id
+  if (row.tag === 'done') return { ...row, cls: 'is-done', badge: null, meta: isCurrent ? '지금 · 여기서 출발' : '다녀옴', isCurrent }
+  if (row.tag === 'added') return { ...row, cls: 'is-changed', badge: { text: '새로 넣음', cls: 'badge--danger' }, meta: toDuration(row.stay) }
+  if (old && old.fixed) {
+    const fixed = after.value && after.value.fixed
+    const meta = fixed ? `${fixed.eta} 도착 · ` + (fixed.slackMin < 0 ? -fixed.slackMin + '분 늦음' : fixed.slackMin + '분 여유') : '계획 시각 그대로'
+    return { ...row, cls: 'is-fixed', isFixed: true, badge: { text: '예약 그대로', cls: 'badge--navy' }, meta }
+  }
+  if (old && old.stay !== row.stay) {
+    return { ...row, cls: 'is-changed', badge: { text: row.stay < old.stay ? '줄임' : '늘림', cls: 'badge--danger' }, was: old.stay + '분', now: row.stay + '분' }
+  }
+  if (old && old.time !== row.time) {
+    return { ...row, cls: 'is-changed', badge: { text: '시간 이동', cls: 'badge--danger' }, was: old.time, now: row.time, after: ' · ' + toDuration(row.stay) }
+  }
+  return { ...row, cls: '', badge: { text: '그대로', cls: 'badge--neutral' }, meta: toDuration(row.stay) }
+}
+
+const rows = computed(() => (replan.applied ? replan.applied.stops.map(toRow) : []))
+// 적용하면서 뺀 곳 (원래 있었는데 결과에 없는 칸)
+const gone = computed(() => {
+  if (!replan.applied || !replan.before) return []
+  return replan.before.filter((stop) => !replan.applied.stops.some((row) => row.id === stop.id))
+})
+
+const banner = computed(() => {
+  const fixed = after.value && after.value.fixed
+  if (!fixed) return { cls: 'banner--success', icon: 'i-success', title: replan.applied.message }
+  const isLate = fixed.slackMin < 0
+  return {
+    cls: isLate ? 'banner--danger' : 'banner--success',
+    icon: isLate ? 'i-danger' : 'i-success',
+    title: `${fixed.name} ${fixed.eta} 도착 · ` + (isLate ? -fixed.slackMin + '분 늦어요' : '여유 ' + fixed.slackMin + '분'),
+    text: isLate ? '다른 대안도 같이 보세요' : replan.applied.message,
+  }
+})
+
+async function undo() {
+  if (!replan.canUndo()) {
+    canUndo.value = false
+    return showToast('5분이 지나서 되돌릴 수 없어요')
+  }
+  isUndoing.value = true
+  try {
+    await replan.undo()
+    router.replace('/live/delay')
+    showToast('원래 일정으로 되돌렸어요')
+  } catch (e) {
+    showToast('되돌리는 중에 실패했어요 · ' + e.message)
+  }
+  isUndoing.value = false
 }
 </script>
 
@@ -25,15 +102,20 @@ function undo() {
   <div class="scr scr-Applied">
     <div class="app">
       <TopBar title="바뀐 일정" icon="close" to="/live">
-        <button type="button" class="btn btn--sm btn--secondary" style="margin-right: 8px" @click="undo"><i class="ic ic--s i-undo" aria-hidden="true"></i>되돌리기</button>
+        <button v-if="replan.applied && canUndo" type="button" class="btn btn--sm btn--secondary" style="margin-right: 8px" :disabled="isUndoing" @click="undo"><i class="ic ic--s i-undo" aria-hidden="true"></i>되돌리기</button>
       </TopBar>
 
+      <div v-if="!replan.applied" class="scroll">
+        <PageMessage title="방금 바꾼 일정이 없어요" text="여행 중 화면에서 대안을 고르면 여기에 보여요" to="/live" button="여행 중 화면으로" />
+      </div>
+
+      <template v-else>
       <div class="scroll" style="padding-top: 4px; gap: 14px; bottom: 102px">
-        <div class="banner banner--success">
-          <i class="ic ic--l i-success" aria-hidden="true"></i>
+        <div class="banner" :class="banner.cls">
+          <i class="ic ic--l" :class="banner.icon" aria-hidden="true"></i>
           <span class="banner__body">
-            <span class="t-strong tn">공연장 18:14 도착 · 예약 여유 16분</span>
-            <span class="t-cap">성내동 소품샵 30분 줄임 · 공연 입장을 지킬 수 있어요 · 지금 출발, 성내동 소품샵까지 도보 15분</span>
+            <span class="t-strong tn">{{ banner.title }}</span>
+            <span v-if="banner.text" class="t-cap">{{ banner.text }}</span>
           </span>
         </div>
 
@@ -45,50 +127,46 @@ function undo() {
         </div>
 
         <ol class="tl" style="list-style: none; margin: 0; padding: 0">
-          <li class="stop is-done">
-            <span class="stop__time">13:00</span>
-            <span class="stop__card"><span class="stop__body">
-              <span class="stop__name"><i class="ic ic--s i-check c-success" aria-hidden="true"></i>천호 쭈꾸미골목 · 강풀만화거리 산책</span>
-              <span class="stop__meta">다녀옴</span>
-            </span></span>
-          </li>
-          <li class="leg"><span></span><span></span></li>
-          <li class="stop">
-            <span class="stop__time">16:21</span>
-            <span class="stop__card">
-              <img class="thumb" src="/img/daelim.jpg" alt="" />
-              <span class="stop__body"><span class="stop__name">성내동 카페</span><span class="stop__meta">지금 · 여기서 출발</span></span>
-              <span class="me" aria-label="지금 위치" style="position: static; margin: 0 8px 0 0; flex: none"></span>
-            </span>
-          </li>
-
-          <template v-for="stop in stops" :key="stop.name">
-            <li class="leg"><span></span><span><i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ stop.leg.min }}분</span></li>
-            <li class="stop" :class="{ 'is-changed': stop.changed, 'is-fixed': stop.fixed }">
-              <span class="stop__time">{{ stop.time }}</span>
+          <template v-for="(row, i) in rows" :key="(row.id || '') + row.name">
+            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && moveOf(row) != null"><i class="ic ic--s i-walk" aria-hidden="true"></i>이동 {{ moveOf(row) }}분</span><span v-else></span></li>
+            <li class="stop" :class="row.cls">
+              <span class="stop__time">{{ row.time }}</span>
               <span class="stop__card">
-                <img class="thumb" :src="stop.img" alt="" />
+                <img v-if="row.tag !== 'done' || row.isCurrent" class="thumb" :src="imageFor(row.category)" alt="" />
                 <span class="stop__body">
-                  <span class="stop__name"><i v-if="stop.fixed" class="ic ic--s i-lock c-navy" aria-hidden="true"></i>{{ stop.name }}</span>
-                  <span v-if="stop.changed" class="stop__meta tn"><span class="was">{{ stop.was }}</span><b class="c-danger">{{ stop.now }}</b>{{ stop.after }}</span>
-                  <span v-else class="stop__meta tn">{{ stop.meta }}</span>
+                  <span class="stop__name">
+                    <i v-if="row.tag === 'done' && !row.isCurrent" class="ic ic--s i-check c-success" aria-hidden="true"></i>
+                    <i v-if="row.isFixed" class="ic ic--s i-lock c-navy" aria-hidden="true"></i>{{ row.name }}
+                  </span>
+                  <span v-if="row.was" class="stop__meta tn"><span class="was">{{ row.was }}</span><b class="c-danger">{{ row.now }}</b>{{ row.after }}</span>
+                  <span v-else class="stop__meta tn">{{ row.meta }}</span>
                 </span>
-                <span class="badge" :class="stop.tagCls">{{ stop.tag }}</span>
+                <span v-if="row.isCurrent" class="me" aria-label="지금 위치" style="position: static; margin: 0 8px 0 0; flex: none"></span>
+                <span v-if="row.badge" class="badge" :class="row.badge.cls">{{ row.badge.text }}</span>
               </span>
             </li>
           </template>
+          <li v-for="stop in gone" :key="'gone' + stop.id" class="stop is-gone">
+            <span class="stop__time"></span>
+            <span class="stop__card">
+              <img class="thumb" :src="imageFor(stop.category)" alt="" />
+              <span class="stop__body"><span class="stop__name"><s>{{ stop.name }}</s></span><span class="stop__meta">일정에서 뺐어요</span></span>
+              <span class="badge badge--neutral">뺌</span>
+            </span>
+          </li>
         </ol>
 
-        <div class="banner banner--info">
+        <div v-if="replan.applied.nextAlert" class="banner banner--info">
           <i class="ic i-bell" aria-hidden="true"></i>
-          <span class="banner__body"><span class="t-strong tn">16:56에 다음 출발 알림이 와요</span><span class="t-cap">성내동 소품샵 → 천호 로데오거리</span></span>
+          <span class="banner__body"><span class="t-cap">{{ replan.applied.nextAlert }}</span></span>
         </div>
-        <p class="t-cap" style="text-align: center">5분 안에는 위쪽 되돌리기로 원래 일정으로 돌아가요</p>
+        <p v-if="canUndo" class="t-cap" style="text-align: center">5분 안에는 위쪽 되돌리기로 원래 일정으로 돌아가요</p>
       </div>
 
       <div class="cta">
         <RouterLink to="/live" class="btn btn--primary btn--lg btn--block"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -99,5 +177,5 @@ function undo() {
 .scr-Applied .legend i.sw{width:12px;height:12px;border-radius:4px;display:inline-block}
 .scr-Applied .topbar .btn{flex:none}
 .scr-Applied .stop.is-gone .stop__card{background:var(--surface-sunken);border:1px dashed var(--line-strong);opacity:.8}
-.scr-Applied .was{font-size:13px;color:var(--ink-subtle);text-decoration:line-through}
+.scr-Applied .was{font-size:13px;color:var(--ink-subtle);text-decoration:line-through;margin-right:4px}
 </style>

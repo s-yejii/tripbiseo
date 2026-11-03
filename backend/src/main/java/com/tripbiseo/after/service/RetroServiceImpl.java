@@ -1,5 +1,8 @@
 package com.tripbiseo.after.service;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.after.dto.RetroResponse;
@@ -22,9 +25,7 @@ public class RetroServiceImpl implements RetroService {
     private final TripService tripService;
     private final TrackService trackService;
 
-    /** 회고: 계획 vs 실제 + GPS 선 */
-    // TODO: ⑤ 회고. 지금은 ②·④의 가짜 값을 그대로 옮겨 담기만 해요. arrivedAt이 있으면 visited +1, actualArrive = HH:mm,
-    //       departedAt도 있으면 actualStay = 두 시각 사이 분. 참고: 예전 TripService.retro
+    /** 회고: 계획 vs 실제 (도착 기록이 있으면 실제 도착 시각·머문 분) + GPS 선 */
     @Override
     public RetroResponse getRetro(long memberId, long tripId) {
         Trip trip = tripService.getTrip(memberId, tripId);
@@ -33,14 +34,21 @@ public class RetroServiceImpl implements RetroService {
         response.setTitle(trip.getTitle());
         response.setStartDate(trip.getStartDate());
         response.setEndDate(trip.getEndDate());
+        int visited = 0;
         for (Stop stop : trip.getStops()) {
-            response.getStops().add(toRetroStop(stop));
+            RetroStop retro = toRetroStop(stop);
+            if (retro.getActualArrive() != null) {
+                visited++;
+            }
+            response.getStops().add(retro);
         }
+        response.setVisited(visited);
         response.setTrack(trackService.getTrackList(tripId));
         return response;
     }
 
-    private static RetroStop toRetroStop(Stop stop) {
+    /** Stop → 회고 칸 (계획 값 + 실제 도착·머문 분) */
+    private RetroStop toRetroStop(Stop stop) {
         RetroStop retro = new RetroStop();
         retro.setId(stop.getId());
         retro.setDay(stop.getDay());
@@ -51,6 +59,14 @@ public class RetroServiceImpl implements RetroService {
         retro.setTime(stop.getTime());
         retro.setStay(stop.getStay());
         retro.setState(stop.getState());
+        if (stop.getArrivedAt() != null) {
+            // arrivedAt 형식 "2026-11-01T13:30:00" (②의 SQL) → LocalDateTime.parse로 바로 읽힘
+            LocalDateTime arrived = LocalDateTime.parse(stop.getArrivedAt());
+            retro.setActualArrive(arrived.toLocalTime().toString().substring(0, 5));
+            if (stop.getDepartedAt() != null) {
+                retro.setActualStay((int) ChronoUnit.MINUTES.between(arrived, LocalDateTime.parse(stop.getDepartedAt())));
+            }
+        }
         return retro;
     }
 }

@@ -123,7 +123,7 @@ async function join() {
   try {
     await post('/auth/signup', { ...account, nickname: nickname.value.trim() })
     await post('/auth/login', account)
-    router.push('/permission')
+    router.replace('/permission')
   } catch (e) {
     showToast(e.message) // 예: "이미 쓰는 아이디예요." (서버가 보낸 문장)
   }

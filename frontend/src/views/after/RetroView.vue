@@ -1,38 +1,81 @@
 <script setup>
 // S19-a 지난 여행 다시보기 (⑤): 다녀온 동선을 재생하고, 핀을 누르면 시간·결제 메모를 봐요. 계획과 실제도 비교해요
-import { computed, onUnmounted, ref } from 'vue'
-import { toTime } from '@/utils/time'
+// 주소에 ?id=가 있으면 서버 회고(GET /api/trips/{id}/retro)로 다녀온 곳·계획 vs 실제를 그려요. 없으면 시연용 가짜 값
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { getRetro } from '@/api/trips'
+import { toMapPositions } from '@/utils/mapView'
+import { toMinutes, toTime } from '@/utils/time'
 
-// 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
-const visited = [
+const route = useRoute()
+const RETRO_MAP_BOX = { left: 60, top: 120, width: 270, height: 180 }
+
+// 가짜 데이터: 다녀온 곳 (서버 회고가 있으면 바뀜)
+const visited = ref([
   { no: 1, x: 90, y: 250, name: '천호 골목 산책', time: '12:00–12:40', pay: '' },
   { no: 2, x: 140, y: 170, name: '천호 디저트 카페', time: '12:46–13:51', pay: '18,000원\n나: 9,000원\n지은: 9,000원' },
   { no: 3, x: 215, y: 205, name: '성내동 카페', time: '14:00–15:42', pay: '12,000원\n지은: 12,000원' },
   { no: 4, x: 290, y: 140, name: '천호 작은 갤러리숍', time: '16:05–16:40', pay: '' },
   { no: 5, x: 300, y: 250, name: '천호 소품 편집숍', time: '16:50–17:25', pay: '24,500원\n나: 24,500원' },
-]
+])
 // 계획 vs 실제 (막대 길이 %)
-const compare = [
+const compare = ref([
   { name: '성내동 카페', plan: 55, real: 75, diff: '+22분', cls: 'c-warning' },
   { name: '디저트 카페', plan: 40, real: 54, diff: '+15분', cls: 'c-warning' },
   { name: '갤러리숍', plan: 30, real: 28, diff: '−2분', cls: 'muted' },
   { name: '소품 편집숍', plan: 30, real: 25, diff: '−5분', cls: 'muted' },
-]
+])
+
+onMounted(async () => {
+  if (!route.query.id) return
+  try {
+    applyRetro(await getRetro(route.query.id))
+  } catch {
+    // 서버가 꺼져 있으면 가짜 값 그대로
+  }
+})
+
+// 서버 회고 → 다녀온 곳 핀 + 계획 vs 실제 막대
+function applyRetro(retro) {
+  const went = retro.stops.filter((stop) => stop.actualArrive)
+  if (!went.length) return
+  const positions = toMapPositions(went, RETRO_MAP_BOX)
+  visited.value = went.map((stop, i) => {
+    const end = stop.actualStay != null ? toTime(toMinutes(stop.actualArrive) + stop.actualStay) : ''
+    return { no: i + 1, x: positions[i].x, y: positions[i].y, name: stop.name, time: stop.actualArrive + (end ? '–' + end : ''), pay: '' }
+  })
+  const withStay = went.filter((stop) => stop.actualStay != null)
+  let longest = 1
+  for (const stop of withStay) longest = Math.max(longest, stop.stay || 0, stop.actualStay)
+  compare.value = withStay.map((stop) => {
+    const diff = stop.actualStay - (stop.stay || 0)
+    return {
+      name: stop.name,
+      plan: Math.round(((stop.stay || 0) / longest) * 80),
+      real: Math.round((stop.actualStay / longest) * 80),
+      diff: (diff > 0 ? '+' : diff < 0 ? '−' : '') + Math.abs(diff) + '분',
+      cls: diff > 10 ? 'c-warning' : 'muted',
+    }
+  })
+}
 
 const progress = ref(68) // 재생 위치 (%)
 const playing = ref(false)
 const infoNo = ref(null)
 let timer = null
 
-const routePoints = visited.map((v) => v.x + ',' + v.y).join(' ')
-const info = computed(() => visited.find((v) => v.no === infoNo.value))
-// 재생 위치에 맞춰 핀 사이에서 지금 점을 계산해요 (12:00 ~ 18:14)
+const routePoints = computed(() => visited.value.map((v) => v.x + ',' + v.y).join(' '))
+const info = computed(() => visited.value.find((v) => v.no === infoNo.value))
+// 재생 위치에 맞춰 핀 사이에서 지금 점을 계산해요
 const me = computed(() => {
-  const part = Math.min(3.999, (progress.value / 100) * 4)
+  const list = visited.value
+  if (list.length < 2) return { x: list[0].x, y: list[0].y }
+  const segments = list.length - 1
+  const part = Math.min(segments - 0.001, (progress.value / 100) * segments)
   const i = Math.floor(part)
   const rate = part - i
-  const a = visited[i]
-  const b = visited[i + 1]
+  const a = list[i]
+  const b = list[i + 1]
   return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
 })
 const nowText = computed(() => toTime(720 + Math.round((progress.value / 100) * 374)) + (playing.value ? ' · 4배속' : ''))

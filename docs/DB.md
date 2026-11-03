@@ -107,6 +107,7 @@
 | move_mode | VARCHAR(10) | 앞 장소에서 오는 수단 walk / transit / taxi, NULL이면 자동 |
 | memo | VARCHAR(200) | 메모 |
 | state | VARCHAR(10) NOT NULL DEFAULT 'todo' | todo / done / skipped |
+| importance | VARCHAR(10) NOT NULL DEFAULT 'maybe' | 중요도 must(꼭) / maybe(가능하면) / drop(빼도 됨). 11/03 추가 |
 | arrived_at, departed_at | TIMESTAMP | GPS 도착(150m 안)·출발(200m 밖) 시각 |
 
 > API의 Stop 필드 이름과 컬럼 이름이 조금 달라요: `day` ↔ `day_no`, `time` ↔ `start_time`, `stay` ↔ `stay_min`, `mode` ↔ `move_mode`. Mapper XML에서 맞춰요.

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  ④ 추천 이유 칩용 리뷰 태그 세기 (retrip_review 읽기만).
+  낱말 대신 구절로 셈: "아이"는 "아이스"에, "줄"은 "줄였어요"에 걸려서. 부정("분위기 별로")을 피하려고 긍정 구절만.
+  FILTER (WHERE …): 조건에 맞는 줄만 세는 PostgreSQL 문법
+-->
+<mapper namespace="com.tripbiseo.live.mapper.PlaceTagMapper">
+
+  <select id="selectPlaceTagCountList" resultType="com.tripbiseo.live.dto.PlaceTagCount">
+    SELECT place_id,
+           count(*) AS total,
+           count(*) FILTER (WHERE content LIKE '%혼밥%' OR content LIKE '%혼자 먹%' OR content LIKE '%혼자 오%') AS solo,
+           count(*) FILTER (WHERE content LIKE '%조용%') AS quiet,
+           count(*) FILTER (WHERE content LIKE '%분위기 좋%' OR content LIKE '%분위기가 좋%' OR content LIKE '%분위기 맛집%') AS mood,
+           count(*) FILTER (WHERE content LIKE '%데이트%') AS date,
+           count(*) FILTER (WHERE content LIKE '%가성비%') AS value,
+           count(*) FILTER (WHERE content LIKE '%웨이팅 없%' OR content LIKE '%웨이팅없%' OR content LIKE '%대기 없%') AS no_wait
+    FROM retrip_review
+    WHERE place_id IN
+    <foreach collection="list" item="placeId" open="(" separator="," close=")">#{placeId}</foreach>
+    GROUP BY place_id
+  </select>
+
+</mapper>

@@ -17,7 +17,7 @@ async function login() {
   if (!userId.value || !password.value) return (error.value = '아이디와 비밀번호를 입력해 주세요.')
   try {
     await post('/auth/login', { username: userId.value, password: password.value })
-    router.push('/permission') // 성공하면 다음 화면
+    router.replace('/permission') // 성공하면 다음 화면
   } catch (e) {
     error.value = e.message // 실패하면 서버가 보낸 문장을 그대로 보여 줘요
   }

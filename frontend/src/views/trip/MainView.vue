@@ -1,69 +1,132 @@
 <script setup>
-// S04-a 홈 · 여행 날 (②): 오늘 여행 카드(일정 보기가 메인), 테마 코스, 많이 가는 곳
+// S04-a 홈 (②): 내 여행 중 하나(여행 중 → 오늘 → 가장 가까운 다가오는 여행)를 크게 보여 주고, 그 일정 근처 가 볼 만한 곳
+// 서버(GET /api/trips, GET /api/trips/{id}, GET /api/places/nearby)에서 읽어요. 여행이 없으면 "여행 만들기" 카드.
+import { computed, onMounted, ref } from 'vue'
 import HomeHeader from '@/components/common/HomeHeader.vue'
-import PhotoCard from '@/components/common/PhotoCard.vue'
 import TabBar from '@/components/common/TabBar.vue'
-import { concertTrip } from '@/data/trips'
-import { themes } from '@/data/themes'
+import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
+import PageMessage from '@/components/common/PageMessage.vue'
+import { getNearbyPlaces, getTrip, getTripList } from '@/api/trips'
+import { imageFor } from '@/utils/mapView'
+import { daysLeft, isTodayTrip, pickHomeTrip, toShortDate, toTransportText, tripBadge, tripDetailLink } from '@/utils/tripView'
+import { toDuration, toMinutes } from '@/utils/time'
+
+const MAX_STOP_THUMBS = 6 // 카드에 보여 줄 일정 사진 수 (한 줄)
+const NEARBY_RADIUS_M = 500 // 첫 장소 근처 찾을 반경
+const NEARBY_COUNT = 3 // 근처 추천 개수
+
+const isLoading = ref(true)
+const error = ref('')
+const trip = ref(null) // 홈에 보여 줄 여행 (일정 칸 포함). 없으면 null
+const nearby = ref([])
+
+onMounted(load)
+
+async function load() {
+  isLoading.value = true
+  error.value = ''
+  try {
+    const picked = pickHomeTrip(await getTripList())
+    trip.value = picked ? await getTrip(picked.id) : null
+  } catch (e) {
+    error.value = e.message
+  }
+  isLoading.value = false
+  if (trip.value) loadNearby()
+}
+
+// 오늘(여행 중이면 오늘 날짜의 날) 일정 칸. 여행 전이면 첫째 날
+const dayStops = computed(() => {
+  if (!trip.value) return []
+  const day = isTodayTrip(trip.value) ? 1 - daysLeft(trip.value.startDate) : 1
+  const stops = []
+  for (const stop of trip.value.stops) {
+    if (stop.day === day && stop.state !== 'skipped') stops.push(stop)
+  }
+  return stops
+})
+
+const isNow = computed(() => trip.value && (trip.value.status === 'ongoing' || isTodayTrip(trip.value)))
+
+// 카드 큰 글자: 오늘이면 다음 장소까지 남은 시간, 여행 전이면 남은 날
+const countdown = computed(() => {
+  if (!trip.value) return null
+  if (!isNow.value) return { cap: '여행까지', big: daysLeft(trip.value.startDate) + '일' }
+  const next = dayStops.value.find((stop) => stop.state === 'todo')
+  if (!next) return { cap: '오늘 일정', big: '모두 다녀왔어요' }
+  const now = new Date()
+  const left = toMinutes(next.time) - (now.getHours() * 60 + now.getMinutes())
+  return { cap: next.name + ' (' + next.time + ')까지', big: left > 0 ? toDuration(left) : '지금 출발' }
+})
+
+// 첫 장소 근처 평점 높은 곳 (이미 일정에 있는 곳은 빼요)
+async function loadNearby() {
+  const first = dayStops.value[0]
+  if (!first || first.lat == null) return
+  try {
+    const places = await getNearbyPlaces(first.lat, first.lng, NEARBY_RADIUS_M)
+    const inTrip = new Set(trip.value.stops.map((stop) => stop.placeId))
+    const candidates = places.filter((place) => !inTrip.has(place.id))
+    candidates.sort((a, b) => (b.rating || 0) - (a.rating || 0)) // 평점 높은 순 (평점 없으면 0으로 봄)
+    nearby.value = candidates.slice(0, NEARBY_COUNT)
+  } catch {
+    nearby.value = [] // 근처 추천은 없어도 홈은 보여 줌
+  }
+}
 </script>
 
 <template>
   <div class="scr scr-Main">
     <div class="app">
       <HomeHeader>
-        <RouterLink to="/notifications" class="iconbtn" aria-label="알림 2개"><i class="ic ic--l i-bell" aria-hidden="true"></i><span class="dotbadge"></span></RouterLink>
+        <RouterLink to="/notifications" class="iconbtn" aria-label="알림"><i class="ic ic--l i-bell" aria-hidden="true"></i></RouterLink>
       </HomeHeader>
 
       <div class="scroll" style="bottom: 84px; gap: 24px; padding-top: 4px">
-        <!-- 오늘 여행 -->
-        <section class="card" aria-label="오늘 여행" style="overflow: hidden">
+        <PageMessage v-if="isLoading" is-loading title="내 여행을 불러오는 중이에요" />
+        <PageMessage v-else-if="error" icon="i-warning" title="여행을 불러오지 못했어요" :text="error" button="다시 시도" @retry="load" />
+        <EmptyTripCard v-else-if="!trip" to="/new" />
+
+        <!-- 내 여행 하나 -->
+        <section v-else class="card" aria-label="내 여행" style="overflow: hidden">
           <div class="today-card">
             <div style="display: flex; align-items: center; gap: 8px">
-              <span class="badge badge--coral">오늘</span>
-              <span class="t-cap tn">10/24(토) · 연인 2명 · 지하철·도보</span>
+              <span class="badge" :class="tripBadge(trip).cls">{{ tripBadge(trip).text }}</span>
+              <span class="t-cap tn">{{ toShortDate(trip.startDate) }} · {{ trip.people }}명 · {{ toTransportText(trip.transports) }}</span>
             </div>
-            <h1 class="h-display">{{ concertTrip.title }}</h1>
-            <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px">
-              <div>
-                <p class="t-cap">첫 장소 출발까지</p>
-                <p class="t-big" style="margin: 0; color: var(--navy)">2시간 20분</p>
-              </div>
-              <span class="badge badge--warning"><i class="ic ic--s i-rain" aria-hidden="true"></i>14–16시 비 60%</span>
+            <h1 class="h-display">{{ trip.title }}</h1>
+            <div>
+              <p class="t-cap">{{ countdown.cap }}</p>
+              <p class="t-big" style="margin: 0; color: var(--navy)">{{ countdown.big }}</p>
             </div>
-            <ol class="today-stops" :aria-label="`오늘 일정 ${concertTrip.stops.length}곳`">
-              <li v-for="(stop, i) in concertTrip.stops" :key="stop.id">
-                <img class="thumb" :class="{ 'is-first': i === 0, 'is-fixed': stop.fixed }" :src="stop.img" alt="" />
+            <ol v-if="dayStops.length" class="today-stops" :aria-label="`일정 ${dayStops.length}곳`">
+              <li v-for="(stop, i) in dayStops.slice(0, MAX_STOP_THUMBS)" :key="stop.id">
+                <img class="thumb" :class="{ 'is-first': i === 0, 'is-fixed': stop.fixed }" :src="imageFor(stop.category)" alt="" />
                 <span class="t-label tn" style="display: inline-flex; align-items: center; gap: 2px">
                   <i v-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 12px; height: 12px"></i>{{ stop.time }}
                 </span>
               </li>
             </ol>
+            <p v-else class="t-cap">아직 넣은 일정이 없어요</p>
           </div>
           <div style="padding: 0 16px 16px">
-            <RouterLink to="/trips/today" class="btn btn--primary btn--lg btn--block">일정 보기</RouterLink>
+            <RouterLink v-if="trip.status === 'ongoing'" to="/live" class="btn btn--primary btn--lg btn--block">여행 이어가기</RouterLink>
+            <RouterLink v-else :to="tripDetailLink(trip)" class="btn btn--primary btn--lg btn--block">일정 보기</RouterLink>
           </div>
         </section>
 
-        <!-- 테마로 떠나기 -->
-        <section aria-labelledby="h-theme" style="display: flex; flex-direction: column; gap: 12px">
-          <div class="sec-h"><h2 id="h-theme" class="h-title">테마로 떠나기</h2></div>
-          <div class="theme-grid">
-            <PhotoCard v-for="theme in themes" :key="theme.id" :to="'/theme?id=' + theme.id" :img="theme.img" :title="theme.short" :sub="theme.count" :badge="theme.badge" />
-          </div>
-        </section>
-
-        <!-- 많이 가는 곳 -->
-        <section aria-labelledby="h-hot" style="display: flex; flex-direction: column; gap: 12px">
-          <h2 id="h-hot" class="h-title">천호에서 많이 가요</h2>
+        <!-- 첫 장소 근처 가 볼 만한 곳 (DB 장소) -->
+        <section v-if="nearby.length" aria-labelledby="h-near" style="display: flex; flex-direction: column; gap: 12px">
+          <h2 id="h-near" class="h-title">{{ dayStops[0].name }} 근처 가 볼 만한 곳</h2>
           <div class="group">
-            <RouterLink to="/place" class="row">
-              <img class="thumb" src="/img/daelim.jpg" alt="" />
-              <span class="row__body"><span class="row__title">성내동 카페</span><span class="row__meta"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> 4.6 · 카페·갤러리</span></span>
-              <i class="ic i-next subtle" aria-hidden="true"></i>
-            </RouterLink>
-            <RouterLink to="/place" class="row">
-              <img class="thumb" src="/img/sopum.jpg" alt="" />
-              <span class="row__body"><span class="row__title">천호 소품 편집숍</span><span class="row__meta"><span class="badge badge--neutral" style="height: 20px">광고</span> 일정 근처 · 도보 4분</span></span>
+            <RouterLink v-for="place in nearby" :key="place.id" :to="'/place?id=' + place.id" class="row">
+              <img class="thumb" :src="imageFor(place.category)" alt="" />
+              <span class="row__body">
+                <span class="row__title">{{ place.name }}</span>
+                <span class="row__meta">
+                  <template v-if="place.rating"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ place.rating }} · </template>{{ place.category }} · {{ place.distance }}m
+                </span>
+              </span>
               <i class="ic i-next subtle" aria-hidden="true"></i>
             </RouterLink>
           </div>
@@ -77,6 +140,7 @@ import { themes } from '@/data/themes'
 
 <style>
 .scr-Main .today-card { padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 12px; }
+.scr-Main .today-card .t-cap { margin: 0; }
 .scr-Main .today-stops { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .scr-Main .today-stops li { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .scr-Main .today-stops .thumb { width: 44px; height: 44px; }

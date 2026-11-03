@@ -77,8 +77,8 @@ function pickMode(i, mode) {
               <span class="stop__meta" :class="stop.metaCls"><i v-if="stop.metaIcon" class="ic ic--s" :class="stop.metaIcon" aria-hidden="true"></i>{{ stop.meta }}</span>
             </span>
             <span class="stop__side">
-              <span v-if="!stop.fixed" class="imp" :class="'imp--' + stop.imp">{{ importance[stop.imp] }}</span>
-              <span class="stop__wx" :class="{ 'is-rain': stop.wx === 'rain' }"><i class="ic ic--s" :class="weather[stop.wx].icon" aria-hidden="true"></i>{{ weather[stop.wx].label }}</span>
+              <span v-if="!stop.fixed && stop.imp" class="imp" :class="'imp--' + stop.imp">{{ importance[stop.imp] }}</span>
+              <span v-if="stop.wx" class="stop__wx" :class="{ 'is-rain': stop.wx === 'rain' }"><i class="ic ic--s" :class="weather[stop.wx].icon" aria-hidden="true"></i>{{ weather[stop.wx].label }}</span>
             </span>
           </span>
         </button>

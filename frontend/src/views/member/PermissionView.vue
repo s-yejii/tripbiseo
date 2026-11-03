@@ -12,7 +12,7 @@ const items = [
 ]
 
 function allow() {
-  router.push('/')
+  router.replace('/')
   showToast('위치·알림을 허용했어요')
 }
 </script>

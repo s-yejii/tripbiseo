@@ -20,7 +20,7 @@ onMounted(async () => {
     me.value.name = user.nickname || user.username // 닉네임이 없으면 아이디
     me.value.id = user.username
   } catch (e) {
-    router.push('/login') // 로그인 안 했으면(401) 로그인 화면으로
+    router.replace('/login') // 로그인 안 했으면(401) 로그인 화면으로
   }
 })
 const styleChips = ['보통 여행', '카페', '맛집', '쇼핑']
@@ -45,7 +45,7 @@ function setMainCard(index) {
 // 로그아웃: 서버 세션을 지우고 첫 화면으로
 async function logout() {
   await post('/auth/logout')
-  router.push('/login')
+  router.replace('/login')
 }
 
 </script>

@@ -2,12 +2,15 @@ package com.tripbiseo.trip.service;
 
 import static com.tripbiseo.common.exception.ApiException.fail;
 
-import java.util.ArrayList;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.trip.dto.ChatMessage;
 import com.tripbiseo.trip.dto.Stop;
@@ -17,18 +20,27 @@ import com.tripbiseo.trip.mapper.TripMapper;
 import lombok.RequiredArgsConstructor;
 
 /**
- * ② 여행·일정. getTripList(완성 예시)와 getTrip은 진짜이고, 나머지는 화면이 그려지게 가짜 값을 돌려줘요.
+ * ② 여행·일정. 모든 조회·수정은 로그인한 회원의 여행만 (남의 여행이면 404).
  * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/TripService.java
- * 공통 주의: 회원 번호는 Controller가 LoginUser.id()로 꺼내 넘김(요청마다 member 다시 조회 안 함),
- *           남의 테이블은 SELECT만, 입력 검사 오류 문장은 docs/API.md 그대로
+ * 입력 검사 오류 문장은 docs/API.md 그대로.
  */
 @Service
 @RequiredArgsConstructor
 public class TripServiceImpl implements TripService {
 
-    private final TripMapper tripMapper;
+    private static final List<String> TRANSPORTS = List.of("bus", "subway", "walk", "taxi", "car");
+    private static final List<String> MODES = List.of("walk", "transit", "taxi");
+    private static final List<String> IMPORTANCES = List.of("must", "maybe", "drop"); // 중요도 꼭 / 가능하면 / 빼도 됨
+    private static final String DEFAULT_IMPORTANCE = "maybe";
+    private static final List<String> STATES = List.of("todo", "done", "skipped");
+    private static final int MAX_TRIP_DAYS = 30;
+    private static final int MAX_STAY_MIN = 720;
+    private static final int MAX_CHAT_LENGTH = 2000;
 
-    /** [완성 예시] 내 여행 목록: Mapper가 DB에서 읽은 그대로 돌려줌 (stops는 DTO 기본값 []) */
+    private final TripMapper tripMapper;
+    private final PlaceService placeService; // placeId가 DB에 있는지 확인
+
+    /** 내 여행 목록 */
     @Override
     public List<Trip> getTripList(long memberId) {
         return tripMapper.selectTripList(memberId);
@@ -45,143 +57,296 @@ public class TripServiceImpl implements TripService {
         return trip;
     }
 
-    /** 여행을 일정 칸까지 한 번에 저장 */
-    // TODO: ② 여행 저장. 입력 검사(API.md 오류 문장) → insertTrip → 칸마다 검사 + insertStop. 참고: 예전 TripService.create/checkInfo/checkStop
-    //       주의: DB에 여러 번 쓰니 @Transactional 유지. placeId가 DB에 없으면 null로 (PlaceService.getPlace로 확인)
+    /** 여행을 일정 칸까지 한 번에 저장 (여행 1번 + 칸 여러 번 쓰기라 @Transactional) */
     @Override
     @Transactional
     public Trip createTrip(long memberId, Trip trip) {
-        trip.setId(12L);
+        checkTripInfo(trip);
+        if (trip.getStops() == null || trip.getStops().isEmpty()) {
+            throw fail(400, "장소를 하나 이상 담아 주세요.");
+        }
+        if (trip.getEndDate().compareTo(Geo.now().toLocalDate().toString()) < 0) {
+            throw fail(400, "이미 지난 날짜로는 여행을 만들 수 없어요.");
+        }
         trip.setMemberId(memberId);
-        trip.setStatus("planned");
-        return trip;
+        tripMapper.insertTrip(trip);
+        int days = countDays(trip);
+        for (Stop stop : trip.getStops()) {
+            checkStop(stop, days);
+            stop.setTripId(trip.getId());
+            tripMapper.insertStop(stop);
+        }
+        return getTrip(memberId, trip.getId());
     }
 
-    /** 여행 정보만 수정 */
-    // TODO: ② 여행 수정. title·startDate·endDate·people·transports만 읽기, 줄인 날짜 밖에 일정이 있으면 400. 참고: 예전 TripService.update
+    /** 여행 정보(이름·날짜·인원·수단)만 수정. 줄인 날짜 밖에 일정이 있으면 400 */
     @Override
-    public Trip updateTrip(long memberId, long tripId, Trip trip) {
-        Trip saved = sampleTrip(memberId, tripId, "planned");
-        saved.setTitle(trip.getTitle());
-        return saved;
+    public Trip updateTrip(long memberId, long tripId, Trip info) {
+        Trip saved = getTrip(memberId, tripId);
+        checkTripInfo(info);
+        int days = countDays(info);
+        for (Stop stop : saved.getStops()) {
+            if (stop.getDay() > days) {
+                throw fail(400, "줄인 날짜 밖에 일정이 있어요. 그 일정을 먼저 옮기거나 지워 주세요.");
+            }
+        }
+        info.setId(tripId);
+        info.setMemberId(memberId);
+        tripMapper.updateTrip(info);
+        return getTrip(memberId, tripId);
     }
 
-    /** 여행 삭제 */
-    // TODO: ② 여행 삭제. deleteTrip(tripId, memberId)가 0줄이면 404 (일정·GPS·대화는 FK ON DELETE CASCADE로 같이 지워짐). 참고: 예전 TripService.delete
+    /** 여행 삭제 (일정·GPS·대화는 FK CASCADE로 같이 지워짐) */
     @Override
     public void deleteTrip(long memberId, long tripId) {
+        if (tripMapper.deleteTrip(tripId, memberId) == 0) {
+            throw fail(404, "여행을 찾을 수 없어요.");
+        }
     }
 
-    /** 여행 시작 */
-    // TODO: ② 여행 시작. 오늘이 기간 밖이면 400, 진행 중인 다른 여행이 있으면 409 → updateStatus ongoing. 참고: 예전 TripService.start
+    /** 여행 시작: 오늘이 여행 기간 안이고, 진행 중인 다른 여행이 없을 때만 */
     @Override
     public Trip startTrip(long memberId, long tripId) {
-        return sampleTrip(memberId, tripId, "ongoing");
+        Trip trip = getTrip(memberId, tripId);
+        String today = Geo.now().toLocalDate().toString();
+        boolean isInPeriod = today.compareTo(trip.getStartDate()) >= 0 && today.compareTo(trip.getEndDate()) <= 0;
+        if (!isInPeriod) {
+            throw fail(400, "여행 기간(" + trip.getStartDate() + " ~ " + trip.getEndDate() + ")에만 시작할 수 있어요.");
+        }
+        Trip other = tripMapper.selectOtherOngoingTrip(memberId, tripId);
+        if (other != null) {
+            throw fail(409, "이미 진행 중인 여행(" + other.getTitle() + ")이 있어요. 그 여행을 먼저 마쳐 주세요.");
+        }
+        tripMapper.updateTripStatus(tripId, "ongoing");
+        return getTrip(memberId, tripId);
     }
 
-    /** 여행 마치기 */
-    // TODO: ② 여행 마치기. 진행 중이 아니어도 막지 않음 → updateStatus done. 참고: 예전 TripService.finish
+    /** 여행 마치기 (진행 중이 아니어도 막지 않음) */
     @Override
     public Trip finishTrip(long memberId, long tripId) {
-        return sampleTrip(memberId, tripId, "done");
+        getTrip(memberId, tripId);
+        tripMapper.updateTripStatus(tripId, "done");
+        return getTrip(memberId, tripId);
     }
 
-    /** 일정 칸 하나 추가 → 여행 전체 */
-    // TODO: ② 일정 칸 추가. 칸 검사 → insertStop(state는 항상 todo) → getTrip. 참고: 예전 TripService.addStop/checkStop
+    /** 일정 칸 하나 추가 (state는 항상 todo) */
     @Override
     public Trip createStop(long memberId, long tripId, Stop stop) {
-        Trip trip = sampleTrip(memberId, tripId, "planned");
-        stop.setId(104L);
+        Trip trip = getTrip(memberId, tripId);
+        checkStop(stop, countDays(trip));
         stop.setTripId(tripId);
-        stop.setState("todo");
-        trip.getStops().add(stop);
-        return trip;
+        tripMapper.insertStop(stop);
+        return getTrip(memberId, tripId);
     }
 
-    /** 일정 칸 수정 → 여행 전체 */
-    // TODO: ② 일정 칸 수정. day·time·stay·fixed·state는 null이면 원래 값, mode·memo는 항상 덮어씀(API.md 주의) → updateStop. 참고: 예전 TripService.updateStop
+    /** 일정 칸 수정. day·time·stay·fixed·state는 null이면 원래 값, mode·memo는 항상 보낸 값 (API.md) */
     @Override
-    public Trip updateStop(long memberId, long tripId, long stopId, Stop stop) {
-        return sampleTrip(memberId, tripId, "planned");
+    public Trip updateStop(long memberId, long tripId, long stopId, Stop form) {
+        Trip trip = getTrip(memberId, tripId);
+        Stop stop = findStop(tripId, stopId);
+        if (form.getDay() != null) {
+            stop.setDay(form.getDay());
+        }
+        if (form.getTime() != null) {
+            stop.setTime(form.getTime());
+        }
+        if (form.getStay() != null) {
+            stop.setStay(form.getStay());
+        }
+        if (form.getFixed() != null) {
+            stop.setFixed(form.getFixed());
+        }
+        if (form.getState() != null && STATES.contains(form.getState())) {
+            stop.setState(form.getState());
+        }
+        if (form.getImportance() != null) {
+            stop.setImportance(form.getImportance());
+        }
+        stop.setMode(form.getMode());
+        stop.setMemo(form.getMemo());
+        checkStop(stop, countDays(trip));
+        tripMapper.updateStop(stop);
+        return getTrip(memberId, tripId);
     }
 
-    /** 일정 칸 삭제 → 여행 전체 */
-    // TODO: ② 일정 칸 삭제. deleteStop이 0줄이면 404 "일정을 찾을 수 없어요." 참고: 예전 TripService.deleteStop
+    /** 일정 칸 삭제 */
     @Override
     public Trip deleteStop(long memberId, long tripId, long stopId) {
-        return sampleTrip(memberId, tripId, "planned");
+        getTrip(memberId, tripId);
+        if (tripMapper.deleteStop(tripId, stopId) == 0) {
+            throw fail(404, "일정을 찾을 수 없어요.");
+        }
+        return getTrip(memberId, tripId);
     }
 
-    /** 여러 일정 칸을 skipped로 */
-    // TODO: ② 일정 칸 빼기. 내 여행인지 확인 → updateStopState(stopIds, 'skipped'). ④ 대안 적용이 부름
+    /** 여러 일정 칸을 skipped로 (④ 대안 적용이 부름) */
     @Override
     @Transactional
     public void skipStops(long memberId, long tripId, List<Long> stopIds) {
+        getTrip(memberId, tripId);
+        if (stopIds == null || stopIds.isEmpty()) {
+            return;
+        }
+        tripMapper.updateStopState(tripId, stopIds, "skipped");
     }
 
-    /** 이 여행의 대화 기록 */
-    // TODO: ② 대화 기록 조회. 내 여행인지 확인 → selectChatList (at은 yyyy-MM-ddTHH:mm). 참고: 예전 TripService.chats, TripMapper.xml findChats
+    /** GPS 도착 기록 */
+    @Override
+    public void arriveStop(long memberId, long tripId, long stopId) {
+        getTrip(memberId, tripId);
+        tripMapper.updateStopArrived(tripId, stopId);
+    }
+
+    /** GPS 출발 기록 (state = done) */
+    @Override
+    public void departStop(long memberId, long tripId, long stopId) {
+        getTrip(memberId, tripId);
+        tripMapper.updateStopDeparted(tripId, stopId);
+    }
+
+    /** 이 여행의 대화 기록 (시간순) */
     @Override
     public List<ChatMessage> getChatList(long memberId, long tripId) {
-        List<ChatMessage> chats = new ArrayList<>();
-        chats.add(chat("me", "근처 카페 추천해 줘", "2026-10-20T14:02"));
-        chats.add(chat("ai", "반경 몇 m 안에서 찾을까요?", "2026-10-20T14:02"));
-        return chats;
+        getTrip(memberId, tripId);
+        return tripMapper.selectChatList(tripId);
     }
 
-    /** 대화 기록 여러 줄 저장 */
-    // TODO: ② 대화 기록 저장. role이 me/ai가 아니거나 text가 비면 건너뜀, 2000자로 자르기, at 형식이 틀리면 지금 시각.
-    //       참고: 예전 TripService.addChats. 주의: 예전 PlanService.str 같은 static 도우미는 쓰지 말고 이 클래스 private으로
+    /** 대화 기록 여러 줄 저장. role이 me/ai가 아니거나 text가 비면 그 줄은 건너뜀 */
     @Override
     @Transactional
     public void createChats(long memberId, long tripId, List<ChatMessage> messages) {
+        getTrip(memberId, tripId);
+        if (messages == null) {
+            return;
+        }
+        for (ChatMessage message : messages) {
+            if (!isSavableChat(message)) {
+                continue;
+            }
+            ChatMessage chat = new ChatMessage();
+            chat.setRole(message.getRole());
+            chat.setText(cutText(message.getText().trim(), MAX_CHAT_LENGTH));
+            chat.setAt(isChatTime(message.getAt()) ? message.getAt() : null); // null이면 DB가 지금 시각
+            tripMapper.insertChat(tripId, chat);
+        }
     }
 
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static Trip sampleTrip(long memberId, long tripId, String status) {
-        String today = Geo.now().toLocalDate().toString();
-        Trip trip = new Trip();
-        trip.setId(tripId);
-        trip.setMemberId(memberId);
-        trip.setTitle("서울 하루");
-        trip.setStartDate(today);
-        trip.setEndDate(today);
-        trip.setPeople(2);
-        trip.setTransports(new ArrayList<>(List.of("subway", "bus", "walk")));
-        trip.setStatus(status);
-        trip.getStops().add(sampleStop(101L, tripId, "e70caff5-27cf-5c76-a1f3-201b7032d672", "경복궁", "관광지",
-                "서울 종로구 사직로 161", 37.5796, 126.977, "10:00", 90, false));
-        trip.getStops().add(sampleStop(102L, tripId, null, "카페OO", "카페", null, 37.5745, 126.9849, "13:30", 55, false));
-        trip.getStops().add(sampleStop(103L, tripId, null, "세종문화회관", "문화시설", "서울 종로구 세종대로 175",
-                37.5725, 126.9759, "19:00", 120, true));
-        return trip;
+    // ---------------------------------------------------------------- 입력 검사 (오류 문장은 API.md 그대로)
+
+    /** 여행 정보 검사: 이름 1~60자, 날짜, 기간 1~30일, 인원 1~20, 수단 1개 이상 */
+    private void checkTripInfo(Trip trip) {
+        if (trip == null) {
+            throw fail(400, "여행 정보가 없어요.");
+        }
+        if (trip.getTitle() == null || trip.getTitle().isBlank() || trip.getTitle().trim().length() > 60) {
+            throw fail(400, "여행 이름을 1~60자로 적어 주세요.");
+        }
+        trip.setTitle(trip.getTitle().trim());
+        checkPeriod(trip);
+        if (trip.getPeople() == null || trip.getPeople() < 1 || trip.getPeople() > 20) {
+            throw fail(400, "동행 인원은 1~20명이에요.");
+        }
+        boolean hasTransport = trip.getTransports() != null && !trip.getTransports().isEmpty();
+        if (!hasTransport || !TRANSPORTS.containsAll(trip.getTransports())) {
+            throw fail(400, "이동 수단을 하나 이상 골라 주세요.");
+        }
     }
 
-    private static Stop sampleStop(long id, long tripId, String placeId, String name, String category, String address,
-                                   double lat, double lng, String time, int stay, boolean isFixed) {
-        Stop stop = new Stop();
-        stop.setId(id);
-        stop.setTripId(tripId);
-        stop.setDay(1);
-        stop.setPlaceId(placeId);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setAddress(address);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setTime(time);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setMemo("");
-        stop.setState("todo");
+    /** 날짜 형식과 기간(1~30일) 검사 */
+    private void checkPeriod(Trip trip) {
+        LocalDate start;
+        LocalDate end;
+        try {
+            start = LocalDate.parse(trip.getStartDate());
+            end = LocalDate.parse(trip.getEndDate());
+        } catch (DateTimeParseException | NullPointerException e) {
+            throw fail(400, "여행 날짜를 확인해 주세요.");
+        }
+        if (end.isBefore(start) || ChronoUnit.DAYS.between(start, end) >= MAX_TRIP_DAYS) {
+            throw fail(400, "여행 기간은 1~30일이에요.");
+        }
+    }
+
+    /** 일정 칸 검사 + 기본값 채우기 (mode가 이상하면 null, placeId가 DB에 없으면 연결만 끊음) */
+    private void checkStop(Stop stop, int days) {
+        if (stop.getName() == null || stop.getName().isBlank() || stop.getName().length() > 120) {
+            throw fail(400, "장소 이름을 확인해 주세요.");
+        }
+        String name = stop.getName();
+        boolean hasPosition = stop.getLat() != null && stop.getLng() != null;
+        if (!hasPosition || Math.abs(stop.getLat()) > 90 || Math.abs(stop.getLng()) > 180) {
+            throw fail(400, name + "의 위치를 확인해 주세요.");
+        }
+        if (stop.getDay() == null || stop.getDay() < 1 || stop.getDay() > days) {
+            throw fail(400, name + "의 날짜가 여행 기간 밖이에요.");
+        }
+        if (stop.getTime() == null || !stop.getTime().matches("([01]\\d|2[0-3]):[0-5]\\d")) {
+            throw fail(400, name + "의 시각을 HH:mm으로 적어 주세요.");
+        }
+        if (stop.getStay() == null || stop.getStay() < 0 || stop.getStay() > MAX_STAY_MIN) {
+            throw fail(400, name + "의 머무는 시간은 0~720분이에요.");
+        }
+        if (stop.getMemo() != null && stop.getMemo().length() > 200) {
+            throw fail(400, "메모는 200자까지예요.");
+        }
+        fillStopDefaults(stop);
+    }
+
+    /** 칸 기본값: mode는 walk/transit/taxi만, importance는 must/maybe/drop만(기본 maybe), fixed 기본 false, state 기본 todo, 없는 placeId는 null */
+    private void fillStopDefaults(Stop stop) {
+        if (stop.getMode() != null && !MODES.contains(stop.getMode())) {
+            stop.setMode(null);
+        }
+        if (stop.getImportance() == null || !IMPORTANCES.contains(stop.getImportance())) {
+            stop.setImportance(DEFAULT_IMPORTANCE);
+        }
+        if (stop.getFixed() == null) {
+            stop.setFixed(false);
+        }
+        if (stop.getState() == null) {
+            stop.setState("todo");
+        }
+        if (stop.getPlaceId() != null && !isPlaceInDb(stop.getPlaceId())) {
+            stop.setPlaceId(null);
+        }
+    }
+
+    /** placeId가 retrip_place에 있나 (②의 장소 서비스로 확인) */
+    private boolean isPlaceInDb(String placeId) {
+        try {
+            return placeService.getPlace(placeId) != null;
+        } catch (ApiException e) {
+            return false;
+        }
+    }
+
+    /** 일정 칸 하나 (없으면 404) */
+    private Stop findStop(long tripId, long stopId) {
+        Stop stop = tripMapper.selectStop(tripId, stopId);
+        if (stop == null) {
+            throw fail(404, "일정을 찾을 수 없어요.");
+        }
         return stop;
     }
 
-    private static ChatMessage chat(String role, String text, String at) {
-        ChatMessage message = new ChatMessage();
-        message.setRole(role);
-        message.setText(text);
-        message.setAt(at);
-        return message;
+    /** 여행 날짜 수 (시작일 ~ 끝날 포함) */
+    private int countDays(Trip trip) {
+        return (int) ChronoUnit.DAYS.between(LocalDate.parse(trip.getStartDate()), LocalDate.parse(trip.getEndDate())) + 1;
+    }
+
+    /** 저장할 수 있는 대화 줄인가: role이 me/ai이고 text가 있음 */
+    private boolean isSavableChat(ChatMessage message) {
+        boolean hasRole = "me".equals(message.getRole()) || "ai".equals(message.getRole());
+        return hasRole && message.getText() != null && !message.getText().isBlank();
+    }
+
+    /** at 형식: yyyy-MM-ddTHH:mm 또는 yyyy-MM-ddTHH:mm:ss */
+    private boolean isChatTime(String at) {
+        return at != null && at.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?");
+    }
+
+    /** 글자 수 자르기 */
+    private String cutText(String text, int maxLength) {
+        return text.length() > maxLength ? text.substring(0, maxLength) : text;
     }
 }

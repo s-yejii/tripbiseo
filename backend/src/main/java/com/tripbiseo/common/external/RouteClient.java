@@ -172,7 +172,7 @@ public class RouteClient {
         params.put("EX", lng2);
         params.put("EY", lat2);
         params.put("apiKey", odsayKey);
-        JsonNode json = externalApi.getJson(externalApi.buildUrl(ODSAY + "/searchPubTransPathT", params), Map.of(), "ODsay");
+        JsonNode json = externalApi.getJson(externalApi.buildStrictUrl(ODSAY + "/searchPubTransPathT", params), Map.of(), "ODsay");
         JsonNode path = json.path("result").path("path").path(0);
         if (path.isMissingNode()) {
             throw fail(502, "ODsay 결과 없음");
@@ -199,7 +199,7 @@ public class RouteClient {
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("mapObject", "0:0@" + mapObj);
             params.put("apiKey", odsayKey);
-            JsonNode lane = externalApi.getJson(externalApi.buildUrl(ODSAY + "/loadLane", params), Map.of(), "ODsay");
+            JsonNode lane = externalApi.getJson(externalApi.buildStrictUrl(ODSAY + "/loadLane", params), Map.of(), "ODsay");
             for (JsonNode oneLane : lane.path("result").path("lane")) {
                 for (JsonNode section : oneLane.path("section")) {
                     for (JsonNode point : section.path("graphPos")) {

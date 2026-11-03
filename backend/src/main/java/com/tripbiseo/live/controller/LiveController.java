@@ -1,13 +1,18 @@
 package com.tripbiseo.live.controller;
 
+import java.util.List;
+
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tripbiseo.common.auth.LoginUser;
 import com.tripbiseo.common.dto.OkResponse;
+import com.tripbiseo.live.dto.Alternative;
 import com.tripbiseo.live.dto.AlternativesRequest;
 import com.tripbiseo.live.dto.AlternativesResponse;
 import com.tripbiseo.live.dto.ApplyRequest;
@@ -17,9 +22,11 @@ import com.tripbiseo.live.dto.AssistResponse;
 import com.tripbiseo.live.dto.InsertRequest;
 import com.tripbiseo.live.dto.InsertResponse;
 import com.tripbiseo.live.dto.LocationRequest;
+import com.tripbiseo.live.dto.PreviewRequest;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
 import com.tripbiseo.live.dto.StatusResponse;
+import com.tripbiseo.live.dto.SwapCandidate;
 import com.tripbiseo.live.dto.TrackRequest;
 import com.tripbiseo.live.service.AlternativeService;
 import com.tripbiseo.live.service.LiveService;
@@ -81,5 +88,19 @@ public class LiveController {
     @PostMapping("/apply")
     public ApplyResponse applyAlternative(@PathVariable long id, @RequestBody ApplyRequest request) {
         return alternativeService.applyAlternative(loginUser.id(), id, request);
+    }
+
+    /** 사용자가 고친 남은 일정 계산 (저장 안 함) */
+    @PostMapping("/preview")
+    public Alternative previewAlternative(@PathVariable long id, @RequestBody PreviewRequest request) {
+        return alternativeService.previewAlternative(loginUser.id(), id, request);
+    }
+
+    /** 남은 칸 하나를 바꿀 장소 후보 */
+    @GetMapping("/swap-candidates")
+    public List<SwapCandidate> getSwapCandidateList(@PathVariable long id, @RequestParam long stopId,
+                                                    @RequestParam(required = false) Double lat,
+                                                    @RequestParam(required = false) Double lng) {
+        return alternativeService.getSwapCandidateList(loginUser.id(), id, stopId, lat, lng);
     }
 }

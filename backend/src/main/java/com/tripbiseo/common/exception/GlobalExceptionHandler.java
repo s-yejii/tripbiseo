@@ -9,6 +9,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /** 모든 오류를 {message} 한 모양으로. 화면은 message를 그대로 보여 줍니다. */
 @RestControllerAdvice
@@ -30,6 +31,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<Map<String, Object>> missing(MissingServletRequestParameterException e) {
         return body(400, e.getParameterName() + " 값이 필요해요.");
+    }
+
+    /** 올린 파일이 spring.servlet.multipart.max-file-size(5MB)보다 큼 → 500이 아니라 400 (③ 예약 캡처) */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> tooLarge(MaxUploadSizeExceededException e) {
+        return body(400, "사진은 5MB까지예요.");
     }
 
     @ExceptionHandler(Exception.class)

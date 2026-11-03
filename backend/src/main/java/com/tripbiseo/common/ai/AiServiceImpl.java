@@ -9,6 +9,8 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.MimeTypeUtils;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -63,13 +65,19 @@ public class AiServiceImpl implements AiService {
     /** 질문 → 글 답 */
     @Override
     public String askText(String prompt) {
-        return ask(prompt, null, false);
+        return ask(prompt, null, false, null, null);
     }
 
     /** 질문 → JSON 답을 type에 담아 줌 */
     @Override
     public <T> T askJson(String prompt, Class<T> type) {
-        return readJson(ask(prompt, null, true), type);
+        return readJson(ask(prompt, null, true, null, null), type);
+    }
+
+    /** 사진 + 질문 → JSON 답 (예약 캡처·영수증 읽기). 사진은 저장하지 않고 이번 질문에만 씀 */
+    @Override
+    public <T> T askJsonWithImage(String prompt, byte[] image, String imageType, Class<T> type) {
+        return readJson(ask(prompt, null, true, image, imageType), type);
     }
 
     /** 날씨 도구를 쓸 수 있게 묻기 (좌표는 도구 안에서만 씀) */
@@ -77,11 +85,11 @@ public class AiServiceImpl implements AiService {
     public <T> T askJsonWithWeather(String prompt, double lat, double lng, Class<T> type) {
         WeatherTool tool = new WeatherTool(weatherClient, lat, lng);
         String jsonRule = "\n답은 JSON만 보내. 다른 말이나 ```는 붙이지 마.";
-        return readJson(ask(prompt + jsonRule, tool, false), type);
+        return readJson(ask(prompt + jsonRule, tool, false, null, null), type);
     }
 
     // 모델을 차례로 바꿔 가며 묻기: 기본 모델 → (1.5초 뒤) 기본 모델 → 예비 모델들
-    private String ask(String prompt, Object tool, boolean isJson) {
+    private String ask(String prompt, Object tool, boolean isJson, byte[] image, String imageType) {
         if (!isReady()) {
             throw fail(503, NO_KEY);
         }
@@ -92,7 +100,7 @@ public class AiServiceImpl implements AiService {
                 pause(RETRY_WAIT_MS);
             }
             try {
-                return callOnce(prompt, tool, isJson, attempts.get(i));
+                return callOnce(prompt, tool, isJson, attempts.get(i), image, imageType);
             } catch (RuntimeException e) {
                 lastError = toApiException(e);
                 log.info("Gemini {} 실패 ({}): {}", attempts.get(i), lastError.getStatus(), lastError.getMessage());
@@ -105,12 +113,19 @@ public class AiServiceImpl implements AiService {
     }
 
     // 한 모델로 한 번 묻기. 도구를 쓸 때는 Gemini가 JSON 모드와 도구를 같이 못 써서 JSON 모드를 끔
-    private String callOnce(String prompt, Object tool, boolean isJson, String modelName) {
+    private String callOnce(String prompt, Object tool, boolean isJson, String modelName, byte[] image, String imageType) {
         GoogleGenAiChatOptions.Builder options = GoogleGenAiChatOptions.builder().model(modelName);
         if (isJson) {
             options.responseMimeType("application/json");
         }
-        ChatClient.ChatClientRequestSpec request = chatClient.prompt().user(prompt).options(options);
+        ChatClient.ChatClientRequestSpec request;
+        if (image == null) {
+            request = chatClient.prompt().user(prompt).options(options);
+        } else {
+            // media: 질문에 사진을 같이 붙임 (ByteArrayResource: 메모리에 있는 바이트를 파일처럼 넘기는 도구)
+            ByteArrayResource resource = new ByteArrayResource(image);
+            request = chatClient.prompt().user(user -> user.text(prompt).media(MimeTypeUtils.parseMimeType(imageType), resource)).options(options);
+        }
         if (tool != null) {
             request = request.tools(tool);
         }

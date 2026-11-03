@@ -80,7 +80,7 @@
 | `POST /api/plans/chat` | 사용자 말 → 여행 조건 정리 (Gemini) | plan/PlanChatView | 있음 |
 | `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | plan/GeneratingView → trip/PlanCheckView | 있음 |
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
-| `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 확인 필요 |
+| `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks), plan/ShareAddView | 확인 필요 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 
@@ -574,6 +574,27 @@
 
 **오류** 400 "메시지를 1~300자로 입력해 주세요." · Gemini 공통 오류
 
+### `POST /api/plans/capture`
+예약 확인 화면 캡처를 읽어 고정 일정 후보로 돌려줘요 (Gemini가 사진을 읽음, OCR). **저장하지 않아요** — 화면에서 사용자가 확인·수정한 뒤 고정 일정으로 넣어요. · 로그인 필요 · 화면: plan/ReserveCaptureView
+
+**요청** `multipart/form-data`, 파일 칸 이름 `image` (PNG·JPG·WEBP, 5MB까지)
+
+**응답**
+```json
+{ "name": "잔나비 콘서트", "date": "2026-10-24", "time": "18:00", "placeId": null, "address": "서울 송파구 올림픽로 25", "lat": null, "lng": null }
+```
+
+| 필드 | 설명 |
+|---|---|
+| name | 장소·공연 이름 |
+| date, time | `yyyy-MM-dd`, `HH:mm`. 형식이 틀리거나 안 보이면 `null` |
+| placeId, lat, lng | 이름으로 우리 DB(없으면 TourAPI·카카오)에서 찾은 장소. 못 찾으면 `null` |
+| address | 사진의 주소, 없으면 찾은 장소 주소 |
+
+> 예약 번호·전화번호·이름·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
+
+**오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "예약 정보를 읽지 못했어요. 장소 이름과 시간이 보이게 다시 찍어 주세요." · Gemini 공통 오류
+
 ### `POST /api/plans/generate`
 조건으로 일정 초안을 만들어요. 저장은 안 해요. · 로그인 필요 · 화면: plan/GeneratingView → trip/PlanCheckView
 
@@ -637,7 +658,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | now | string | 지금 시각 |
 | currentStopId | number (null 가능) | 지금 있는 일정 칸 id (도착했고 아직 출발 안 함, 또는 150m 안) |
 | alert | object (null 가능) | 화면 맨 위 알림 1개 `{key, level, title, text, repeat}` |
-| alert.key | string | 중복 알림 방지 키. 앞부분: `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 |
+| alert.key | string | 중복 알림 방지 키. 앞부분: `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
 | alert.level | string | `danger` / `warn` |
 | alert.repeat | boolean (없을 수 있음) | `leave-` 알림에만 `true` |
 | leave | object (null 가능) | 출발 시각 ±10분 안일 때만 `{stopId, name, leaveAt, minutesLeft, to, atStop}`. `stopId`는 지금 있는 칸 또는 다음 칸 id. `minutesLeft`는 −10~10(음수=지남), `to`는 다음 장소 이름(null 가능), `atStop`이 `true`면 지금 있는 곳에서 출발 |
@@ -645,7 +666,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | hint | string (null 가능) | 고정 일정에 늦을 때 조언 한 줄. 예: "OO은(는) 그대로 갈 수 있어요..." |
 | replan | boolean | 다시 짜는 게 좋은가 (지각·영업 끝·지난 일정·더 머묾·다음 장소 10분 넘게 늦음) |
 | area | object (null 가능) | '지금 갈 수 있는 구역' 기준 `{slackMin, basis, basisTime, lat, lng}`. `basis`·`basisTime`은 기준 일정(고정 일정, 없으면 다음 일정), `lat`·`lng`는 보낸 내 위치. 남은 일정이 없으면 `null` |
-| weather | object (null 가능) | 오늘 지금 이후 비·눈(또는 강수확률 60% 이상) 첫 시간 `{time, pop, snow, outdoor}`. `outdoor`는 지금 칸·남은 칸 중 야외이고 비 시작 뒤에도 머무는(떠날 시각 > 비 시작) 일정 이름. 예보가 없거나 실패하면 `null` |
+| weather | object (null 가능) | **다음 칸 위치**(남은 칸이 없으면 내 위치) 예보에서 오늘 지금 이후 비·눈(또는 강수확률 60% 이상) 첫 시간 `{time, pop, snow, outdoor}`. `outdoor`는 지금 칸·남은 칸 중 야외이고 비 시작 뒤에도 머무는(떠날 시각 > 비 시작) 일정 이름. 예보가 없거나 실패하면 `null` |
 | stops[] | object[] | **오늘의 모든 칸** (done·skipped 포함): `id, placeId, name, category, lat, lng, time, stay, fixed` + 아래 |
 | stops[].eta | string | 남은 일정이면 예상 도착, 아니면 계획 `time` |
 | stops[].reach | string | `done`(done·skipped) / `here`(지금 있는 곳) / `closed` / `missed`(계획 시간 지남) / `fixed` / `ok` / `tight`(시간 줄이면 OK) / `no`(고정 일정에 못 돌아옴) |
@@ -676,6 +697,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 칸 (고정 일정 제외) | warn |
 | 6 | `tight-{고정 칸}` | 고정 일정 여유 ≤ 10분 | warn |
 | 7 | `next-{칸}-{늦는 분÷10}` | 다음 칸에 10분 넘게 늦게 도착 | warn |
+| 8 | `rain-{비 시작 HHmm}` | 다음 경로에 비·눈 소식이 있고 그때 야외에 있을 칸이 있음 (`weather.outdoor`). 예보가 바뀌어 비 시작 시각이 달라지면 다시 울림 | warn |
 
 key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
@@ -690,15 +712,17 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 | kind | 같이 오는 필드 | 뜻 |
 |---|---|---|
-| `"ask-radius"` | `category`(기본 "카페") | 추천 요청 → 화면이 반경을 묻고 `/live/recommend` 호출 |
+| `"ask-radius"` | `category`(기본 "카페"), `tags`(원하는 분위기, 없으면 `[]`) | 추천 요청 → 화면이 반경을 묻고 `/live/recommend`에 `category`·`tags`를 그대로 넘겨 호출 |
 | `"alternatives"` | `data` | 일정 바꾸기 요청 → `data`는 `/live/alternatives` 응답 전체 (reason `"request"`) |
 | `"text"` | `text` | 그 밖의 질문에 대한 답 |
 
 **오류** 400 "메시지를 1~300자로 입력해 주세요." · 공통 오류 · (alternatives로 가면) 400 "오늘 남은 일정이 없어요."
 
-> Gemini가 실패하면 낱말 규칙으로 대신 분류하고 오류는 내지 않아요.
+> 분류는 낱말 규칙이 먼저예요. 한 종류만 걸리면 Gemini를 부르지 않고, 애매할 때만 Gemini(JSON, 정해진 값 중에서만)를 불러요. Gemini가 실패하면 질문(text)으로 보고 오류는 내지 않아요.
 
-> 화면은 비·실내 요청이면 `data`를 쓰지 않고 "비 올 때 바꾸기"(`/live/alt/swap?why=rain`)로 가요 (10/30 결정). 그 밖의 일정 바꾸기는 대안 A·B·C 화면(`/live/alt`)으로 가요. **확인 필요(④)**: 비 요청일 때도 서버가 대안 A·B·C를 계산할지.
+> `text` 답: 자주 하는 질문(다음 일정·여유·날씨)은 정해진 문장으로, 그 밖은 Gemini가 **서버가 계산한 오늘 상황(live/status)만 근거로** 답해요. 답에 근거에 없는 시각·분이 있으면 버리고 기본 문장으로 바꿔요. 좌표는 Gemini에 보내지 않아요.
+
+> 일정 바꾸기는 대안 A·B·C 화면(`/live/alt`)으로 가요. 비 올 때 실내로 바꾸는 대안은 만들지 않아요 (11/02 결정: 비는 `rain-` 알림만).
 
 ### `POST /api/trips/{id}/live/recommend`
 반경 안에서 평점 상위 3곳을 추천해요. · 로그인 필요 · 화면: live/LiveView (AskPanel)
@@ -709,15 +733,19 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 |---|---|---|---|
 | lat, lng | number | 필수 | 지금 위치 |
 | radius | number | 필수 | 반경(m) 100~3000 |
-| category | string | | 장소 종류. 식당·맛집·밥 등이면 음식점 전체, 그 밖은 분류에 그 말이 들어간 곳 |
+| category | string | | 장소 종류. 식당·맛집·밥 등이면 음식점 전체(카페·디저트 제외), 술집이면 주점·호프·이자카야 등, 그 밖은 분류에 그 말이 들어간 곳 |
+| tags | string[] | | 원하는 분위기 `혼밥` / `조용` / `분위기` / `데이트` / `가성비` / `웨이팅없음` (assist의 `tags`를 그대로). 있는 곳에 점수를 더함 |
 
 **응답**
 ```json
 { "places": [ { "id": "…", "name": "카페OO", "category": "카페", "address": "…", "lat": 37.57, "lng": 126.98, "rating": 4.7, "reviewCount": 320,
-                "naverUrl": "…", "distance": 180, "open": true, "closeAt": "22:00", "minutesLeft": 455, "closingSoon": false } ],
+                "naverUrl": "…", "distance": 180, "open": true, "closeAt": "22:00", "minutesLeft": 455, "closingSoon": false,
+                "reasons": ["혼밥하기 좋아요 · 리뷰 15개 중 5개"] } ],
   "closedSkipped": 1 }
 ```
-`places`는 최대 3개, 리뷰 수로 보정한 평점 순. 각 항목은 장소 카드(`distance` 항상 있음) + 영업 정보. 평점 없는 곳·도착 때 닫힌 곳은 빼고, 뺀 수는 `closedSkipped`.
+`places`는 최대 3개, 점수 순 (리뷰 수로 보정한 평점 + 원하는 `tags`가 리뷰에 있으면 더함). 각 항목은 장소 카드(`distance` 항상 있음) + 영업 정보 + `reasons`(추천 이유 칩, 리뷰 근거. 없으면 `[]`). 평점 없는 곳·도착 때 닫힌 곳은 빼고, 도착 때 닫혀서 뺀 수는 `closedSkipped`.
+
+> 리뷰 태그 인정: 그 장소 리뷰 중 2개 이상이면서 (3개 이상 또는 20% 이상). 원하는 `tags`가 없으면 그 장소에 있는 태그를 2개까지 보여 줘요.
 
 **오류** 400 "radius 값이 필요해요." · 공통 오류 · 400 "반경은 100m~3km예요."
 
@@ -741,7 +769,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 |---|---|---|---|
 | lat, lng | number | 필수 | 지금 위치 |
 | reason | string | | 이유, 기본 `"delay"` (Gemini에게 그대로 전달) |
-| request | string | | 사용자 요청. "비·실내·추워·더워·날씨"가 들어가면 실내 위주 |
+| request | string | | 사용자 요청 (채팅에서 넘어올 때). 비 올 때 실내 대안은 만들지 않음 (11/02) |
 
 **응답**
 

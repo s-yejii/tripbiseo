@@ -1,9 +1,14 @@
 package com.tripbiseo.live.service;
 
+import java.util.List;
+
 import com.tripbiseo.live.dto.AlternativesRequest;
 import com.tripbiseo.live.dto.AlternativesResponse;
 import com.tripbiseo.live.dto.ApplyRequest;
 import com.tripbiseo.live.dto.ApplyResponse;
+import com.tripbiseo.live.dto.Alternative;
+import com.tripbiseo.live.dto.PreviewRequest;
+import com.tripbiseo.live.dto.SwapCandidate;
 
 /**
  * ④ 대안 만들기·적용 (LiveService에서 나눔).
@@ -17,4 +22,10 @@ public interface AlternativeService {
 
     /** 고른 대안을 일정에 반영. 대안에 없는 남은 칸은 skipped */
     ApplyResponse applyAlternative(long memberId, long tripId, ApplyRequest request);
+
+    /** 사용자가 고친 남은 일정(머묾 줄이기·빼기·바꾸기)을 계산만 함 (저장 안 함) */
+    Alternative previewAlternative(long memberId, long tripId, PreviewRequest request);
+
+    /** 남은 칸 하나를 바꿀 장소 후보: 가까운 순 최대 10곳, 바꿨을 때 여유까지 */
+    List<SwapCandidate> getSwapCandidateList(long memberId, long tripId, long stopId, Double lat, Double lng);
 }

@@ -1,15 +1,20 @@
 <script setup>
 // S08 일정 만드는 중 (③): 진행률이 차오르고, 100%가 되면 "완성본 보기"가 켜져요
-// 지금은 시간만 흘러요. 백엔드가 붙으면 POST /api/plans/generate 진행 상황으로 바꿔요
+// 대화로 모은 조건(store.planConditions)이 있으면 서버(POST /api/plans/generate)가 초안을 만들어 초안(store.draft)에 넣고
+// 일정 점검 화면으로. 조건이 없으면 시간만 흐르는 시연용 화면이에요.
 // ?extra=1 : 원하는 것에서 장소를 더 넣어 달라고 해서 하루에 안 들어가는 경우 → 생성 실패 화면으로
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
+import { generatePlan } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
 import { showToast } from '@/utils/toast'
 
 const route = useRoute()
 const router = useRouter()
-const tooMany = route.query.extra === '1' // 하루에 다 안 들어감
+const store = useTripStore()
+const failed = ref(false) // 서버가 초안을 못 만듦 (422 등)
+const tooMany = computed(() => route.query.extra === '1' || failed.value) // 하루에 다 안 들어감 / 장소를 못 찾음
 const percent = ref(68)
 let timer = null
 
@@ -19,18 +24,45 @@ const step4 = computed(() => (done.value ? 'done' : percent.value >= 85 ? 'now' 
 
 onMounted(() => {
   timer = setInterval(() => {
-    percent.value = Math.min(100, percent.value + 4)
+    percent.value = Math.min(store.planConditions ? 95 : 100, percent.value + 4) // 서버 답을 기다리는 동안은 95%에서 멈춤
     if (percent.value >= 100) clearInterval(timer)
   }, 160)
+  if (store.planConditions) makeDraft()
 })
+
+// 위치는 브라우저에 물어보고(거절해도 계속), 조건 + 사용자가 한 말로 초안 만들기
+async function makeDraft() {
+  const position = await getPosition()
+  try {
+    const draft = await generatePlan(store.planConditions, store.planMessages, position?.lat, position?.lng)
+    store.setDraft(draft)
+    for (const note of draft.notes || []) showToast(note.text)
+  } catch (e) {
+    failed.value = true
+    showToast(e.message)
+  }
+  clearInterval(timer)
+  percent.value = 100
+}
+
+function getPosition() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 5000 },
+    )
+  })
+}
 onUnmounted(() => clearInterval(timer))
 
 function openResult() {
-  router.push(tooMany ? '/plan/fail' : '/plan/check')
+  router.replace(tooMany.value ? '/plan/fail' : '/plan/check')
 }
 function waitAtHome() {
   showToast('끝나면 알림을 보낼게요')
-  router.push('/')
+  router.replace('/')
 }
 </script>
 

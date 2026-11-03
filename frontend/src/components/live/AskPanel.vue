@@ -1,17 +1,22 @@
 <script setup>
 // 여행 중 AI 채팅 (④): 지도 아래 입력창에 말하면 AI가 세 가지 중 하나로 나눠요
 //   근처 추천 → 반경 고르기 → 평점 상위 3곳 핀 → 골라서 일정에 넣기
-//   일정 바꾸기 → 비·실내면 "비 올 때 바꾸기", 그 밖은 대안 A·B·C 화면으로
+//   일정 바꾸기 → 대안 A·B·C 화면으로 (비 올 때 실내로 바꾸기는 하지 않음, 11/02 결정)
 //   일정 질문 → 오늘 일정 안에서 답
-// 지금은 data/ask.js의 가짜 응답을 써요. 백엔드가 붙으면 POST /api/trips/{id}/live/assist·recommend로 바꿔요
+// tripId·position을 받으면 서버(POST /live/assist·recommend·insert)를 부르고, 없으면 data/ask.js의 시연용 가짜 응답
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { examples, radiusOptions, isRainRequest, askAssist, askRecommend } from '@/data/ask'
+import { examples, radiusOptions, askAssist, askRecommend } from '@/data/ask'
+import * as api from '@/api/trips'
+import { imageFor } from '@/utils/mapView'
 
 const props = defineProps({
-  me: { type: Object, required: true }, // 지금 위치 { x, y }
+  me: { type: Object, required: true }, // 지금 위치 (지도 그림 위 { x, y })
   late: { type: Boolean, default: false }, // 늦은 상황인지
+  tripId: { type: [Number, String], default: null }, // 있으면 서버 모드
+  position: { type: Object, default: null }, // 지금 GPS { lat, lng } (서버 모드)
 })
+const METERS_PER_PX = 4 // 지도 그림 1px ≈ 4m (반경 원 크기와 같은 비율)
 const emit = defineEmits(['close', 'add'])
 
 const router = useRouter()
@@ -25,6 +30,8 @@ const category = ref(null) // 추천할 종류 (반경을 물을 때만)
 const radius = ref(null) // 고른 반경(m)
 const places = ref([]) // 추천 결과
 const pickedId = ref(null)
+const tags = ref([]) // 원하는 분위기 (서버가 말에서 뽑음: 혼밥·조용 …)
+const isServer = computed(() => props.tripId != null && props.position != null)
 
 const picked = computed(() => places.value.find((p) => p.id === pickedId.value))
 const hasStarted = computed(() => myMessage.value !== '')
@@ -38,39 +45,81 @@ function send(text) {
   reply.value = ''
   resetRecommend()
   isBusy.value = true
+  if (isServer.value) return sendToServer(message)
   setTimeout(() => {
     isBusy.value = false
     handleAssist(askAssist(message, props.late), message)
   }, THINK_MS)
 }
 
+async function sendToServer(message) {
+  try {
+    const res = await api.askAssist(props.tripId, message, props.position.lat, props.position.lng)
+    handleAssist(res, message)
+  } catch (e) {
+    reply.value = e.message
+  } finally {
+    isBusy.value = false
+  }
+}
+
 function handleAssist(res, message) {
   if (res.kind === 'ask-radius') {
     category.value = res.category
+    tags.value = res.tags || []
     reply.value = `${res.category}, 어느 범위에서 찾을까요?`
   } else if (res.kind === 'alternatives') {
-    goAlternatives(message)
+    goAlternatives()
   } else {
     reply.value = res.text
   }
 }
 
-// 비·실내 요청은 장소 하나를 실내로 바꾸는 화면, 그 밖은 대안 A·B·C 화면
-function goAlternatives(message) {
-  if (isRainRequest(message)) return router.push('/live/alt/swap?why=rain')
+// 일정 바꾸기는 대안 A·B·C 화면
+function goAlternatives() {
   router.push('/live/alt')
 }
 
 // 반경을 고르면 평점 상위 3곳을 찾아요
-function pickRadius(meters) {
+async function pickRadius(meters) {
   radius.value = meters
   pickedId.value = null
-  const res = askRecommend(category.value, meters, props.me)
+  const res = isServer.value ? await recommendFromServer(meters) : askRecommend(category.value, meters, props.me)
   places.value = res.places
   if (res.places.length) {
     reply.value = `${distText(meters)} 안 ${category.value} 평점 상위 ${res.places.length}곳이에요. 핀을 눌러 골라 주세요.`
   } else {
     reply.value = `${distText(meters)} 안에서는 지금 열려 있는 곳을 찾지 못했어요. 반경을 넓혀 볼까요?`
+  }
+}
+
+// 서버 추천 → 지도 그림 위치(내 위치 기준 동서·남북 거리 ÷ 4m)와 사진을 붙임
+async function recommendFromServer(meters) {
+  try {
+    const res = await api.askRecommend(props.tripId, props.position.lat, props.position.lng, meters, category.value, tags.value)
+    for (const place of res.places) {
+      const east = (place.lng - props.position.lng) * 111320 * Math.cos((props.position.lat * Math.PI) / 180)
+      const north = (place.lat - props.position.lat) * 110540
+      place.x = Math.round(props.me.x + east / METERS_PER_PX)
+      place.y = Math.round(props.me.y - north / METERS_PER_PX)
+      place.img = imageFor(place.category)
+    }
+    return res
+  } catch (e) {
+    reply.value = e.message
+    return { places: [], closedSkipped: 0 }
+  }
+}
+
+// 일정에 넣기: 서버 모드면 POST /live/insert 후 안내 문구와 함께 알림
+async function addPicked() {
+  if (!isServer.value) return emit('add', picked.value)
+  try {
+    const res = await api.insertPlace(props.tripId, picked.value.id, props.position.lat, props.position.lng)
+    emit('add', { ...picked.value, message: res.message })
+  } catch (e) {
+    reply.value = e.message
+    pickedId.value = null
   }
 }
 
@@ -117,12 +166,13 @@ function distText(m) {
           <b class="t-strong">{{ picked.name }}</b>
           <p class="t-cap tn ask-line"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ picked.rating }} · {{ picked.category }} · {{ picked.closeAt }} 마감</p>
           <p class="t-cap tn ask-line">지금 위치에서 {{ distText(picked.distance) }} · 걸어서 {{ Math.max(1, Math.round(picked.distance / 70)) }}분</p>
+          <p v-for="reason in picked.reasons || []" :key="reason" class="t-cap tn ask-line c-navy">{{ reason }}</p>
         </div>
         <button type="button" class="iconbtn" aria-label="추천 목록으로" @click="pickedId = null"><i class="ic i-close muted" aria-hidden="true"></i></button>
       </div>
       <div class="cta__row">
         <button type="button" class="btn btn--secondary btn--md" @click="router.push('/place')">자세히</button>
-        <button type="button" class="btn btn--primary btn--md" @click="emit('add', picked)"><i class="ic ic--s i-plus" aria-hidden="true"></i>일정에 넣기</button>
+        <button type="button" class="btn btn--primary btn--md" @click="addPicked"><i class="ic ic--s i-plus" aria-hidden="true"></i>일정에 넣기</button>
       </div>
     </div>
 

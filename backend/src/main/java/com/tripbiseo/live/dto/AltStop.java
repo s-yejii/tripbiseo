@@ -13,6 +13,7 @@ public class AltStop {
     private Double lng;
     private Integer stay;
     private Boolean fixed;
+    private String importance;  // must(꼭) / maybe(가능하면) / drop(빼도 됨)
     private String eta;         // 고정 일정은 계획 시각
     private Integer moveMin;    // 앞에서 오는 이동 분
     private String change;      // "60분 → 30분" 또는 "새로 추가", 안 바뀌면 null
