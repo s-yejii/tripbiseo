@@ -414,7 +414,7 @@ function showDemo() {
         </template>
 
         <!-- 오른쪽 떠 있는 버튼 -->
-        <div v-if="!adding" class="live-side">
+        <div v-if="!adding" class="live-side" data-sheet-follow>
           <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent(isDemo ? '/live?demo=1' : '/live')" class="iconbtn iconbtn--float" :aria-label="`내 일정 보기 · ${doneCount}/${stops.length}곳`" title="내 일정" style="color: var(--navy)">
             <i class="ic i-receipt" aria-hidden="true"></i>
           </RouterLink>
@@ -440,14 +440,14 @@ function showDemo() {
         <template v-else>
           <!-- AI 채팅(④) -->
           <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" />
-          <div v-else class="quick live-quick" role="group" aria-label="AI 채팅과 근처 찾기">
+          <div v-else class="quick live-quick" data-sheet-follow role="group" aria-label="AI 채팅과 근처 찾기">
             <button type="button" class="chip chip--sm chip--add" @click="openAsk"><i class="ic ic--s i-sparkle" aria-hidden="true"></i>AI에게 묻기</button>
             <button type="button" class="chip chip--sm chip--add" @click="openNear"><i class="ic ic--s i-search" aria-hidden="true"></i>근처 찾기</button>
           </div>
 
           <!-- 아래 시트: 오늘 일정 카드 -->
           <BottomSheet v-if="!asking" class="sheet--peek live-sheet" :aria-label="doneCount ? '다음 일정' : '오늘 일정'">
-            <div class="live-head">
+            <div class="live-head" data-drag>
               <div style="flex: 1; min-width: 0">
                 <p class="t-cap">{{ head.cap }}</p>
                 <p class="t-big tn" :class="head.cls" style="margin: 0">
