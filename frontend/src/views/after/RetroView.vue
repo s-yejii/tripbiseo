@@ -6,28 +6,27 @@ import { get } from '@/api/http'
 import { toTime } from '@/utils/time'
 
 // 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
-const visited = [
-  { no: 1, x: 90, y: 250, name: '천호 골목 산책', time: '12:00–12:40', pay: '' },
-  { no: 2, x: 140, y: 170, name: '천호 디저트 카페', time: '12:46–13:51', pay: '18,000원\n나: 9,000원\n지은: 9,000원' },
-  { no: 3, x: 215, y: 205, name: '성내동 카페', time: '14:00–15:42', pay: '12,000원\n지은: 12,000원' },
-  { no: 4, x: 290, y: 140, name: '천호 작은 갤러리숍', time: '16:05–16:40', pay: '' },
-  { no: 5, x: 300, y: 250, name: '천호 소품 편집숍', time: '16:50–17:25', pay: '24,500원\n나: 24,500원' },
-]
+const visited = ref([
+
+])
 
 const progress = ref(68) // 재생 위치 (%)
 const playing = ref(false)
 const infoNo = ref(null)
 let timer = null
 
-const routePoints = visited.map((v) => v.x + ',' + v.y).join(' ')
-const info = computed(() => visited.find((v) => v.no === infoNo.value))
+const routePoints = computed(() =>visited.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
+const info = computed(() => visited.value.find((v) => v.no === infoNo.value)) 
 // 재생 위치에 맞춰 핀 사이에서 지금 점을 계산해요 (12:00 ~ 18:14)
-const me = computed(() => {
-  const part = Math.min(3.999, (progress.value / 100) * 4)
-  const i = Math.floor(part)
+const me = computed(() => { 
+  const sections = visited.value.length - 1 // 구간 수 = 핀 수 - 1
+  if (sections < 1 ) return { x : - 100, y : - 100 } // 선이 없으면 점을 화면 밖에 두게 함
+  const part = Math.min(sections - 0.001, (progress.value / 100) * sections) // part: 현재 위치가 핀과 핀 사이에 어디에 있는지 계산 section - 0.001: 마지막 핀에 도착하면 탈주 방지
+  // (progress.value / 100) * sections) : 현재 위치가 전체 구간에 어디에 있는지 계산 
+  const i = Math.floor(part) // i: 현재 위치가 핀과 핀 사이에 얼마나 있느지
   const rate = part - i
-  const a = visited[i]
-  const b = visited[i + 1]
+  const a = visited.value[i]
+  const b = visited.value[i + 1]
   return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
 })
 const nowText = computed(() => toTime(720 + Math.round((progress.value / 100) * 374)) + (playing.value ? ' · 4배속' : ''))
@@ -52,6 +51,9 @@ const retro = ref(null)//서버 응답 . 받기 전에는 null
 const errorMessage = ref(``) // 회고를 못 불러왔을 때 화면에 보여 줄 문구
 const mapBox = ref(null) // 지도를 그릴 칸
 const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
+const MAP_PADDING_TOP = 60 // 위쪽 뒤로가기 버튼에 안 가리게
+const MAP_PADDING_SIDE = 40 // 핀이 화면 양옆에 잘리지 않게
+const MAP_PADDING_BOTTOM = 100 // 재생 막대에 안 가리게
 const BAR_FULL_MINUTES = 240 // 막대가 꽉 차는 기준 시간(분) // 240분으로 정한 이유는 한 장소에 4시간 이상 머무는 일은 거의 없을것 같아서 주관임.
 
 // 머문 시간을 %로 해주는 것
@@ -182,7 +184,15 @@ function drawMap() {
   const bounds = new kakao.maps.LatLngBounds() // LatLngBounds: 넣은 좌표가 모두 들어가는 네모 범위
   for (const place of retro.value.stops) // place 장소 들른 곳의 목록 중 꺼낸거
   bounds.extend(new kakao.maps.LatLng(place.lat , place.lng))
-  map.setBounds(bounds)
+  map.setBounds(bounds,MAP_PADDING_TOP , MAP_PADDING_SIDE ,  MAP_PADDING_BOTTOM , MAP_PADDING_SIDE) // 지도에 맞게 확대/축소 순서 : 위 , 왼쪽, 아래 , 오른쪽
+
+  const points = [] // 장소별 핀 정보를 담을 목록
+  for (const place of retro.value.stops){
+    const latLng = new kakao.maps.LatLng(place.lat , place.lng)
+    const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
+    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' }) // point.length : 핀 번호에 번호붙이기()
+  }
+  visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
 }
 
 function toggleInfo(no) {
