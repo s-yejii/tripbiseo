@@ -3,7 +3,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { get } from '@/api/http'
-import { toTime } from '@/utils/time'
+import { toTime, toMinutes } from '@/utils/time'
 
 // 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
 const visited = ref([
@@ -18,7 +18,7 @@ let timer = null
 
 const routePoints = computed(() => trackPoints.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
 const info = computed(() => visited.value.find((v) => v.no === infoNo.value)) 
-// 재생 위치에 맞춰 GPS 점 사이에서 지금 점을 계산해요 (12:00 ~ 18:14)
+// 재생 위치에 맞춰 GPS 점 사이에서 지금 점을 계산해요
 const me = computed(() => {
   const sections = trackPoints.value.length - 1 // sections: GPS 점과 점 사이 구간 수. 예: GPS 점이 5개면 구간은 4개
   if (sections < 1 ) return { x : - 100, y : - 100 } // 선이 없으면 점을 화면 밖에 두게 함
@@ -30,7 +30,17 @@ const me = computed(() => {
   const b = trackPoints.value[i + 1]
   return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
 })
-const nowText = computed(() => toTime(720 + Math.round((progress.value / 100) * 374)) + (playing.value ? ' · 4배속' : ''))
+const nowText = computed(() => toTime(startMinutes.value + Math.round((progress.value / 100) * (endMinutes.value - startMinutes.value))) + (playing.value ? ' · 4배속' : ''))
+// 재생 위치에 따라 현재 시각을 계산(시작 시간 + 진행률 + 도착 시간 - 시작 시간 + 진행률)
+const startMinutes = computed(() => { // 첫 점의 시각
+  if (trackPoints.value.length === 0) return 0
+  return toMinutes(trackPoints.value[0].time)
+})
+
+const endMinutes = computed(() => {
+  if (trackPoints.value.length === 0) return 0
+  return toMinutes(trackPoints.value[ trackPoints.value.length - 1].time)
+})
 
 function togglePlay() {
   if (playing.value) return stop()
@@ -252,7 +262,7 @@ function toggleInfo(no) {
         <button type="button" class="iconbtn retro-play" :aria-label="playing ? '멈추기' : '이동 경로 재생'" @click="togglePlay"><i class="ic" :class="playing ? 'i-pause' : 'i-play'" aria-hidden="true"></i></button>
         <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
           <span class="bar"><i :style="{ width: progress + '%' }"></i></span>
-          <span style="display: flex; justify-content: space-between" class="t-cap tn"><span>12:00</span><b class="c-navy">{{ nowText }}</b><span>18:14</span></span>
+          <span style="display: flex; justify-content: space-between" class="t-cap tn"><span>{{ toTime(startMinutes) }}</span><b class="c-navy">{{ nowText }}</b><span>{{ toTime(endMinutes) }}</span></span>
         </span>
       </div>
 
