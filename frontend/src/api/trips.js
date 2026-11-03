@@ -44,6 +44,13 @@ export const getLocationHere = (lat, lng) => get(`/places/locations/here?lat=${l
 // ③ AI 일정
 export const chatPlan = (message, conditions) => post('/plans/chat', { message, conditions })
 export const generatePlan = (conditions, messages, lat, lng) => post('/plans/generate', { conditions, messages, lat, lng })
+// ③ 숙소 예약 캡처 → { name, address, checkInDate, checkInTime, checkOutDate, checkOutTime, lat, lng } (저장 안 함)
+export function readStayCapture(file) {
+  const form = new FormData()
+  form.append('image', file)
+  return upload('/plans/capture/stay', form)
+}
+
 export function readCapture(file) {
   const form = new FormData()
   form.append('image', file)

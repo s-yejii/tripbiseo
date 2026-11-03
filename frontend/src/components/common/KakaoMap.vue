@@ -16,7 +16,7 @@ const props = defineProps({
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
   padding: { type: Object, default: () => ({ top: 150, right: 40, bottom: 444, left: 40 }) },
 })
-const emit = defineEmits(['pick', 'fail', 'me-point'])
+const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click'])
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
@@ -37,6 +37,8 @@ onMounted(async () => {
   if (!box.value) return // 불러오는 사이 다른 화면으로 넘어갔으면 그리지 않음
   map = new kakao.maps.Map(box.value, { center: new kakao.maps.LatLng(START_CENTER.lat, START_CENTER.lng), level: 5 })
   kakao.maps.event.addListener(map, 'idle', sendMePoint) // 지도를 옮기거나 확대한 뒤 내 위치 화면 좌표를 다시 알려 줌
+  // 지도 빈 곳을 누르면 그 자리의 위도·경도를 알려 줌 (숙소 핀 옮기기)
+  kakao.maps.event.addListener(map, 'click', (e) => emit('map-click', { lat: e.latLng.getLat(), lng: e.latLng.getLng() }))
   draw()
 })
 

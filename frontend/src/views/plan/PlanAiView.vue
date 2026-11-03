@@ -60,6 +60,22 @@ function toggleMove(name) {
   if (!Object.values(next).some(Boolean)) return showToast('이동 수단을 하나는 골라 주세요')
   moves.value = next
 }
+// 담은 숙소의 박 수 합 (체크인~체크아웃 날짜 차이)
+const stayNights = computed(() => {
+  let total = 0
+  for (const stay of store.planStays) total += Math.round((new Date(stay.checkOutDate) - new Date(stay.checkInDate)) / 86400000)
+  return total
+})
+// '2026-11-14' → '11/14(토)'
+function shortDate(text) {
+  const date = new Date(text + 'T00:00:00')
+  return `${date.getMonth() + 1}/${date.getDate()}(${'일월화수목금토'[date.getDay()]})`
+}
+function removeStay(index) {
+  const name = store.planStays[index].name
+  store.planStays = store.planStays.filter((_, i) => i !== index)
+  showToast(name + '을(를) 숙소에서 뺐어요')
+}
 function goNext() {
   router.push(byMe ? '/plan/manual' : '/plan/chat')
 }
@@ -80,11 +96,23 @@ function goNext() {
           <div class="sec-h"><h2 id="pa-when" class="t-sub">언제 가요?</h2><span class="badge badge--navy tn">{{ whenLabel }}</span></div>
           <RangeCalendar v-model:start="start" v-model:end="end" />
           <p class="t-cap">{{ end ? '다른 날을 누르면 처음부터 다시 골라요' : '다른 날짜를 하나 더 누르면 1박 이상으로 바뀌어요' }}</p>
-          <RouterLink v-if="nights" to="/plan/stay" class="stayrow">
-            <span class="ico-tile"><i class="ic i-home" aria-hidden="true"></i></span>
-            <span class="row__body"><span class="row__title">숙소 위치</span><span class="row__meta">다음 날은 숙소에서 출발해요</span></span>
-            <span class="btn btn--sm btn--primary">지도에서 찍기</span>
-          </RouterLink>
+          <!-- 숙소: 1박 이상이면 담아요. 여러 박이면 날짜마다 다른 숙소를 + 로 더 담아요 (store.planStays) -->
+          <div v-if="nights || store.planStays.length" class="stays">
+            <div class="sec-h"><h3 class="t-sub" style="font-size: 15px">숙소</h3><span class="t-cap tn">{{ store.planStays.length }}곳 · {{ stayNights }}박 담음{{ nights ? ' / ' + nights + '박' : '' }}</span></div>
+            <div v-for="(stay, i) in store.planStays" :key="stay.name + stay.checkInDate" class="stayrow is-set">
+              <span class="ico-tile"><i class="ic i-home" aria-hidden="true"></i></span>
+              <span class="row__body">
+                <span class="row__title">{{ stay.name }}</span>
+                <span class="row__meta tn">{{ shortDate(stay.checkInDate) }} {{ stay.checkInTime }} 체크인 → {{ shortDate(stay.checkOutDate) }} {{ stay.checkOutTime }} 체크아웃</span>
+              </span>
+              <button type="button" class="iconbtn" :aria-label="stay.name + ' 빼기'" @click="removeStay(i)"><i class="ic i-close muted" aria-hidden="true"></i></button>
+            </div>
+            <RouterLink to="/plan/stay" class="stayrow">
+              <span class="ico-tile"><i class="ic i-plus" aria-hidden="true"></i></span>
+              <span class="row__body"><span class="row__title">{{ store.planStays.length ? '숙소 더 담기' : '숙소 잡기' }}</span><span class="row__meta">예약하고 확정 화면을 캡처해서 올리면 위치를 잡아 줘요</span></span>
+              <i class="ic i-next subtle" aria-hidden="true"></i>
+            </RouterLink>
+          </div>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-from">
@@ -161,4 +189,5 @@ function goNext() {
 .scr-PlanAI .stayrow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-lg);border:1.5px dashed var(--line-strong);text-decoration:none;color:var(--ink);transition:border-color .15s,background .15s}
 .scr-PlanAI .stayrow:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .stayrow.is-set{border-style:solid;border-color:var(--line)}
+.scr-PlanAI .stays{display:flex;flex-direction:column;gap:8px;padding-top:4px}
 </style>
