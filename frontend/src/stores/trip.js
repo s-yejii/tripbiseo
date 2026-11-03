@@ -58,6 +58,19 @@ export const useTripStore = defineStore('trip', () => {
     draft.value = emptyDraft()
   }
 
+  // 새 여행 정보·대화 조건 비우기 (일정을 저장하면 다음 새 여행에 꼭 갈 곳·고정 일정이 남지 않게)
+  function resetPlan() {
+    planConditions.value = null
+    planMessages.value = []
+    planArea.value = null
+    planOrigin.value = null
+    planStays.value = []
+    planKinds.value = ['food', 'cafe']
+    planTags.value = []
+    planStartDate.value = today()
+    planEndDate.value = null
+  }
+
   // 서버의 초안(③ generate 응답)을 그대로 초안으로
   function setDraft(trip) {
     draft.value = { ...emptyDraft(), ...trip, stops: trip.stops || [] }
@@ -76,5 +89,5 @@ export const useTripStore = defineStore('trip', () => {
     return tripId.value
   }
 
-  return { draft, tripId, position, applied, planConditions, planMessages, planArea, planOrigin, planStays, planStartDate, planEndDate, planKinds, planTags, addDraftPlace, resetDraft, setDraft, findOngoingTripId }
+  return { draft, tripId, position, applied, planConditions, planMessages, planArea, planOrigin, planStays, planStartDate, planEndDate, planKinds, planTags, addDraftPlace, resetDraft, resetPlan, setDraft, findOngoingTripId }
 })

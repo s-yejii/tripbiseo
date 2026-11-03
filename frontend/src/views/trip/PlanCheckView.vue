@@ -55,6 +55,7 @@ async function save() {
     const saved = await createTrip(store.draft)
     store.tripId = saved.id
     store.resetDraft()
+    store.resetPlan()
     showToast('일정을 저장했어요')
     router.replace('/trips/today?id=' + saved.id)
   } catch (e) {
