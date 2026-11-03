@@ -2,7 +2,7 @@
 // 여행 중 지도 아래의 일정 카드 줄 (옆으로 넘겨 보기) + 카드 사이 이동 칩
 // cards: [{ no, img, title, sub, subCls, state: 'done'|'now'|'', fixed, leg, legState }]
 //   leg: 앞 장소에서 오는 이동 { mode, min, dist } / legState: 'past'(지나감) | 'now'(지금 이동할 구간) | ''
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { modes } from '@/data/places'
 
 const props = defineProps({
@@ -34,6 +34,57 @@ function onScroll() {
   emit('scrolled', props.cards[best].no)
 }
 
+// 마우스로 끌어서 옆으로 넘기기 (휴대폰 손가락은 브라우저가 알아서 넘겨 줌)
+const DRAG_START_PX = 5
+let drag = null // { startX, startScroll, isMoved }
+
+function onPointerDown(e) {
+  if (e.pointerType !== 'mouse' || e.button !== 0) return
+  e.preventDefault() // 끄는 동안 글자가 파랗게 선택되지 않게 (클릭은 그대로 됨)
+  drag = { startX: e.clientX, startScroll: box.value.scrollLeft, isMoved: false }
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp)
+}
+function onPointerMove(e) {
+  if (!drag) return
+  const moved = e.clientX - drag.startX
+  if (!drag.isMoved && Math.abs(moved) < DRAG_START_PX) return
+  if (!drag.isMoved) {
+    drag.isMoved = true
+    box.value.style.scrollSnapType = 'none' // 끄는 동안은 카드에 딱 붙지 않게
+    box.value.style.cursor = 'grabbing'
+  }
+  box.value.scrollLeft = drag.startScroll - moved
+}
+function onPointerUp() {
+  removeListeners()
+  if (!drag) return
+  const wasMoved = drag.isMoved
+  drag = null
+  box.value.style.cursor = ''
+  if (!wasMoved) return
+  box.value.style.scrollSnapType = '' // 놓으면 가까운 카드에 붙음
+  // 끈 뒤 손을 뗀 자리의 카드가 눌리지 않게 잠깐 막음
+  const block = (event) => {
+    event.stopPropagation()
+    event.preventDefault()
+  }
+  box.value.addEventListener('click', block, true)
+  setTimeout(() => box.value && box.value.removeEventListener('click', block, true), 60)
+}
+function removeListeners() {
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
+}
+onUnmounted(removeListeners)
+
+// 마우스 휠(위아래)도 옆으로 넘기기
+function onWheel(e) {
+  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return // 트랙패드 옆 밀기는 그대로
+  e.preventDefault()
+  box.value.scrollLeft += e.deltaY
+}
+
 // 처음 열 때 지금 있는 곳 카드를 가운데로
 onMounted(() => {
   const el = box.value.querySelector('.hcard.is-now') || box.value.querySelector('.hcard.is-sel')
@@ -45,7 +96,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div ref="box" class="hscroll" aria-label="일정, 옆으로 넘겨 보기" @scroll.passive="onScroll">
+  <div ref="box" class="hscroll live-cards" aria-label="일정, 옆으로 넘겨 보기 (지난 일정은 왼쪽)" @scroll.passive="onScroll" @pointerdown="onPointerDown" @wheel="onWheel" @dragstart.prevent>
     <template v-for="card in cards" :key="card.no">
       <span v-if="card.leg" class="segw" :class="card.legState ? 'segw--' + card.legState : ''">
         <button
@@ -78,5 +129,7 @@ onMounted(() => {
 </template>
 
 <style>
+.live-cards { cursor: grab; user-select: none; }
+.live-cards img { -webkit-user-drag: none; user-select: none; }
 .hcard__name { font-size: 14px; display: flex; align-items: center; gap: 4px; }
 </style>
