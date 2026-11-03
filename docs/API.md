@@ -806,7 +806,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
+| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
@@ -822,7 +822,7 @@
 
 **오류** 400 "여행 조건이 없어요." · 422 "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요." · 422 "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요."
 
-> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 **규칙으로** 초안을 만들어요 (11/03): 꼭 갈 곳·고정 일정 + 고른 종류마다 정한 시각(점심 12:00 식당, 14:00 카페, 20:30 술집 …)에 "점수 − 거리" 가 가장 큰 후보. 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3, 거리는 앞 장소(첫 장소는 출발지·전날 숙소)에서 1km마다 0.3 뺌.
+> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 **규칙으로** 초안을 만들어요 (11/03): 꼭 갈 곳·고정 일정 + 하루 칸(10:00 관광·전시·쇼핑, 12:00 점심, 13:40 카페, 15:10 전시·관광, 16:50 쇼핑·카페, 18:30 저녁, 20:30 술집)마다 고른 종류 중 "점수 − 거리" 가 가장 큰 후보. 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3, 거리는 앞 장소(첫 장소는 출발지·전날 숙소)에서 1km마다 0.3 뺌.
 >
 > 후보 (11/03): `areaLat`이 있으면 그 중심 반경(구 3km · 동 1.5km)에서 고른 종류마다 보정 평점 순 25곳 (장소 종류는 PlaceMapper `kindCase` 하나로 정해요). 없으면 예전처럼 내 위치·지역 이름.
 >

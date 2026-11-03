@@ -4,10 +4,12 @@
 <mapper namespace="com.tripbiseo.trip.mapper.PlaceMapper">
 
   <!-- 장소 종류 코드 (여행 스타일 칩·일정 만들기·재분석이 같이 쓰는 분류표는 여기 하나). 11/03
-       stay 숙박 / tour 관광지·문화시설·축제·레포츠·쇼핑 / etc 여행과 먼 곳(스터디카페 등) / cafe / bar / 나머지 음식점 food -->
+       stay 숙박 / tour 관광지·축제·레포츠 / culture 문화시설(전시) / shop 쇼핑 / etc 여행과 먼 곳(스터디카페 등) / cafe / bar / 나머지 음식점 food -->
   <sql id="kindCase">
     CASE WHEN content_type_id = '32' THEN 'stay'
-         WHEN content_type_id IN ('12', '14', '15', '28', '38') THEN 'tour'
+         WHEN content_type_id IN ('12', '15', '28') THEN 'tour'
+         WHEN content_type_id = '14' THEN 'culture'
+         WHEN content_type_id = '38' THEN 'shop'
          WHEN COALESCE(biz_type, '') ~ '스터디카페|PC방|노래방|키즈카페' THEN 'etc'
          WHEN COALESCE(biz_type, '') ~ '카페|커피|디저트|베이커리|케이크|도넛|와플|아이스크림|베이글|크레페|^차$' THEN 'cafe'
          WHEN COALESCE(biz_type, '') ~ '이자카야|주점|맥주|호프|포장마차|바\(BAR\)|와인' THEN 'bar'

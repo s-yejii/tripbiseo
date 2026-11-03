@@ -20,7 +20,7 @@ import com.tripbiseo.trip.dto.Stop;
 
 /**
  * ③ 규칙으로 일정 짜기 (11/03). Gemini가 없거나 응답이 없을 때도 고른 종류·평점·거리로 하루 일정을 만들어요.
- *   하루 틀: 종류마다 정해 둔 시각(점심 12:00 식당, 14:00 카페 …)에, 그 종류 후보 중 "점수 − 거리" 가 가장 큰 곳을 차례로
+ *   하루 틀: 정해 둔 칸(10:00 관광·전시·쇼핑, 12:00 점심, 13:40 카페 …)마다 고른 종류 후보 중 "점수 − 거리" 가 가장 큰 곳을 차례로
  *   점수 = 보정 평점 + 고른 태그 가산점 (PlanCandidateFinder.scoreOf), 거리는 앞 장소(첫 장소는 출발지·숙소)에서 1km마다 0.3점 뺌
  * 숙소: 체크인 날 마지막 일정으로 넣고, 다음 날 첫 장소는 숙소에서 가까운 곳부터 (addStayStops · dayStartPoint)
  */
@@ -34,18 +34,24 @@ public class PlanRuleMaker {
     private static final int LATEST_STAY_MIN = 23 * 60 + 30;   // 숙소 칸은 늦어도 23:30
     private static final List<String> DEFAULT_KINDS = List.of("food", "cafe");
 
-    // 종류마다 하루 시각·머무는 분 (여러 종류를 고르면 합쳐서 시각 순으로)
-    private static final Map<String, List<String>> KIND_SLOTS = Map.of(
-            "food", List.of("12:00/70", "18:30/80"),
-            "cafe", List.of("14:00/60", "16:30/50"),
-            "bar", List.of("20:30/90"),
-            "tour", List.of("10:30/90", "15:30/90"));
+    // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
+    // 칸 사이는 이동 20~40분을 비워 둠 (10:00~11:30 → 12:00 점심)
+    private static final List<String> DAY_SLOTS = List.of(
+            "10:00/90/tour,culture,shop",
+            "12:00/70/food",
+            "13:40/60/cafe,culture,tour",
+            "15:10/80/culture,tour,shop",
+            "16:50/60/shop,cafe,tour",
+            "18:30/80/food",
+            "20:30/90/bar");
     // 한 종류만 골랐을 때는 그 종류로 하루 3곳
     private static final Map<String, List<String>> SINGLE_SLOTS = Map.of(
             "food", List.of("11:30/70", "15:00/50", "18:30/80"),
             "cafe", List.of("11:00/60", "14:00/60", "17:00/60"),
             "bar", List.of("18:00/90", "20:00/90", "22:00/60"),
-            "tour", List.of("10:30/90", "13:30/90", "16:00/90"));
+            "tour", List.of("10:30/90", "13:30/90", "16:00/90"),
+            "culture", List.of("10:30/90", "13:30/90", "16:00/80"),
+            "shop", List.of("11:00/80", "14:00/80", "16:30/80"));
 
     /** 고른 종류 (없으면 맛집·카페) */
     public List<String> kindsOf(PlanConditions conditions) {
@@ -65,9 +71,12 @@ public class PlanRuleMaker {
                 if (day == 1 && isToday && Geo.toMinutes(slot[1]) < Geo.nowMinutes() + TODAY_START_AFTER_MIN) {
                     continue; // 이미 지난 시각
                 }
-                Place best = pickBest(candidates, scores, used, slot[0], point);
+                Place best = null;
+                for (String kind : slot[0].split(",")) { // 이 칸에 넣을 종류를 앞에서부터
+                    best = best != null ? best : pickBest(candidates, scores, used, kind, point);
+                }
                 if (best == null) {
-                    continue; // 그 종류 후보가 다 떨어짐
+                    continue; // 넣을 종류 후보가 다 떨어짐
                 }
                 used.add(best.getId());
                 stops.add(toDraftStop(best, day, slot[1], Integer.parseInt(slot[2])));
@@ -99,17 +108,28 @@ public class PlanRuleMaker {
 
     // ---------------------------------------------------------------- 도우미
 
-    /** 고른 종류들의 시각 칸을 시각 순으로: [종류, "HH:mm", 머무는 분] */
+    /** 하루 칸 목록: [넣을 종류들(쉼표), "HH:mm", 머무는 분]. 고른 종류만 남기고, 하나도 없는 칸은 뺌 */
     private List<String[]> slotsOf(List<String> kinds) {
         List<String[]> slots = new ArrayList<>();
-        Map<String, List<String>> table = kinds.size() == 1 ? SINGLE_SLOTS : KIND_SLOTS;
-        for (String kind : kinds) {
-            for (String slot : table.getOrDefault(kind, List.of())) {
+        if (kinds.size() == 1) {
+            for (String slot : SINGLE_SLOTS.getOrDefault(kinds.get(0), List.of())) {
                 String[] parts = slot.split("/"); // "12:00/70" → [12:00, 70]
-                slots.add(new String[] {kind, parts[0], parts[1]});
+                slots.add(new String[] {kinds.get(0), parts[0], parts[1]});
+            }
+            return slots;
+        }
+        for (String slot : DAY_SLOTS) {
+            String[] parts = slot.split("/"); // "13:40/60/cafe,culture,tour" → [13:40, 60, cafe,culture,tour]
+            List<String> chosen = new ArrayList<>();
+            for (String kind : parts[2].split(",")) {
+                if (kinds.contains(kind)) {
+                    chosen.add(kind);
+                }
+            }
+            if (!chosen.isEmpty()) {
+                slots.add(new String[] {String.join(",", chosen), parts[0], parts[1]});
             }
         }
-        slots.sort((first, second) -> first[1].compareTo(second[1]));
         return slots;
     }
 
