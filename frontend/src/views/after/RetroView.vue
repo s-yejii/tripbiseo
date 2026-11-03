@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import { getRetro } from '@/api/trips'
 import { toMapPositions } from '@/utils/mapView'
 import { toMinutes, toTime } from '@/utils/time'
+import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
 
 const route = useRoute()
 const RETRO_MAP_BOX = { left: 60, top: 120, width: 270, height: 180 }
@@ -133,7 +134,7 @@ function toggleInfo(no) {
       </div>
 
       <header class="topbar topbar--float">
-        <RouterLink to="/trips" class="iconbtn iconbtn--float" aria-label="뒤로가기"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
+        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
       </header>
 
       <div class="player" style="position: absolute; left: 16px; right: 16px; top: 262px">
