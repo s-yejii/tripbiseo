@@ -9,24 +9,25 @@ import { toTime } from '@/utils/time'
 const visited = ref([
 
 ])
+const trackPoints = ref([]) // gps 점 목록 drawMap에서 채워짐
 
 const progress = ref(68) // 재생 위치 (%)
 const playing = ref(false)
 const infoNo = ref(null)
 let timer = null
 
-const routePoints = computed(() =>visited.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
+const routePoints = computed(() => trackPoints.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
 const info = computed(() => visited.value.find((v) => v.no === infoNo.value)) 
-// 재생 위치에 맞춰 핀 사이에서 지금 점을 계산해요 (12:00 ~ 18:14)
-const me = computed(() => { 
-  const sections = visited.value.length - 1 // 구간 수 = 핀 수 - 1
+// 재생 위치에 맞춰 GPS 점 사이에서 지금 점을 계산해요 (12:00 ~ 18:14)
+const me = computed(() => {
+  const sections = trackPoints.value.length - 1 // sections: GPS 점과 점 사이 구간 수. 예: GPS 점이 5개면 구간은 4개
   if (sections < 1 ) return { x : - 100, y : - 100 } // 선이 없으면 점을 화면 밖에 두게 함
-  const part = Math.min(sections - 0.001, (progress.value / 100) * sections) // part: 현재 위치가 핀과 핀 사이에 어디에 있는지 계산 section - 0.001: 마지막 핀에 도착하면 탈주 방지
-  // (progress.value / 100) * sections) : 현재 위치가 전체 구간에 어디에 있는지 계산 
-  const i = Math.floor(part) // i: 현재 위치가 핀과 핀 사이에 얼마나 있느지
+  const part = Math.min(sections - 0.001, (progress.value / 100) * sections) // part: 지금 몇 번째 구간쯤인지. 예: 2.72면 2번 구간의 72% 지점. sections - 0.001: 마지막 점을 넘어가지 않게 막음
+  // (progress.value / 100) * sections) : 현재 위치가 전체 구간에 어디에 있는지 계산
+  const i = Math.floor(part) // i: 지금 지나는 구간의 시작 GPS 점 번호 (2.72 → 2)
   const rate = part - i
-  const a = visited.value[i]
-  const b = visited.value[i + 1]
+  const a = trackPoints.value[i]
+  const b = trackPoints.value[i + 1]
   return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
 })
 const nowText = computed(() => toTime(720 + Math.round((progress.value / 100) * 374)) + (playing.value ? ' · 4배속' : ''))
@@ -193,7 +194,16 @@ function drawMap() {
     points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' }) // point.length : 핀 번호에 번호붙이기()
   }
   visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
+  const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
+  for (const gps of retro.value.track) { // gps: 실제로 이동한 기록
+    const latLng = new kakao.maps.LatLng(gps.lat , gps.lng) // gps 좌표를 실제 좌표로 바꾸고 카카오 맵에 넣어줌
+    const point = map.getProjection().containerPointFromCoords(latLng) // 화면 좌푤 ㅗ마바꿔줌
+    trackList.push({ x: point.x , y : point.y , time : gps.time }) 
+  }
+trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음 포인트에
 }
+
+
 
 function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
@@ -207,11 +217,13 @@ function toggleInfo(no) {
       <div class="retro-map" aria-hidden="true">
         <div class="map"><div ref = "mapBox" style ="width: 100%; height: 100%"></div></div>
         <svg class="route" viewBox="0 0 390 330" style="position: absolute; inset: 0">
+          <!-- 흰 테두리: 굵은 흰 선을 먼저 깔고, 그 위에 남색 선을 겹쳐 그림 (SVG는 나중에 쓴 게 위에 그려짐) -->
+          <polyline :points="routePoints" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
           <polyline :points="routePoints" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </div>
       <div class="retro-map">
-        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--done" :class="{ 'pin--sel': infoNo === v.no }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no)">
+        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no)">
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
