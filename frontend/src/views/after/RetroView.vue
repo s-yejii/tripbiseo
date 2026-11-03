@@ -31,6 +31,12 @@ const me = computed(() => {
   return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
 })
 const nowText = computed(() => toTime(startMinutes.value + Math.round((progress.value / 100) * (endMinutes.value - startMinutes.value))) + (playing.value ? ' · 4배속' : ''))
+const movedText = computed(() => {
+  if(!retro.value) return '' // 응답이 없다면 빈글자
+  const meters = retro.value.movedMeters
+  if (meters < 1000) return meters + 'm'
+  return (meters / 1000).toFixed(1) + 'km' // toFixed(1) 소수점 첫째 자리까지만 글자로 만듬 
+})
 // 재생 위치에 따라 현재 시각을 계산(시작 시간 + 진행률 + 도착 시간 - 시작 시간 + 진행률)
 const startMinutes = computed(() => { // 첫 점의 시각
   if (trackPoints.value.length === 0) return 0
@@ -273,7 +279,7 @@ function toggleInfo(no) {
         <div class="stats">
        <!-- 다녀온 곳 수 / 전체 장소 수 -->
        <div v-if="retro" class="stat"><b>{{ retro.visited }}/{{ retro.stops.length }}</b><span class="t-cap">다녀온 곳</span></div>
-          <div class="stat"><b>6.8km</b><span class="t-cap">걸은 거리</span></div>
+          <div class="stat"><b>{{ movedText }}</b><span class="t-cap">이동 거리</span></div>
 
 
           <div class="stat"><b class="c-success">16분</b><span class="t-cap">예약 여유</span></div>
