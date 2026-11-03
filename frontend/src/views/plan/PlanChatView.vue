@@ -48,6 +48,7 @@ async function say(text, rule) {
   rules.value.push(rule)
   freshIndex.value = rules.value.length - 1
   await nextTick()
+  if (!logBox.value) return // 답을 기다리는 사이 다음 화면으로 넘어갔으면 대화창이 없어요
   logBox.value.scrollTop = logBox.value.scrollHeight
 }
 function sayChip(chip) {
