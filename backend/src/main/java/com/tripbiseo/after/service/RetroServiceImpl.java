@@ -4,12 +4,15 @@ import org.springframework.stereotype.Service;
 
 import com.tripbiseo.after.dto.RetroResponse;
 import com.tripbiseo.after.dto.RetroStop;
+import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.live.dto.TrackPoint;
 import com.tripbiseo.live.service.TrackService;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.TripService;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 import lombok.RequiredArgsConstructor;
 
@@ -39,9 +42,22 @@ public class RetroServiceImpl implements RetroService {
             }
             response.getStops().add(toRetroStop(stop));
         }
-        response.setVisited(visited);
-        response.setTrack(trackService.getTrackList(tripId));
+        List<TrackPoint> track = trackService.getTrackList(tripId); // gps 점 기록 
+        response.setTrack(track);
+        response.setMovedMeters(sumMovedMeters(track));
         return response;
+    }
+
+    // GPS 점 사이 거리를 기록 순서대로 더함(m). 탈것으로 이동한 거리도 포함
+    // TODO: 4번 진짜 GPS가 들어오면 기록 간격을 보고, 걷기보다 빠른 구간은 빼서 "걸은 거리"로 바꿀지 정하기
+    private static int sumMovedMeters(List<TrackPoint> track) {
+        double total = 0;
+        for (int i = 1; i< track.size(); i++) {
+            TrackPoint before = track.get(i - 1);
+            TrackPoint now = track.get(i);
+            total += Geo.distanceMeters(before.getLat(), before.getLng(), now.getLat(), now.getLng());
+        }
+           return (int) Math.round(total);
     }
 
     private static RetroStop toRetroStop(Stop stop) {
