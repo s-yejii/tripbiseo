@@ -19,6 +19,7 @@
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
+| `db/95_demo_seed.sql` | 시연용 가상 사용자 데이터 (회원 `demo_001`~`demo_300` · 여행 · 일정 칸, 비밀번호 demo1234!). `db/demo/make_demo_seed.py`로 만듦. 지우기: `DELETE FROM member WHERE username LIKE 'demo\_%';` | DB 총괄 |
 
 파일 번호 순서대로(01 → 02 → 03~05 → 11~15 → 90) 실행하면 내 PC DB에 모든 테이블이 생겨요. 모든 SQL은 다시 실행해도 오류가 나지 않게 써요 (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
