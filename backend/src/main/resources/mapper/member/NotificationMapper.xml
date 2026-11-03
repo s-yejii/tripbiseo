@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tripbiseo.member.mapper.NotificationMapper">
+
+  <!-- 알림 저장: (member_id, notice_key)가 UNIQUE라 같은 알림은 한 번만 (notice_key가 NULL이면 매번 저장) -->
+  <insert id="insertNotification">
+    INSERT INTO notification (member_id, kind, level, title, text, link, notice_key)
+    VALUES (#{memberId}, #{kind}, #{level}, #{title}, #{text}, #{link}, #{noticeKey})
+    ON CONFLICT (member_id, notice_key) DO NOTHING
+  </insert>
+
+  <!-- 내 알림 최근 것부터 -->
+  <select id="selectNotificationList" resultType="com.tripbiseo.member.dto.Notification">
+    SELECT notification_id AS id, kind, level, title, text, link,
+           to_char(read_at, 'YYYY-MM-DD"T"HH24:MI:SS')    AS read_at,
+           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at
+    FROM notification
+    WHERE member_id = #{memberId}
+    ORDER BY created_at DESC, notification_id DESC
+    LIMIT #{limit}
+  </select>
+
+  <!-- 안 읽은 알림 수 -->
+  <select id="selectUnreadCount" resultType="int">
+    SELECT COUNT(*) FROM notification WHERE member_id = #{memberId} AND read_at IS NULL
+  </select>
+
+  <!-- 알림 하나 읽음 (이미 읽었으면 시각을 바꾸지 않음) -->
+  <update id="updateNotificationRead">
+    UPDATE notification SET read_at = COALESCE(read_at, NOW())
+    WHERE notification_id = #{notificationId} AND member_id = #{memberId}
+  </update>
+
+  <!-- 내 알림 모두 읽음 -->
+  <update id="updateNotificationReadAll">
+    UPDATE notification SET read_at = NOW()
+    WHERE member_id = #{memberId} AND read_at IS NULL
+  </update>
+</mapper>

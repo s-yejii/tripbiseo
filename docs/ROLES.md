@@ -147,7 +147,7 @@ Controller와 Service 인터페이스는 뼈대에 있으니 손대지 않아요
 | 공통 | `PlaceSearchClient.searchByName(name, lat, lng)` | DB에 없는 장소 찾기 (TourAPI → 카카오) | ② |
 | ① | `MemberService.getMember(username)` | 아이디로 회원 | 공통 로그인 |
 | ① | `MemberService.getStyle(memberId)` | 여행 스타일 | ③ |
-| ① | `NotificationService.send(memberId, title, text)` | 알림 보내기 | ④⑤ |
+| ① | `NotificationService.send(memberId, title, text)`, `send(notification)` | 알림 보내기 (`Notification`에 kind·level·link·noticeKey를 담으면 같은 noticeKey는 한 번만) | ④⑤ |
 | ② | `TripService.getTrip(memberId, tripId)` | 여행 + 일정 칸 | ③④⑤ |
 | ② | `TripService.createTrip(memberId, trip)` | 여행 저장 | ③ |
 | ② | `TripService.createStop(memberId, tripId, stop)`, `updateStop(memberId, tripId, stopId, stop)`, `skipStops(memberId, tripId, stopIds)` | 일정 칸 넣기·고치기·빼기 | ④ |

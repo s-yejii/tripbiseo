@@ -45,8 +45,9 @@
 | `PUT /api/members/me/password` | 비밀번호 바꾸기 (지금 비밀번호 확인) | member/ProfileEditView | 있음 |
 | `GET·PUT /api/members/me/style` | 여행 스타일 (속도·좋아하는 곳·걷기·이동 수단·비 오면 실내) | member/StyleEditView, member/SignupView | 확인 필요 |
 | `GET·PUT /api/members/me/alarms` | 알림 설정 (출발·지연·날씨 켜기/끄기, 출발 몇 분 전) | member/MyView | 확인 필요 |
-| `GET /api/notifications` | 알림 목록 (종류별) | member/NotificationsView | 확인 필요 |
-| `POST /api/notifications/read-all` | 모두 읽음 | member/NotificationsView | 확인 필요 |
+| `GET /api/notifications` | 내 알림 최근 50개 + 안 읽은 수 (열 때 일정 알림을 만듦) | member/NotificationsView, member/NotiBell (홈·여행 중 종 아이콘) | 있음 |
+| `POST /api/notifications/{id}/read` | 알림 하나 읽음 | member/NotificationsView | 있음 |
+| `POST /api/notifications/read-all` | 모두 읽음 | member/NotificationsView | 있음 |
 | `GET /api/friends` · `GET /api/members/search?q=` · `POST /api/friends/requests` | 친구 목록·아이디 검색·친구 요청 | member/FriendInviteView | 확인 필요 |
 | `GET·PUT·DELETE /api/location-logs` | 내 위치 기록 보기·보관 기간·모두 지우기 | member/LocHistoryView | 확인 필요 |
 | `POST /api/auth/email-code` | 이메일 인증번호 보내기 (회원가입·계정 찾기) | member/SignupView, member/FindAccountView | 있음 |
@@ -370,6 +371,50 @@
 **응답** `{ "ok": true }`
 
 **오류** 400 "지금 비밀번호가 맞지 않아요." · 400 "비밀번호는 8~72자예요." · 400 "지금 비밀번호와 다른 비밀번호로 정해 주세요." · 401 "로그인이 필요해요."
+
+### `GET /api/notifications`
+내 알림함. 최근 것부터 50개와 안 읽은 수를 줘요. · 로그인 필요 · 화면: member/NotificationsView, 홈·여행 중 종 아이콘(member/NotiBell) (11/03 추가)
+
+부를 때 내 여행을 보고 일정 알림을 먼저 만들어 둬요. 같은 알림은 한 번만 쌓여요.
+- 내일 시작하는 여행(planned) → "내일 ○○ 여행이에요" (link `/trips/detail?id=`)
+- 오늘이 여행 기간인데 아직 시작 안 한 여행 → "오늘 ○○ 여행 날이에요" (날마다 한 번, link `/trips/today?id=`)
+- 끝난 지 3일 안 여행(done) → "○○ 여행은 어땠나요?" (link `/retro?id=`)
+
+그 밖의 알림은 쓰는 쪽이 `NotificationService.send`로 넣어요. 지금은 ④ 여행 중 맨 위 알림(`live/status`의 alert, 같은 칸·같은 종류는 하루 한 번)과 ④ 대안 적용(`live/apply`, 적용할 때마다)이에요.
+
+**요청** 없음
+
+**응답**
+```json
+{
+  "unreadCount": 2,
+  "notifications": [
+    { "id": 12, "kind": "trip", "level": "warn", "title": "10분 뒤 출발해야 해요", "text": "카페 출발 15:52 → 소품샵",
+      "link": "/live", "readAt": null, "createdAt": "2026-11-03T15:42:10" }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| kind | string | `trip` 여행 중 / `plan` 일정(내일·오늘 여행, 돌아보기) / `info` 날씨(비 소식) |
+| level | string | `ok` / `info` / `warn` / `danger` (아이콘 색) |
+| text | string (null 가능) | 설명 |
+| link | string (null 가능) | 누르면 갈 화면 주소. 화면은 `?back=/notifications`를 붙여 이동 |
+| readAt | string (null 가능) | 읽은 시각 `yyyy-MM-ddTHH:mm:ss`. null이면 안 읽음 |
+| createdAt | string | 만든 시각 `yyyy-MM-ddTHH:mm:ss` |
+
+**오류** 401 "로그인이 필요해요."
+
+### `POST /api/notifications/{id}/read`
+알림 하나를 읽음으로 표시해요 (이미 읽었으면 그대로). · 로그인 필요 · 화면: member/NotificationsView (11/03 추가)
+
+**요청** 없음 · **응답** `{ "ok": true }` · **오류** 401 "로그인이 필요해요." · 404 "알림을 찾을 수 없어요." (남의 알림 포함)
+
+### `POST /api/notifications/read-all`
+내 안 읽은 알림을 모두 읽음으로 표시해요. · 로그인 필요 · 화면: member/NotificationsView (11/03 추가)
+
+**요청** 없음 · **응답** `{ "ok": true }` · **오류** 401 "로그인이 필요해요."
 
 ### `GET /api/config/public`
 지도를 그릴 카카오 JavaScript 키를 줘요. · 로그인 불필요 · 화면: 지도를 그리는 모든 화면
