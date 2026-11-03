@@ -88,6 +88,7 @@
 | `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | plan/GeneratingView → trip/PlanCheckView | 있음 |
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
+| `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
 | `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks), plan/ShareAddView | 확인 필요 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 
@@ -775,6 +776,28 @@
 > 예약 번호·전화번호·이름·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
 
 **오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "예약 정보를 읽지 못했어요. 장소 이름과 시간이 보이게 다시 찍어 주세요." · Gemini 공통 오류
+
+### `POST /api/plans/capture/stay`
+숙소 예약 확정 화면 캡처를 읽어 숙소 후보로 돌려줘요 (Gemini OCR). 주소로, 없으면 숙소 이름으로 카카오에서 위치를 찾아요. **저장하지 않아요** — 화면에서 확인·수정한 뒤 숙소로 담아요. · 로그인 필요 · 화면: plan/StayPinView (11/03 추가)
+
+**요청** `multipart/form-data`, 파일 칸 이름 `image` (PNG·JPG·WEBP, 5MB까지)
+
+**응답**
+```json
+{ "name": "신라스테이 광화문", "address": "서울 종로구 삼봉로 71", "checkInDate": "2026-11-14", "checkInTime": "15:00",
+  "checkOutDate": "2026-11-15", "checkOutTime": "11:00", "lat": 37.5718, "lng": 126.9801 }
+```
+
+| 필드 | 설명 |
+|---|---|
+| checkInDate, checkOutDate | `yyyy-MM-dd`. 형식이 틀리거나 안 보이면 `null` |
+| checkInTime, checkOutTime | `HH:mm`. 안 보이면 `null` (화면은 15:00 · 11:00으로 채움) |
+| address | 사진의 주소, 없으면 찾은 위치의 주소 |
+| lat, lng | 카카오 위치 검색 첫 결과 (주소 → 이름 순). 못 찾으면 `null` → 화면에서 지도를 눌러 정함 |
+
+> 예약 번호·예약자 이름·전화번호·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
+
+**오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "숙소 예약 정보를 읽지 못했어요. 숙소 이름과 체크인 날짜가 보이게 다시 찍어 주세요." · Gemini 공통 오류
 
 ### `POST /api/plans/generate`
 조건으로 일정 초안을 만들어요. 저장은 안 해요. · 로그인 필요 · 화면: plan/GeneratingView → trip/PlanCheckView
