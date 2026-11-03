@@ -40,7 +40,7 @@
 | 공통 | `retrip_place` | 장소 (네이버 카페·음식점 11,496곳 + 종로 TourAPI 225곳) | ②③④⑤ | 있음 |
 | 공통 | `retrip_review` | 장소 리뷰 | ② | 있음 |
 | ① | `member_style` | 여행 스타일 | ③ 읽기 | 만들 예정 |
-| ① | `notification` | 알림함 | ④⑤는 `NotificationService.send`로 | 만들 예정 |
+| ① | `notification` | 알림함 | ④⑤는 `NotificationService.send`로 | 있음 (11/03) |
 | ① | `friend` | 친구 | | 만들 예정 (여유) |
 | ② | `trip_chat` | 대화 기록 | ③④는 ② 메서드로 저장 | 있음 |
 | ② | `pack_item` | 챙길 것 | | 만들 예정 (여유) |
@@ -167,6 +167,23 @@
 | lat, lng | DOUBLE PRECISION NOT NULL | 좌표 |
 | accuracy | DOUBLE PRECISION | GPS 정확도(m) |
 | recorded_at | TIMESTAMP NOT NULL DEFAULT NOW() | 기록 시각 |
+
+### notification · 알림함 (①, `11_member.sql`, 11/03)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| notification_id | BIGSERIAL PK | |
+| member_id | BIGINT NOT NULL → member (ON DELETE CASCADE) | 받는 사람 |
+| kind | VARCHAR(10) NOT NULL | trip(여행 중) / plan(일정) / info(날씨·안내) |
+| level | VARCHAR(10) NOT NULL DEFAULT 'info' | ok / info / warn / danger (아이콘 색) |
+| title | VARCHAR(100) NOT NULL | 제목 |
+| text | VARCHAR(300) | 설명 |
+| link | VARCHAR(200) | 누르면 갈 화면 주소 |
+| notice_key | VARCHAR(100) | 같은 알림 한 번만 쌓기. `(member_id, notice_key)` UNIQUE, NULL이면 매번 쌓임 |
+| read_at | TIMESTAMP | 읽은 시각 (NULL이면 안 읽음) |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+인덱스 `idx_notification_member (member_id, created_at DESC)`
 
 ---
 
