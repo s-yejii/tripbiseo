@@ -5,6 +5,10 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +37,8 @@ public class AiServiceImpl implements AiService {
     private static final List<String> FALLBACK_MODELS = List.of("gemini-3.6-flash", "gemini-3.5-flash-lite");
     private static final List<Integer> RETRY_STATUS = List.of(429, 500, 503, 504);
     private static final long RETRY_WAIT_MS = 1500;
+    // 11/03: 응답이 없으면 끝없이 기다리던 문제 → 한 번 묻는 데 최대 25초 (사진 읽기도 보통 10초 안)
+    private static final long CALL_TIMEOUT_SECONDS = 25;
 
     private static final String NO_KEY = "Gemini 키가 없어요. 환경변수 GEMINI_API_KEY를 확인해 주세요.";
     private static final String BUSY = "Gemini 사용량이 몰려 잠시 응답하지 않아요. 1~2분 뒤 다시 시도해 주세요.";
@@ -129,11 +135,29 @@ public class AiServiceImpl implements AiService {
         if (tool != null) {
             request = request.tools(tool);
         }
-        String answer = request.call().content();
+        String answer = callWithTimeout(request);
         if (answer == null || answer.isBlank()) {
             throw fail(502, EMPTY);
         }
         return answer;
+    }
+
+    // 정해진 시간 안에 답이 없으면 기다리지 않고 504 (시간 초과)
+    // CompletableFuture: 호출을 다른 일꾼(스레드)에게 맡기고, 여기서는 정해진 시간만큼만 기다리는 도구
+    private String callWithTimeout(ChatClient.ChatClientRequestSpec request) {
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> request.call().content());
+        try {
+            return future.get(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            throw fail(504, TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw fail(504, TIMEOUT);
+        } catch (ExecutionException e) {
+            // 일꾼 안에서 난 오류를 그대로 다시 던져서 toApiException이 원래 오류로 바꾸게 함
+            throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
+        }
     }
 
     private List<String> modelOrder() {
@@ -177,8 +201,9 @@ public class AiServiceImpl implements AiService {
     }
 
     // 붐빔(503)·시간 초과(504)만 다시 시도
+    // 사용량 몰림(503)만 다른 모델로 다시. 시간 초과(504)는 다시 해도 또 기다리게 돼서 바로 실패로 (11/03)
     private static boolean isRetryable(ApiException e) {
-        return e.getStatus() == 503 || e.getStatus() == 504;
+        return e.getStatus() == 503;
     }
 
     // ```json 감싸기나 앞뒤 말이 붙어 와도 { … } 부분만 읽기
