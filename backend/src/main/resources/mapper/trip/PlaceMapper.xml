@@ -74,4 +74,35 @@
     SELECT content FROM retrip_review WHERE place_id = #{placeId} ORDER BY length(content) DESC LIMIT #{limit}
   </select>
 
+
+  <!-- 인기 장소 (11/03): score = 다른 회원 최근 30일 기록 점수, visitors = 실제로 다녀간 다른 회원 수 -->
+  <select id="selectPopularPlaceList" resultType="com.tripbiseo.trip.dto.Place">
+    WITH score AS (
+      SELECT s.place_id,
+             SUM(CASE WHEN s.state = 'done' THEN 1.0 WHEN s.state = 'todo' THEN 0.3 ELSE 0 END
+                 * CASE WHEN t.start_date &gt;= CURRENT_DATE - 7 THEN 2 ELSE 1 END) AS score,
+             COUNT(DISTINCT t.member_id) FILTER (WHERE s.state = 'done') AS visitors
+      FROM trip_stop s JOIN trip t ON t.trip_id = s.trip_id
+      WHERE s.place_id IS NOT NULL
+        AND t.member_id &lt;&gt; #{memberId}
+        AND t.start_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE + 30
+      GROUP BY s.place_id
+    ), mine AS (
+      SELECT DISTINCT s.place_id
+      FROM trip_stop s JOIN trip t ON t.trip_id = s.trip_id
+      WHERE t.member_id = #{memberId} AND s.state = 'done' AND s.place_id IS NOT NULL
+        AND t.start_date &gt;= CURRENT_DATE - 30
+    )
+    SELECT <include refid="placeColumns"/>,
+      <if test="lat != null and lng != null">ST_Distance(geom, <include refid="basePoint"/>) AS distance,</if>
+      COALESCE(sc.score, 0) AS score, COALESCE(sc.visitors, 0) AS visitors
+    FROM retrip_place
+    LEFT JOIN score sc ON sc.place_id = retrip_place.id
+    WHERE (rating IS NULL OR rating &gt;= 3.0)
+      AND content_type_id IS DISTINCT FROM '32'
+      AND id NOT IN (SELECT place_id FROM mine)
+      <if test="radius != null and lat != null and lng != null">AND ST_DWithin(geom, <include refid="basePoint"/>, #{radius})</if>
+    ORDER BY COALESCE(sc.score, 0) DESC, <include refid="adjustedRating"/> DESC
+    LIMIT #{limit}
+  </select>
 </mapper>

@@ -8,9 +8,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.tripbiseo.common.auth.LoginUser;
 import com.tripbiseo.trip.dto.PlaceCard;
 import com.tripbiseo.trip.dto.PlaceDetail;
+import com.tripbiseo.trip.dto.PopularResponse;
 import com.tripbiseo.trip.service.PlaceService;
+import com.tripbiseo.trip.service.PopularPlaceService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -22,7 +25,11 @@ public class PlaceController {
 
     private static final String DEFAULT_RADIUS_M = "200";
 
+    private static final String DEFAULT_POPULAR_COUNT = "6";
+
     private final PlaceService placeService;
+    private final PopularPlaceService popularPlaceService;
+    private final LoginUser loginUser;
 
     /** 이름·분류로 장소 검색. q가 없으면 400 "q 값이 필요해요." */
     @GetMapping("/search")
@@ -36,6 +43,14 @@ public class PlaceController {
     public List<PlaceCard> getNearbyCardList(@RequestParam double lat, @RequestParam double lng,
                                              @RequestParam(defaultValue = DEFAULT_RADIUS_M) int radius) {
         return placeService.getNearbyCardList(lat, lng, radius);
+    }
+
+    /** 요즘 인기 장소 (lat·lng 없으면 시범 지역 전체, radius 없으면 3km → 5km → 전체로 넓힘) */
+    @GetMapping("/popular")
+    public PopularResponse getPopularPlaceList(@RequestParam(required = false) Double lat, @RequestParam(required = false) Double lng,
+                                               @RequestParam(required = false) Integer radius,
+                                               @RequestParam(defaultValue = DEFAULT_POPULAR_COUNT) int limit) {
+        return popularPlaceService.getPopularPlaceList(loginUser.id(), lat, lng, radius, limit);
     }
 
     /** 장소 상세 */

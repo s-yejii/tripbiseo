@@ -73,6 +73,7 @@
 | `POST /api/plans/check?day=1` | 하루 일정 점검 (이동시간·영업시간·휴무·고정 일정 여유) | trip/PlanCheckView | 있음 |
 | `GET /api/places/search` | 장소 검색 (이름·분류) | plan/PlaceSearchView, trip/PlanManualView | 있음 |
 | `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
+| `GET /api/places/popular` | 요즘 인기 장소 (다른 회원들의 최근 30일 여행 기록) | trip/MainView | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -574,6 +575,33 @@
 **응답** 장소 카드 배열, 거리순 최대 10개 (`distance` 항상 있음)
 
 **오류** 400 "lat 값이 필요해요." · 400 "lng 값이 필요해요."
+
+### `GET /api/places/popular`
+요즘 인기 장소예요. 신규 회원에게도 똑같이 보여요 (내 기록이 없으면 취향 반영만 빠짐). · 로그인 필요 · 화면: trip/MainView (11/03 추가)
+
+**요청** 주소 뒤 `?lat=37.5&lng=127.0&limit=6&radius=800` (모두 선택)
+- `lat`·`lng`가 없으면 서울 시범 지역 전체에서 골라요
+- `radius`(200~5000m)를 주면 그 반경만, 없으면 3km → 인기 기록이 모자라면 5km → 그래도 모자라면 시범 지역 전체로 넓혀요
+- `limit` 기본 6, 최대 20
+
+**고르는 기준**
+- 점수: 다른 회원들의 최근 30일(앞으로 30일 계획 포함) 일정 칸. 다녀옴 1점, 계획 0.3점, 뺌 0점, 최근 7일 여행은 2배. 같으면 보정 평점 순
+- 빼는 곳: 평점 3.0 미만, 숙박, 오늘 쉬는 곳, 내가 최근 30일 안에 다녀온 곳
+- 같은 분류("카페,디저트")는 2개까지, 같은 묶음(카페/식당/술집)은 절반까지
+
+**응답**
+```json
+{
+  "scope": "near",
+  "places": [
+    { "place": { /* 장소 카드 (distance 포함) */ }, "visitors": 12, "reason": "최근 한 달 12명이 다녀갔어요" },
+    { "place": { /* … */ }, "visitors": null, "reason": "★4.6 · 리뷰 1,234" }
+  ]
+}
+```
+`scope`: `near`(기준점 반경) / `wide`(5km로 넓힘) / `seoul`(시범 지역 전체). `visitors`는 5명 이상일 때만 숫자예요(개인정보).
+
+**오류** 401 "로그인이 필요해요."
 
 ### `GET /api/places/{id}`
 장소 상세 (영업시간·리뷰). · 로그인 필요 · 화면: trip/PlaceView (일정 칸의 `placeId`로 이동)
