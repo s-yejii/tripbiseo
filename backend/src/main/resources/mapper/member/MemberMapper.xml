@@ -4,14 +4,38 @@
 
   <!-- 로그인할 때 아이디로 회원 찾기 -->
   <select id="selectMemberByUsername" resultType="com.tripbiseo.member.dto.Member">
-    SELECT member_id, username, password, nickname, role, created_at
+    SELECT member_id, username, password, nickname, email, role, created_at
     FROM member
     WHERE username = #{username}
   </select>
 
   <!-- 회원가입 (role·created_at은 기본값) -->
   <insert id="insertMember" useGeneratedKeys="true" keyProperty="memberId" keyColumn="member_id">
-    INSERT INTO member (username, password, nickname)
-    VALUES (#{username}, #{password}, #{nickname})
+    INSERT INTO member (username, password, nickname, email)
+    VALUES (#{username}, #{password}, #{nickname}, #{email})
   </insert>
+
+  <!-- 이메일로 찾기 (이메일 인증·계정 찾기) -->
+  <select id="selectMemberByEmail" resultType="com.tripbiseo.member.dto.Member">
+    SELECT member_id, username, password, nickname, email, role, created_at
+    FROM member
+    WHERE email = #{email}
+  </select>
+
+  <!-- 회원 번호로 찾기 (정보 수정) -->
+  <select id="selectMember" resultType="com.tripbiseo.member.dto.Member">
+    SELECT member_id, username, password, nickname, email, role, created_at
+    FROM member
+    WHERE member_id = #{memberId}
+  </select>
+
+  <!-- 닉네임 바꾸기 -->
+  <update id="updateNickname">
+    UPDATE member SET nickname = #{nickname} WHERE member_id = #{memberId}
+  </update>
+
+  <!-- 비밀번호 바꾸기 -->
+  <update id="updatePassword">
+    UPDATE member SET password = #{password} WHERE member_id = #{memberId}
+  </update>
 </mapper>
