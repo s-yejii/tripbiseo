@@ -16,6 +16,7 @@ import { showToast } from '@/utils/toast'
 
 const SEARCH_WAIT_MS = 300 // 글자를 다 칠 때까지 기다렸다가 찾기
 const TYPE_TEXT = { gu: '구', dong: '동', spot: '동네' }
+const HERE_CATEGORY = '현재 위치' // 서버(/locations/here)가 붙여 주는 분류
 
 const route = useRoute()
 const store = useTripStore()
@@ -120,7 +121,8 @@ async function useHere() {
   position = pos
   try {
     const here = await getLocationHere(pos.lat, pos.lng)
-    found.value = [here, ...found.value]
+    // 전에 넣은 '현재 위치' 줄은 빼고 새 위치 하나만 맨 위에 (여러 번 눌러도 한 줄)
+    found.value = [here, ...found.value.filter((item) => item.category !== HERE_CATEGORY)]
     pick(0)
   } catch (e) {
     showToast(e.message)
@@ -136,7 +138,7 @@ function pick(i) {
 
 function iconOf(item) {
   if (mode === 'area') return 'i-pin'
-  if (item.category === '현재 위치') return 'i-locate'
+  if (item.category === HERE_CATEGORY) return 'i-locate'
   if (/지하철|전철/.test(item.category)) return 'i-subway'
   if (/버스/.test(item.category)) return 'i-bus'
   return 'i-pin'
