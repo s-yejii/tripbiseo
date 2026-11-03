@@ -34,6 +34,10 @@ public interface PlaceMapper {
     /** 주소·이름에 지역 이름이 들어간 장소, 보정 평점 순 최대 60개 */
     List<Place> selectAreaPlaceList(String region);
 
+    /** 반경 안 한 종류(kind) 장소, 보정 평점 순 (③ 일정 만들기 후보) */
+    List<Place> selectKindPlaceList(@Param("lat") double lat, @Param("lng") double lng, @Param("radius") int radius,
+                                    @Param("kind") String kind, @Param("limit") int limit);
+
     /** 이름으로 찾기: 같은 이름 → 이름이 들어간 곳, 리뷰 많은 순 최대 5개 */
     List<Place> selectPlaceListByName(String name);
 

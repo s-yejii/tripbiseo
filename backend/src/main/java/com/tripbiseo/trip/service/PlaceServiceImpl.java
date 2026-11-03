@@ -124,6 +124,12 @@ public class PlaceServiceImpl implements PlaceService {
         return placeMapper.selectNearbyPlaceList(lat, lng, radius, category, NEARBY_SEARCH_LIMIT);
     }
 
+    /** 반경 안 한 종류 장소, 보정 평점 순 */
+    @Override
+    public List<Place> getKindPlaceList(double lat, double lng, int radius, String kind, int limit) {
+        return placeMapper.selectKindPlaceList(lat, lng, radius, kind, limit);
+    }
+
     /** 지역 이름이 들어간 장소, 보정 평점 순 */
     @Override
     public List<Place> getAreaPlaceList(String region) {

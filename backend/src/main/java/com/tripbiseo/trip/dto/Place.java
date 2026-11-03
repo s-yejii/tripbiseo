@@ -23,4 +23,5 @@ public class Place {
     private Double distance;    // 기준점에서 거리(m). 근처 검색 SQL이 채움
     private Double score;       // 인기 점수 (인기 장소 SQL만 채움)
     private Integer visitors;   // 최근 30일 다녀간 다른 회원 수 (인기 장소 SQL만 채움)
+    private String kind;        // 종류 코드 food·cafe·bar·tour·stay·etc (PlaceMapper kindCase, 11/03)
 }

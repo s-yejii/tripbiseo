@@ -34,6 +34,9 @@ public interface PlaceService {
     /** 주소·이름에 지역 이름이 들어간 장소, 평점 순 (③ 일정 만들기 후보) */
     List<Place> getAreaPlaceList(String region);
 
+    /** 반경 안 한 종류(food·cafe·bar·tour) 장소 limit개, 보정 평점 순 (③ 일정 만들기 후보, 11/03) */
+    List<Place> getKindPlaceList(double lat, double lng, int radius, String kind, int limit);
+
     /** 이름으로 장소 찾기: 우리 DB → TourAPI → 카카오. 외부에서 찾으면 id가 null. 못 찾으면 null (③) */
     Place getPlaceByName(String name, Double lat, Double lng);
 
