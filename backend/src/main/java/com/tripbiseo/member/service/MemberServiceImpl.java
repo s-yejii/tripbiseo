@@ -23,6 +23,7 @@ public class MemberServiceImpl implements MemberService {
     private static final int PASSWORD_MAX = 72; // BCrypt가 읽는 최대 길이
     private static final int NICKNAME_MAX = 20;
     private static final String USERNAME_PATTERN = "[A-Za-z0-9_]{4,30}"; // 아이디 규칙
+    private static final String DEMO_PREFIX = "demo_"; // 시연용 가상 회원(db/95_demo_seed.sql) 아이디 앞글자. 실제 가입은 못 쓰게
 
 
     private final MemberMapper memberMapper;
@@ -44,6 +45,7 @@ public class MemberServiceImpl implements MemberService {
         if (!username.matches(USERNAME_PATTERN)) {
             throw fail(400, "아이디는 영문·숫자·_ 4~30자예요.");
         }
+        checkNotDemo(username);
         if (password.length() < PASSWORD_MIN || password.length() > PASSWORD_MAX) {
             throw fail(400, "비밀번호는 8~72자예요.");
         }
@@ -78,6 +80,7 @@ public class MemberServiceImpl implements MemberService {
         if (!name.matches(USERNAME_PATTERN)) {
             throw fail(400, "아이디는 영문·숫자·_ 4~30자예요.");
         }
+        checkNotDemo(name);
         return memberMapper.selectMemberByUsername(name) == null;
     }
 
@@ -152,6 +155,13 @@ public class MemberServiceImpl implements MemberService {
         style.setTransports(List.of("subway", "bus", "walk"));
         style.setIndoorWhenRain(true);
         return style;
+    }
+
+    // demo_로 시작하는 아이디는 시연 데이터 지우기(DELETE ... LIKE 'demo\_%')에 같이 지워져서 막아요
+    private static void checkNotDemo(String username) {
+        if (username.toLowerCase().startsWith(DEMO_PREFIX)) {
+            throw fail(400, "demo_로 시작하는 아이디는 쓸 수 없어요.");
+        }
     }
 
     private static String trim(String value) {
