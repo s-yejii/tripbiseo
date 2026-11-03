@@ -28,7 +28,8 @@ public class PopularPlaceServiceImpl implements PopularPlaceService {
     private static final int WIDE_RADIUS_M = 5000;
     private static final int MIN_RADIUS_M = 200;
     private static final int MAX_LIMIT = 20;
-    private static final int FETCH_TIMES = 5;         // 거를 걸 생각해서 limit의 5배를 가져옴
+    private static final int FETCH_TIMES = 20;        // 같은 묶음 제한으로 많이 거르니 limit의 20배를 가져옴 (상위가 카페에 몰려 있어서)
+    private static final double MIN_POPULAR_SCORE = 2.0; // 이 점수 이상이어야 "인기" 근거로 침 (한 사람 계획 몇 개로는 부족)
     private static final int SAME_CATEGORY_MAX = 2;   // 같은 분류("카페,디저트")는 2개까지
     private static final String CAFE_PATTERN = ".*(카페|커피|디저트|베이커리|케이크|도넛|와플|아이스크림|베이글|크레페).*";
     private static final String BAR_PATTERN = ".*(이자카야|주점|맥주|호프|포장마차|와인).*";
@@ -74,11 +75,11 @@ public class PopularPlaceServiceImpl implements PopularPlaceService {
         return placeMapper.selectPopularPlaceList(memberId, lat, lng, radius, count * FETCH_TIMES);
     }
 
-    /** 다른 회원 기록이 있는 장소 수 */
+    /** 인기라고 할 만큼 기록이 있는 장소 수 */
     private int countScored(List<Place> rows) {
         int scored = 0;
         for (Place place : rows) {
-            if (place.getScore() != null && place.getScore() > 0) {
+            if (place.getScore() != null && place.getScore() >= MIN_POPULAR_SCORE) {
                 scored++;
             }
         }
