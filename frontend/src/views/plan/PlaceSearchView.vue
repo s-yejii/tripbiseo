@@ -52,6 +52,19 @@ let requestNo = 0 // 늦게 온 예전 검색 결과는 버리려고
 if (mode === 'origin') {
   getPositionOnce().then((pos) => (position = pos))
 }
+// 이미 골라 둔 값이 있으면 그 이름으로 다시 찾아서 골라 둔 상태로 보여 줘요
+if (current) {
+  keyword.value = current.name
+  isLoading.value = true
+  runSearch(current.name).then(() => {
+    let index = found.value.findIndex((item) => item.lat === current.lat && item.lng === current.lng)
+    if (index < 0) {
+      found.value.unshift(current) // 검색으로 다시 안 나오면(현재 위치 등) 골라 둔 값을 맨 위에
+      index = 0
+    }
+    pickedIndex.value = index
+  })
+}
 onUnmounted(() => clearTimeout(timer))
 
 // 꼭 지킬 시간 (가짜)
@@ -108,11 +121,17 @@ async function useHere() {
   try {
     const here = await getLocationHere(pos.lat, pos.lng)
     found.value = [here, ...found.value]
-    pickedIndex.value = 0
+    pick(0)
   } catch (e) {
     showToast(e.message)
   }
   isLocating.value = false
+}
+
+// 결과를 고르면 그 이름을 검색창에 (다시 찾지는 않고 목록은 그대로)
+function pick(i) {
+  pickedIndex.value = i
+  keyword.value = found.value[i].name
 }
 
 function iconOf(item) {
@@ -136,10 +155,10 @@ function pickFixed(item) {
 function done() {
   const item = picked.value
   if (mode === 'area') {
-    store.planArea = { name: item.name, fullName: item.fullName, lat: item.lat, lng: item.lng }
+    store.planArea = { name: item.name, fullName: item.fullName, type: item.type, lat: item.lat, lng: item.lng }
     showToast('지역을 ' + item.name + '(으)로 정했어요')
   } else if (mode === 'origin') {
-    store.planOrigin = { name: item.name, address: item.address, lat: item.lat, lng: item.lng }
+    store.planOrigin = { name: item.name, address: item.address, category: item.category, lat: item.lat, lng: item.lng }
     showToast(item.name + '에서 출발해요')
   } else {
     showToast(item.name + ' ' + (time.value || item.time) + ' 고정했어요')
@@ -174,7 +193,7 @@ function done() {
 
           <div role="radiogroup" :aria-label="text.title + ' 검색 결과'" class="ps-list">
             <div v-for="(item, i) in found" :key="item.name + item.lat + item.lng" class="opt ps-item" :class="{ 'is-on': pickedIndex === i }">
-              <button type="button" role="radio" :aria-checked="pickedIndex === i" class="ps-hit" @click="pickedIndex = i">
+              <button type="button" role="radio" :aria-checked="pickedIndex === i" class="ps-hit" @click="pick(i)">
                 <span class="ico-tile"><i class="ic" :class="iconOf(item)" aria-hidden="true"></i></span>
                 <span class="opt__body">
                   <b class="t-sub">{{ item.name }} <span v-if="mode === 'area'" class="badge badge--neutral" style="vertical-align: 2px">{{ TYPE_TEXT[item.type] }}</span></b>
