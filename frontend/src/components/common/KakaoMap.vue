@@ -17,7 +17,7 @@ const props = defineProps({
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
   padding: { type: Object, default: () => ({ top: 150, right: 40, bottom: 444, left: 40 }) },
 })
-const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center'])
+const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready'])
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
@@ -45,6 +45,7 @@ onMounted(async () => {
   kakao.maps.event.addListener(map, 'dragend', sendCenter)
   kakao.maps.event.addListener(map, 'zoom_changed', sendCenter)
   draw()
+  emit('ready') // 지도가 다 만들어졌어요 (부모가 moveTo 같은 걸 이때 부를 수 있음)
 })
 
 onUnmounted(clear)

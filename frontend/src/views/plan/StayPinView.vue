@@ -6,11 +6,16 @@
 //       숙소 이름·주소·체크인·체크아웃(연월일·시각)을 읽어 채워요. 사진은 저장하지 않아요
 //   위치 맞추기: 배민 주소 등록처럼 가운데 핀은 그대로 두고 지도를 움직여 맞춰요 → 멈춘 자리의 주소를 다시 찾아 보여 줘요
 //   날짜·시간 확인 후 "숙소로 추가" → store.planStays (여행 정보 화면 목록)
+//   ?index=N 으로 들어오면 담아 둔 N번째 숙소를 고치거나 지워요 (여행 정보 화면에서 숙소를 누름)
+//   날짜는 여행 기간(store.planStartDate ~ planEndDate) 안에서만: 1박 여행이면 1박까지, 달력도 그 밖은 못 골라요
 import { computed, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import { getLocationHere, readStayCapture, searchLocations } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
+import { addDays, daysBetween } from '@/utils/dates'
+import { toShortDate } from '@/utils/tripView'
 import { goBack } from '@/utils/back'
 import { showToast } from '@/utils/toast'
 
@@ -30,11 +35,17 @@ const SITES = [
 ]
 
 const store = useTripStore()
+const route = useRoute()
 const mapRef = ref(null)
-const candidate = ref(null) // 담으려는 숙소 { name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime }
+// 고치는 숙소 순서 (주소의 ?index=). 없거나 범위 밖이면 새로 담기 (-1)
+const editIndex = store.planStays[Number(route.query.index)] && route.query.index !== '' ? Number(route.query.index) : -1
+const isEdit = editIndex >= 0
+// 담으려는(고치려는) 숙소 { name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime }
+const candidate = ref(isEdit ? { ...store.planStays[editIndex] } : null)
+const isConfirmDelete = ref(false) // 삭제 버튼을 한 번 누름 (한 번 더 누르면 삭제)
 const isReading = ref(false) // 캡처 읽는 중 (위치 맞추기 화면에서 기다림)
 const isTimeDefault = ref({ in: false, out: false }) // 시각이 기본값인지 (읽은 값이 아님)
-const keyword = ref('')
+const keyword = ref(isEdit ? candidate.value.name : '')
 const found = ref([])
 const isSearching = ref(false)
 const isListOpen = ref(false)
@@ -44,13 +55,32 @@ let lookupNo = 0 // 늦게 온 예전 주소 찾기 결과는 버리려고
 onUnmounted(() => clearTimeout(timer))
 
 const step = computed(() => (candidate.value ? 'pick' : 'list'))
-// 지도 핀: 이미 담은 숙소(남색) + 여행 지역(회색, 참고). 위치를 맞추는 숙소는 지도 가운데 고정 핀으로 따로 그려요
+// 여행 기간: 체크인은 첫날~마지막 전날, 체크아웃은 둘째 날~마지막 날
+const tripStart = computed(() => store.planStartDate)
+const tripEnd = computed(() => store.planEndDate || store.planStartDate)
+const tripNights = computed(() => daysBetween(tripStart.value, tripEnd.value))
+const checkOutMin = computed(() => addDays(candidate.value?.checkInDate || tripStart.value, 1))
+
+// 다른 숙소가 아직 안 잡은 첫 밤 (없으면 null) → 이름으로 찾은 숙소의 날짜를 미리 채움
+function firstFreeNight() {
+  for (let day = tripStart.value; day < tripEnd.value; day = addDays(day, 1)) {
+    const isTaken = store.planStays.some((stay, i) => i !== editIndex && stay.checkInDate <= day && day < stay.checkOutDate)
+    if (!isTaken) return day
+  }
+  return null
+}
+// 지도 핀: 이미 담은 숙소(남색) + 여행 지역(회색, 참고). 위치를 맞추는 숙소는 지도 가운데 고정 핀으로 따로 그려요 (고치는 숙소는 빼요)
 const pins = computed(() => {
   const list = []
-  store.planStays.forEach((stay, i) => list.push({ key: 'stay' + i, lat: stay.lat, lng: stay.lng, icon: 'i-home', cls: 'pin--added', label: stay.name, route: false }))
+  store.planStays.forEach((stay, i) => i !== editIndex && list.push({ key: 'stay' + i, lat: stay.lat, lng: stay.lng, icon: 'i-home', cls: 'pin--added', label: stay.name, route: false }))
   if (store.planArea) list.push({ key: 'area', lat: store.planArea.lat, lng: store.planArea.lng, icon: 'i-pin', cls: 'pin--done', label: store.planArea.name + ' (여행 지역)', route: false })
   return list
 })
+
+// 지도가 준비되면: 고치는 숙소 자리로 옮김
+function onMapReady() {
+  if (candidate.value?.lat != null) mapRef.value.moveTo(candidate.value.lat, candidate.value.lng, PICK_LEVEL)
+}
 
 function siteUrl(site) {
   if (site.url) return site.url
@@ -85,10 +115,11 @@ function pickFound(item) {
   isListOpen.value = false
   keyword.value = item.name
   const before = candidate.value
+  const freeNight = firstFreeNight() // 날짜를 모르면 아직 빈 첫 밤 1박으로 채워 둠
   candidate.value = {
     name: item.name, address: item.address, lat: item.lat, lng: item.lng,
-    checkInDate: before?.checkInDate || null, checkInTime: before?.checkInTime || DEFAULT_CHECK_IN,
-    checkOutDate: before?.checkOutDate || null, checkOutTime: before?.checkOutTime || DEFAULT_CHECK_OUT,
+    checkInDate: before?.checkInDate || freeNight, checkInTime: before?.checkInTime || DEFAULT_CHECK_IN,
+    checkOutDate: before?.checkOutDate || (freeNight && addDays(freeNight, 1)), checkOutTime: before?.checkOutTime || DEFAULT_CHECK_OUT,
   }
   if (!before) isTimeDefault.value = { in: true, out: true }
   mapRef.value?.moveTo(item.lat, item.lng, PICK_LEVEL)
@@ -155,26 +186,44 @@ function fullDate(date, time) {
 const nights = computed(() => {
   const stay = candidate.value
   if (!stay?.checkInDate || !stay?.checkOutDate) return 0
-  return Math.round((new Date(stay.checkOutDate) - new Date(stay.checkInDate)) / 86400000)
+  return daysBetween(stay.checkInDate, stay.checkOutDate)
 })
 
 const problem = computed(() => {
   const stay = candidate.value
   if (!stay || isReading.value) return ''
+  if (tripNights.value < 1) return '당일치기 여행이에요 · 여행 정보 달력에서 1박 이상으로 골라 주세요'
   if (!stay.name || !stay.name.trim()) return '숙소 이름을 적어 주세요'
   if (stay.lat == null) return '맨 위에서 숙소를 찾아 위치를 정해 주세요'
   if (!stay.checkInDate || !stay.checkOutDate) return '체크인·체크아웃 날짜를 넣어 주세요'
   if (stay.checkOutDate <= stay.checkInDate) return '체크아웃은 체크인 다음 날 이후여야 해요'
-  const overlap = store.planStays.find((other) => stay.checkInDate < other.checkOutDate && other.checkInDate < stay.checkOutDate)
+  if (stay.checkInDate < tripStart.value || stay.checkOutDate > tripEnd.value) {
+    return `여행 기간(${toShortDate(tripStart.value)}~${toShortDate(tripEnd.value)}, ${tripNights.value}박) 안으로 맞춰 주세요`
+  }
+  const overlap = store.planStays.find((other, i) => i !== editIndex && stay.checkInDate < other.checkOutDate && other.checkInDate < stay.checkOutDate)
   if (overlap) return overlap.name + '과(와) 날짜가 겹쳐요'
   return ''
 })
 
+// 담기 (고치는 중이면 그 자리를 바꿈). 체크인 순으로 다시 줄 세움
 function add() {
   if (problem.value) return showToast(problem.value)
   const stay = { ...candidate.value, name: candidate.value.name.trim() }
-  store.planStays = [...store.planStays, stay].sort((a, b) => a.checkInDate.localeCompare(b.checkInDate))
-  showToast(stay.name + '을(를) 숙소로 담았어요')
+  const others = store.planStays.filter((_, i) => i !== editIndex)
+  store.planStays = [...others, stay].sort((a, b) => a.checkInDate.localeCompare(b.checkInDate))
+  showToast(stay.name + (isEdit ? ' 숙소를 고쳤어요' : '을(를) 숙소로 담았어요'))
+  goBack('/plan/info')
+}
+
+// 삭제: 한 번 누르면 확인 문구로 바뀌고, 한 번 더 누르면 지움
+function remove() {
+  if (!isConfirmDelete.value) {
+    isConfirmDelete.value = true
+    return
+  }
+  const name = store.planStays[editIndex].name
+  store.planStays = store.planStays.filter((_, i) => i !== editIndex)
+  showToast(name + '을(를) 숙소에서 뺐어요')
   goBack('/plan/info')
 }
 </script>
@@ -184,7 +233,7 @@ function add() {
     <div class="app">
       <!-- 지도: 위치를 맞출 때는 시트 위 칸만 쓰고, 가운데에 핀을 고정해요 -->
       <div class="sp-mapbox">
-        <KakaoMap ref="mapRef" :pins="pins" :show-route="false" pick-center :padding="{ top: 120, right: 48, bottom: 48, left: 48 }" @center="onCenter" />
+        <KakaoMap ref="mapRef" :pins="pins" :show-route="false" pick-center :padding="{ top: 120, right: 48, bottom: 48, left: 48 }" @center="onCenter" @ready="onMapReady" />
         <template v-if="step === 'pick' && candidate.lat != null">
           <span class="sp-center" aria-hidden="true"><i class="ic i-home"></i></span>
           <span class="sp-shadow" aria-hidden="true"></span>
@@ -216,7 +265,7 @@ function add() {
         <template v-if="step === 'list'">
           <div data-drag>
             <h1 class="h-title">숙소 추가</h1>
-            <p class="t-cap" style="margin: 2px 0 0">{{ store.planStays.length ? `지금 ${store.planStays.length}곳 담았어요 · 다른 날 묵을 숙소를 더 담아요` : '예약 사이트에서 예약하고, 확정 화면을 캡처해서 올려 주세요' }}</p>
+            <p class="t-cap tn" style="margin: 2px 0 0">여행 {{ toShortDate(tripStart) }}~{{ toShortDate(tripEnd) }} · {{ tripNights }}박{{ store.planStays.length ? ` 중 ${store.planStays.length}곳 담았어요` : ' · 예약하고 확정 화면을 캡처해서 올려 주세요' }}</p>
           </div>
           <section class="sp-step" aria-labelledby="sp-book">
             <h2 id="sp-book" class="sp-step__title"><span class="sp-no">1</span>예약하기</h2>
@@ -247,6 +296,7 @@ function add() {
                 <input v-model="candidate.name" class="sp-name" type="text" aria-label="숙소 이름" placeholder="숙소 이름" />
                 <p class="t-cap" style="margin: 2px 0 0">{{ candidate.address || '주소 없음' }}</p>
               </div>
+              <span v-if="isEdit" class="badge badge--navy">수정</span>
               <button type="button" class="btn btn--ghost btn--sm" @click="reset">다시 고르기</button>
             </div>
             <p v-if="candidate.lat != null" class="sp-tip"><i class="ic ic--s i-info" aria-hidden="true"></i>지도를 움직여 핀을 숙소 입구에 맞춰 주세요</p>
@@ -254,20 +304,24 @@ function add() {
             <div class="sp-dates">
               <div class="field">
                 <label class="field__label" for="sp-in">체크인</label>
-                <div class="field__box"><input id="sp-in" v-model="candidate.checkInDate" type="date" /></div>
+                <div class="field__box"><input id="sp-in" v-model="candidate.checkInDate" type="date" :min="tripStart" :max="addDays(tripEnd, -1)" /></div>
                 <div class="field__box"><input v-model="candidate.checkInTime" type="time" aria-label="체크인 시각" @input="isTimeDefault.in = false" /></div>
                 <p v-if="isTimeDefault.in" class="field__help">기본값 · 예약 화면에서 확인</p>
               </div>
               <div class="field">
                 <label class="field__label" for="sp-out">체크아웃</label>
-                <div class="field__box"><input id="sp-out" v-model="candidate.checkOutDate" type="date" /></div>
+                <div class="field__box"><input id="sp-out" v-model="candidate.checkOutDate" type="date" :min="checkOutMin" :max="tripEnd" /></div>
                 <div class="field__box"><input v-model="candidate.checkOutTime" type="time" aria-label="체크아웃 시각" @input="isTimeDefault.out = false" /></div>
                 <p v-if="isTimeDefault.out" class="field__help">기본값 · 예약 화면에서 확인</p>
               </div>
             </div>
             <p v-if="nights > 0" class="t-cap tn sp-sum">{{ fullDate(candidate.checkInDate, candidate.checkInTime) }} → {{ fullDate(candidate.checkOutDate, candidate.checkOutTime) }} · {{ nights }}박</p>
             <p v-if="problem" class="t-cap" style="display: flex; gap: 4px; align-items: center"><i class="ic ic--s i-info c-warning" aria-hidden="true"></i>{{ problem }}</p>
-            <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!!problem" @click="add">숙소로 추가</button>
+            <div v-if="isEdit" class="cta__row">
+              <button type="button" class="btn btn--lg" :class="isConfirmDelete ? 'btn--danger-solid' : 'btn--danger'" @click="remove">{{ isConfirmDelete ? '한 번 더 누르면 삭제' : '숙소 삭제' }}</button>
+              <button type="button" class="btn btn--primary btn--lg" :disabled="!!problem" @click="add">수정 완료</button>
+            </div>
+            <button v-else type="button" class="btn btn--primary btn--lg btn--block" :disabled="!!problem" @click="add">숙소로 추가</button>
           </template>
         </template>
       </BottomSheet>
