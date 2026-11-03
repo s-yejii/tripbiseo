@@ -46,6 +46,12 @@ export const askRecommend = (tripId, lat, lng, radius, category, tags) => post(`
 export const insertPlace = (tripId, placeId, lat, lng) => post(`/trips/${tripId}/live/insert`, { placeId, lat, lng })
 export const getAlternatives = (tripId, lat, lng, reason = 'delay', request = null) => post(`/trips/${tripId}/live/alternatives`, { lat, lng, reason, request })
 export const applyAlternative = (tripId, key, stops, lat, lng) => post(`/trips/${tripId}/live/apply`, { key, stops, lat, lng })
+export const previewPlan = (tripId, stops, lat, lng) => post(`/trips/${tripId}/live/preview`, { stops, lat, lng })
+export const getSwapCandidates = (tripId, stopId, lat, lng) => get(`/trips/${tripId}/live/swap-candidates?stopId=${stopId}&lat=${lat}&lng=${lng}`)
 
 // ⑤ 여행 후
 export const getRetro = (tripId) => get(`/trips/${tripId}/retro`)
+
+// ⑤ 길 안내: mode는 walk / bus / subway / car. 못 찾으면 available=false + message
+export const getRouteGuide = (fromLat, fromLng, toLat, toLng, mode) =>
+  get(`/route?fromLat=${fromLat}&fromLng=${fromLng}&toLat=${toLat}&toLng=${toLng}&mode=${mode}`)
