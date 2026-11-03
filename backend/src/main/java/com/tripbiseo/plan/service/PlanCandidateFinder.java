@@ -1,11 +1,15 @@
 package com.tripbiseo.plan.service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
+import com.tripbiseo.live.dto.PlaceTagCount;
+import com.tripbiseo.live.service.PlaceTagReader;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.service.PlaceService;
 
@@ -26,8 +30,15 @@ public class PlanCandidateFinder {
     private static final int AROUND_MUST_LIMIT = 12;
     private static final int AREA_LIMIT = 25;
     private static final String NEAR_ME_WORDS = ".*(내 ?위치|현재 ?위치|여기|근처).*";
+    private static final int GU_RADIUS_M = 3000;    // 구를 고르면 3km (구 하나가 대략 이 정도)
+    private static final int DONG_RADIUS_M = 1500;  // 동·동네를 고르면 1.5km (걸어서 20분)
+    private static final int KIND_LIMIT = 25;       // 종류마다 후보 수 (평점 순)
+    // 화면 태그 코드 → ④ PlaceTagReader가 리뷰에서 세는 태그 이름
+    private static final Map<String, String> TAG_NAMES = Map.of("mood", "분위기", "quiet", "조용", "value", "가성비",
+            "no_wait", "웨이팅없음", "solo", "혼밥");
 
     private final PlaceService placeService;
+    private final PlaceTagReader placeTagReader; // 리뷰 태그 세기 (④ 도우미를 같이 씀)
 
     /** "내 위치·여기·근처"라고 했거나 지역이 비어 있으면 내 위치 기준 */
     public boolean isNearMe(String region) {
@@ -59,6 +70,41 @@ public class PlanCandidateFinder {
                 addAll(candidates, placeService.getAreaPlaceList(word), AREA_LIMIT);
             }
         }
+    }
+
+    /** 고른 지역 중심 반경(구 3km · 동 1.5km)에서 고른 종류마다 평점 순 25곳 (11/03) */
+    public void addKinds(Map<String, Place> candidates, double lat, double lng, String areaType, List<String> kinds) {
+        int radius = "gu".equals(areaType) ? GU_RADIUS_M : DONG_RADIUS_M;
+        for (String kind : kinds) {
+            addAll(candidates, placeService.getKindPlaceList(lat, lng, radius, kind, KIND_LIMIT), KIND_LIMIT);
+        }
+    }
+
+    /** 후보마다 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3 (장소 id → 점수) */
+    public Map<String, Double> scoreOf(Map<String, Place> candidates, List<String> tags) {
+        List<String> wantedTags = new ArrayList<>();
+        for (String tag : tags) {
+            if (TAG_NAMES.containsKey(tag)) {
+                wantedTags.add(TAG_NAMES.get(tag));
+            }
+        }
+        Map<String, PlaceTagCount> countMap = placeTagReader.countTags(new ArrayList<>(candidates.values()));
+        Map<String, Double> scores = new HashMap<>();
+        for (Place place : candidates.values()) {
+            scores.put(place.getId(), placeTagReader.getScore(place, countMap.get(place.getId()), wantedTags));
+        }
+        return scores;
+    }
+
+    /** 점수 높은 순으로 다시 줄 세운 후보 표 (Gemini에게 좋은 후보부터 보여 주려고) */
+    public Map<String, Place> sortByScore(Map<String, Place> candidates, Map<String, Double> scores) {
+        List<Place> places = new ArrayList<>(candidates.values());
+        places.sort((first, second) -> Double.compare(scores.getOrDefault(second.getId(), 0.0), scores.getOrDefault(first.getId(), 0.0)));
+        Map<String, Place> sorted = newCandidates();
+        for (Place place : places) {
+            sorted.put(place.getId(), place);
+        }
+        return sorted;
     }
 
     /** 새 후보 표 (넣은 순서를 지키는 Map: LinkedHashMap) */

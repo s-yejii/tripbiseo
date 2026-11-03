@@ -722,7 +722,7 @@
 
 ## ③ AI 일정 (plan)
 
-**Gemini를 부르는 API 공통 오류:** 503 "Gemini 키가 없어요. 환경변수 GEMINI_API_KEY를 확인해 주세요." · 503 "Gemini 사용량이 몰려 잠시 응답하지 않아요. 1~2분 뒤 다시 시도해 주세요." · 504 "Gemini가 응답하지 않아요(시간 초과). 1~2분 뒤 다시 시도해 주세요." · 502 "Gemini 오류 {상태}: {내용}" · 502 "Gemini 응답이 비어 있어요." · 502 "Gemini 답을 읽지 못했어요. 다시 시도해 주세요." (JSON으로 받을 때만)
+**Gemini를 부르는 API 공통 오류:** 503 "Gemini 키가 없어요. 환경변수 GEMINI_API_KEY를 확인해 주세요." · 503 "Gemini 사용량이 몰려 잠시 응답하지 않아요. 1~2분 뒤 다시 시도해 주세요." · 504 "Gemini가 응답하지 않아요(시간 초과). 1~2분 뒤 다시 시도해 주세요." (한 번 묻는 데 25초까지 기다리고, 시간 초과는 다른 모델로 다시 묻지 않음 — 11/03) · 502 "Gemini 오류 {상태}: {내용}" · 502 "Gemini 응답이 비어 있어요." · 502 "Gemini 답을 읽지 못했어요. 다시 시도해 주세요." (JSON으로 받을 때만)
 
 ### `POST /api/plans/chat`
 사용자 말을 여행 조건으로 정리해요 (Gemini). · 로그인 필요 · 화면: plan/PlanChatView
@@ -806,7 +806,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만) |
+| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
@@ -822,7 +822,11 @@
 
 **오류** 400 "여행 조건이 없어요." · 422 "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요." · 422 "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요."
 
-> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 꼭 갈 곳만으로 초안을 만들어요.
+> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 **규칙으로** 초안을 만들어요 (11/03): 꼭 갈 곳·고정 일정 + 고른 종류마다 정한 시각(점심 12:00 식당, 14:00 카페, 20:30 술집 …)에 "점수 − 거리" 가 가장 큰 후보. 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3, 거리는 앞 장소(첫 장소는 출발지·전날 숙소)에서 1km마다 0.3 뺌.
+>
+> 후보 (11/03): `areaLat`이 있으면 그 중심 반경(구 3km · 동 1.5km)에서 고른 종류마다 보정 평점 순 25곳 (장소 종류는 PlaceMapper `kindCase` 하나로 정해요). 없으면 예전처럼 내 위치·지역 이름.
+>
+> 숙소 (11/03): `stays`마다 체크인 날 마지막 일정 뒤(+30분, 체크인 시각보다 이르지 않게, 23:30까지)에 숙소 칸 (`placeId` null, `category` "숙소", `memo`에 체크인 시각). 다음 날 첫 장소는 숙소에서 가까운 곳부터.
 
 ---
 

@@ -22,4 +22,14 @@ public class PlanConditions {
     private List<String> mustVisit;     // 꼭 갈 곳 이름
     private List<FixedVisit> fixed;     // 시간이 정해진 일정
     private String style;               // 여행 스타일 한 줄
+    // ---- 11/03 여행 정보 화면에서 고른 값 (Gemini가 아니라 화면이 채움)
+    private List<String> kinds;         // 어디 위주로: food · cafe · bar · tour (없으면 food·cafe)
+    private List<String> tags;          // 이런 곳이면 더 좋아요: mood · quiet · value · no_wait · solo (가산점)
+    private Double areaLat;             // 어디로 가요? 고른 지역 중심 (있으면 주소 글자 대신 이 반경에서 후보)
+    private Double areaLng;
+    private String areaType;            // gu(구) / dong(동) / spot(동네) → 반경 크기
+    private String originName;          // 어디서 출발해요? (1일차 첫 장소는 여기서 가까운 곳부터)
+    private Double originLat;
+    private Double originLng;
+    private List<PlanStay> stays;       // 담은 숙소 (그날 마지막 일정 = 숙소, 다음 날은 여기서 출발)
 }
