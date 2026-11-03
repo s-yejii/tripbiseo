@@ -11,10 +11,12 @@ import { useLiveTrip } from '@/utils/useLiveTrip'
 import { imageFor } from '@/utils/mapView'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
+import { goBack } from '@/utils/back'
 import { finishTrip } from '@/api/trips'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
+import NotiBell from '@/components/member/NotiBell.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
 import SegSheet from '@/components/live/SegSheet.vue'
@@ -351,7 +353,7 @@ function showDemo() {
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
         <header class="topbar">
-          <button type="button" class="iconbtn" aria-label="홈으로" @click="router.replace('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+          <button type="button" class="iconbtn" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
           <h1 class="topbar__title">여행 중</h1>
           <span style="width: 44px"></span>
         </header>
@@ -391,10 +393,10 @@ function showDemo() {
         </div>
 
         <header class="topbar topbar--float">
-          <button type="button" class="iconbtn iconbtn--float" aria-label="홈으로" @click="router.replace('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+          <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
           <span style="flex: 1"></span>
           <span v-if="isDemo" class="badge badge--neutral" style="align-self: center">시연용 이동</span>
-          <RouterLink to="/notifications" class="iconbtn iconbtn--float" aria-label="알림"><i class="ic ic--l i-bell" aria-hidden="true"></i></RouterLink>
+          <NotiBell float />
         </header>
 
         <!-- 위쪽 알림: 늦으면 접어서 +N분 알약으로 -->

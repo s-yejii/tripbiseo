@@ -21,6 +21,8 @@ import com.tripbiseo.live.dto.ApplyRequest;
 import com.tripbiseo.live.dto.ApplyResponse;
 import com.tripbiseo.live.dto.PreviewRequest;
 import com.tripbiseo.live.dto.SwapCandidate;
+import com.tripbiseo.member.dto.Notification;
+import com.tripbiseo.member.service.NotificationService;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -61,6 +63,7 @@ public class AlternativeServiceImpl implements AlternativeService {
     private final LiveStopFinder liveStopFinder;               // 오늘 칸·지금 칸·남은 칸 고르기 (④ 도우미)
     private final LiveTripReader liveTripReader;               // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
     private final AlternativeCalculator alternativeCalculator; // 바뀐 칸 목록으로 몇 시 도착·여유 계산 (④ 도우미)
+    private final NotificationService notificationService;     // 적용했다는 알림 남기기 (①)
 
     /** 대안 A·B·C */
     // 규칙 대안만 만들어요. 비 올 때 실내로 바꾸는 대안은 만들지 않음 (11/02 결정: 비는 알림만)
@@ -457,7 +460,20 @@ public class AlternativeServiceImpl implements AlternativeService {
         response.setMessage(getApplyMessage(remainingStops));
         response.setNextAlert(getNextAlert(updatedTodayStops));
         response.setStops(toAppliedStops(updatedTodayStops, todayStops, current, noteMap));
+        sendApplyNotice(memberId, tripId, response);
         return response;
+    }
+
+    /** 대안을 적용했다는 알림 (적용할 때마다 하나씩 쌓임) */
+    private void sendApplyNotice(long memberId, long tripId, ApplyResponse response) {
+        Notification notice = new Notification();
+        notice.setMemberId(memberId);
+        notice.setKind("trip");
+        notice.setLevel("ok");
+        notice.setTitle(response.getMessage());    // 예: 공연장에 늦지 않게 일정을 바꿨어요!
+        notice.setText(response.getNextAlert());   // 예: ○○에서 출발할 시각(15:52) 10분 전부터 1분마다 알려드릴게요… (없으면 null)
+        notice.setLink("/trips/today?id=" + tripId);
+        notificationService.send(notice);
     }
 
     // ---------------------------------------------------------------- 직접 고친 일정 계산 · 바꿀 장소 후보

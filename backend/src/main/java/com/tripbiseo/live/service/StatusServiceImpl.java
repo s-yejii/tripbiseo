@@ -15,11 +15,14 @@ import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.AreaInfo;
 import com.tripbiseo.live.dto.FixedStatus;
 import com.tripbiseo.live.dto.LeaveInfo;
+import com.tripbiseo.live.dto.LiveAlert;
 import com.tripbiseo.live.dto.LocationRequest;
 import com.tripbiseo.live.dto.NextRoute;
 import com.tripbiseo.live.dto.StatusContext;
 import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.StatusStop;
+import com.tripbiseo.member.dto.Notification;
+import com.tripbiseo.member.service.NotificationService;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -44,6 +47,7 @@ public class StatusServiceImpl implements StatusService {
     private final LiveStopFinder liveStopFinder;         // 오늘 칸·지금 칸·남은 칸 고르기 (④ 도우미)
     private final LiveAlertMaker liveAlertMaker;         // 출발 알림·맨 위 알림 만들기 (④ 도우미)
     private final LiveWeatherChecker liveWeatherChecker; // 비 소식 + 비 맞을 야외 일정 (④ 도우미)
+    private final NotificationService notificationService; // 맨 위 알림을 알림함에도 남김 (①)
 
     /** 지금 상황 다시 계산 */
     @Override
@@ -84,7 +88,9 @@ public class StatusServiceImpl implements StatusService {
         response.setWeather(context.getWeather());
         LeaveInfo leave = liveAlertMaker.makeLeave(context);
         response.setLeave(leave);
-        response.setAlert(liveAlertMaker.makeAlert(context, leave));
+        LiveAlert alert = liveAlertMaker.makeAlert(context, leave);
+        response.setAlert(alert);
+        sendAlertNotice(memberId, tripId, alert);
 
         // 7단계: 다시 짜는 게 좋은지 (알림과 같은 기준이라 LiveAlertMaker가 판단)
         response.setReplan(liveAlertMaker.isReplanNeeded(context));
@@ -92,6 +98,32 @@ public class StatusServiceImpl implements StatusService {
     }
 
     // ---------------------------------------------------------------- 지금 상황(status) 도우미
+
+    /** 맨 위 알림을 알림함에도 남김. 같은 알림은 ①이 noticeKey로 한 번만 저장 */
+    private void sendAlertNotice(long memberId, long tripId, LiveAlert alert) {
+        if (alert == null) {
+            return;
+        }
+        Notification notice = new Notification();
+        notice.setMemberId(memberId);
+        notice.setKind(alert.getKey().startsWith("rain-") ? "info" : "trip");
+        notice.setLevel(alert.getLevel());
+        notice.setTitle(alert.getTitle());
+        notice.setText(alert.getText());
+        notice.setLink("/live");
+        notice.setNoticeKey("trip" + tripId + "-" + Geo.now().toLocalDate() + "-" + toNoticeKey(alert.getKey()));
+        notificationService.send(notice);
+    }
+
+    /** 알림 키에서 알림함용 키 만들기: 1분·5분마다 끝 숫자가 바뀌는 출발·더 머묾·지각 알림은 "앞부분-칸 id"만 써서 칸마다 한 번만 */
+    private static String toNoticeKey(String alertKey) {
+        boolean isCounting = alertKey.startsWith("leave-") || alertKey.startsWith("overdue-") || alertKey.startsWith("late-");
+        if (!isCounting) {
+            return alertKey;
+        }
+        String[] parts = alertKey.split("-"); // 예: leave-12-9 → [leave, 12, 9]
+        return parts[0] + "-" + parts[1];
+    }
 
     /** 남은 칸마다 예상 도착 시각(자정부터 센 분). key = 칸 id. 앞 칸 출발 시각에 이동 시간을 차례로 더해 감. 구간 길은 routeMap에 담음 */
     private Map<Long, Integer> getEtaMap(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng,
