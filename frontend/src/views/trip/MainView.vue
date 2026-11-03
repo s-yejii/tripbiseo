@@ -1,7 +1,9 @@
 <script setup>
 // S04-a 홈 (②): 내 여행 중 하나(여행 중 → 오늘 → 가장 가까운 다가오는 여행)를 크게 보여 주고, 요즘 인기 장소
-//   여행이 있으면: 다음(첫) 일정 장소 800m 안에서 다른 사람들이 많이 가는 곳 ("○○ 근처에서 많이 가요")
-//   여행이 없으면(신규 회원 포함): "여행 만들기" 카드 + 내 주변 요즘 인기 (위치를 거부하면 서울 전체)
+//   여행 중      : 지금 내 위치(GPS) 1.5km 안 인기 장소 (위치를 못 받으면 다음 일정 장소 기준)
+//   여행 전(등록) : 그 여행 일정 장소들의 가운데 2km 안 인기 장소 ("이번 여행지 근처에서 많이 가요")
+//   여행 없음    : 서울 시범 지역 전체 인기 장소 (신규 회원 포함)
+//   어느 경우든 내 일정에 이미 있는 곳은 빼요. 홈을 열 때마다 새로 계산해요.
 // 서버: GET /api/trips, GET /api/trips/{id}, GET /api/places/popular
 import { computed, onMounted, ref } from 'vue'
 import HomeHeader from '@/components/common/HomeHeader.vue'
@@ -9,6 +11,8 @@ import TabBar from '@/components/common/TabBar.vue'
 import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import PopularPlaces from '@/components/trip/PopularPlaces.vue'
+import NotiBell from '@/components/member/NotiBell.vue'
+import ThemeCircles from '@/components/plan/ThemeCircles.vue'
 import { getPopularPlaces, getTrip, getTripList } from '@/api/trips'
 import { getPositionOnce } from '@/utils/position'
 import { imageFor } from '@/utils/mapView'
@@ -16,10 +20,16 @@ import { daysLeft, isTodayTrip, pickHomeTrip, toShortDate, toTransportText, trip
 import { toDuration, toMinutes } from '@/utils/time'
 
 const MAX_STOP_THUMBS = 6 // 카드에 보여 줄 일정 사진 수 (한 줄)
-const NEAR_STOP_RADIUS_M = 800 // 일정 장소 근처 (걸어서 10분 정도)
-const NEAR_STOP_COUNT = 3
+const LIVE_RADIUS_M = 1500 // 여행 중: 지금 위치에서 걸어서·한두 정거장 (20분 안)
+const TRIP_AREA_RADIUS_M = 2000 // 여행 전: 여행지(일정 장소 가운데) 둘레
+const TRIP_POPULAR_COUNT = 4 // 여행 카드가 있을 때는 조금만
 const POPULAR_COUNT = 6
-const SCOPE_TITLE = { near: '내 주변 요즘 인기', wide: '내 주변 5km 요즘 인기', seoul: '서울에서 요즘 인기' }
+// 상황마다 다른 안내 문장 (제목 아래 작은 글씨)
+const CAPTION_LIVE = '여행 중에 잠깐 들르기 좋은 곳이에요'
+const CAPTION_LIVE_NO_GPS = '위치를 못 받아서 다음 일정 장소 근처로 골랐어요'
+const CAPTION_TRIP = '이번 여행 일정 근처에서 같이 들르기 좋은 곳이에요'
+const CAPTION_SEOUL = '요즘 여행자들이 많이 찾는 곳이에요'
+const CAPTION_SEOUL_FALLBACK = '근처엔 아직 기록이 적어서 서울 전체에서 골랐어요'
 
 const isLoading = ref(true)
 const error = ref('')
@@ -39,8 +49,9 @@ async function load() {
   }
   isLoading.value = false
   if (error.value) return
-  if (trip.value) loadNearStop()
-  else loadPopular()
+  if (trip.value && trip.value.status === 'ongoing') loadLivePopular()
+  else if (trip.value) loadTripPopular()
+  else loadSeoulPopular()
 }
 
 // 오늘(여행 중이면 오늘 날짜의 날) 일정 칸. 여행 전이면 첫째 날
@@ -67,27 +78,47 @@ const countdown = computed(() => {
   return { cap: next.name + ' (' + next.time + ')까지', big: left > 0 ? toDuration(left) : '지금 출발' }
 })
 
-// 다음 일정 장소(없으면 첫 장소) 근처에서 다른 사람들이 많이 가는 곳 (이미 내 일정에 있는 곳은 빼요)
-async function loadNearStop() {
-  const base = dayStops.value.find((stop) => stop.state === 'todo') || dayStops.value[0]
-  if (!base || base.lat == null) return loadPopular()
+// 기준점 근처 인기 장소 → 내 일정에 있는 곳은 빼고 count개 (결과가 없으면 서울 전체로)
+async function showPopular(base, radius, count, title, caption) {
   try {
-    const res = await getPopularPlaces(base.lat, base.lng, NEAR_STOP_COUNT + trip.value.stops.length, NEAR_STOP_RADIUS_M)
     const inTrip = new Set(trip.value.stops.map((stop) => stop.placeId))
-    const places = res.places.filter((item) => !inTrip.has(item.place.id)).slice(0, NEAR_STOP_COUNT)
-    popular.value = places.length ? { title: base.name + ' 근처에서 많이 가요', caption: '걸어서 10분 안 · 최근 한 달 다른 여행 기록', places } : null
+    const res = await getPopularPlaces(base.lat, base.lng, count + inTrip.size, radius)
+    const places = res.places.filter((item) => !inTrip.has(item.place.id)).slice(0, count)
+    if (!places.length) return loadSeoulPopular(CAPTION_SEOUL_FALLBACK)
+    popular.value = { title, caption, places }
   } catch {
     popular.value = null // 추천은 없어도 홈은 보여 줌
   }
 }
 
-// 내 주변 요즘 인기 (위치를 거부하면 서울 시범 지역 전체)
-async function loadPopular() {
+// 여행 중: 지금 내 위치 기준 (위치를 못 받으면 다음 일정 장소 기준)
+async function loadLivePopular() {
   const position = await getPositionOnce()
+  if (position) return showPopular(position, LIVE_RADIUS_M, TRIP_POPULAR_COUNT, '지금 내 주변에서 많이 가요', CAPTION_LIVE)
+  const next = dayStops.value.find((stop) => stop.state === 'todo') || dayStops.value[0]
+  if (!next || next.lat == null) return loadSeoulPopular()
+  return showPopular(next, LIVE_RADIUS_M, TRIP_POPULAR_COUNT, next.name + ' 근처에서 많이 가요', CAPTION_LIVE_NO_GPS)
+}
+
+// 여행 전: 등록한 여행의 일정 장소들 가운데 기준
+async function loadTripPopular() {
+  const placed = trip.value.stops.filter((stop) => stop.lat != null && stop.state !== 'skipped')
+  if (!placed.length) return loadSeoulPopular()
+  let lat = 0
+  let lng = 0
+  for (const stop of placed) {
+    lat += stop.lat
+    lng += stop.lng
+  }
+  const center = { lat: lat / placed.length, lng: lng / placed.length }
+  return showPopular(center, TRIP_AREA_RADIUS_M, TRIP_POPULAR_COUNT, '이번 여행지 근처에서 많이 가요', CAPTION_TRIP)
+}
+
+// 여행 없음(신규 회원 포함): 서울 시범 지역 전체 (근처에 기록이 없을 때도 여기로)
+async function loadSeoulPopular(caption = CAPTION_SEOUL) {
   try {
-    const res = await getPopularPlaces(position?.lat, position?.lng, POPULAR_COUNT)
-    const caption = res.scope === 'seoul' && position ? '근처에 기록이 적어서 서울 전체에서 골랐어요' : '최근 한 달 여행 기록으로 골랐어요'
-    popular.value = res.places.length ? { title: SCOPE_TITLE[res.scope] || '요즘 인기', caption, places: res.places } : null
+    const res = await getPopularPlaces(null, null, POPULAR_COUNT)
+    popular.value = res.places.length ? { title: '서울에서 요즘 인기', caption, places: res.places } : null
   } catch {
     popular.value = null
   }
@@ -98,7 +129,7 @@ async function loadPopular() {
   <div class="scr scr-Main">
     <div class="app">
       <HomeHeader>
-        <RouterLink to="/notifications" class="iconbtn" aria-label="알림"><i class="ic ic--l i-bell" aria-hidden="true"></i></RouterLink>
+        <NotiBell />
       </HomeHeader>
 
       <div class="scroll" style="bottom: 84px; gap: 24px; padding-top: 4px">
@@ -133,6 +164,9 @@ async function loadPopular() {
             <RouterLink v-else :to="tripDetailLink(trip)" class="btn btn--primary btn--lg btn--block">일정 보기</RouterLink>
           </div>
         </section>
+
+        <!-- 테마로 떠나기 (③, 지금은 가짜 테마 → 누르면 준비 중) -->
+        <ThemeCircles v-if="!isLoading && !error" />
 
         <!-- 요즘 인기 장소 (다른 사람들의 최근 한 달 여행 기록) -->
         <PopularPlaces v-if="popular" :title="popular.title" :caption="popular.caption" :places="popular.places" />

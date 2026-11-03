@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tripbiseo.common.auth.LoginUser;
+import com.tripbiseo.common.external.FoundArea;
+import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.trip.dto.PlaceCard;
 import com.tripbiseo.trip.dto.PlaceDetail;
 import com.tripbiseo.trip.dto.PopularResponse;
@@ -51,6 +53,25 @@ public class PlaceController {
                                                @RequestParam(required = false) Integer radius,
                                                @RequestParam(defaultValue = DEFAULT_POPULAR_COUNT) int limit) {
         return popularPlaceService.getPopularPlaceList(loginUser.id(), lat, lng, radius, limit);
+    }
+
+    /** 어디로 가요? 서울 구·동 찾기 (카카오) */
+    @GetMapping("/areas")
+    public List<FoundArea> getAreaList(@RequestParam String q) {
+        return placeService.getAreaList(q);
+    }
+
+    /** 어디서 출발해요? 역·건물·주소 찾기 (카카오). lat·lng가 있으면 거리도 */
+    @GetMapping("/locations")
+    public List<FoundLocation> getLocationList(@RequestParam String q, @RequestParam(required = false) Double lat,
+                                               @RequestParam(required = false) Double lng) {
+        return placeService.getLocationList(q, lat, lng);
+    }
+
+    /** 현재 위치로 출발: 내 좌표의 건물 이름·주소 */
+    @GetMapping("/locations/here")
+    public FoundLocation getLocationHere(@RequestParam double lat, @RequestParam double lng) {
+        return placeService.getLocationHere(lat, lng);
     }
 
     /** 장소 상세 */

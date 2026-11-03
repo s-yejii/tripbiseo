@@ -6,22 +6,23 @@ import { useRoute, useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import RangeCalendar from '@/components/plan/RangeCalendar.vue'
 import WishLinks from '@/components/plan/WishLinks.vue'
+import { useTripStore } from '@/stores/trip'
+import { daysBetween } from '@/utils/dates'
+import { KIND_CHIPS, MOVE_CODES, TAG_CHIPS } from '@/utils/styleCodes'
+import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
 
 const route = useRoute()
 const router = useRouter()
 const byMe = route.query.method === 'me'
+const store = useTripStore() // 고른 지역·출발지 (planArea · planOrigin)
 
-const start = ref(1024)
-const end = ref(null)
 const people = ref(2)
 const companion = ref('친구')
-const styles = ref({ 맛집: true, 카페: true })
 const moves = ref({ 지하철: true, 도보: true })
 const fixedList = ref([]) // 꼭 지킬 시간 (장소 검색·예약 캡처로 넣어요)
 
 const companions = ['혼자', '친구', '연인', '가족', '아이와']
-const styleList = ['맛집', '카페', '노포', '산책', '쇼핑', '전시', '야경']
 const moveList = [
   { label: '지하철', icon: 'i-subway' },
   { label: '도보', icon: 'i-walk' },
@@ -29,20 +30,15 @@ const moveList = [
   { label: '자동차', icon: 'i-car' },
 ]
 
-// 1024 → '10/24(토)'
-function dateLabel(key) {
-  const month = Math.floor(key / 100)
-  const day = key % 100
-  const week = '일월화수목금토'[new Date(2026, month - 1, day).getDay()]
-  return `${month}/${day}(${week})`
+// 여행 날짜는 저장소(store.planStartDate · planEndDate)에 둬요 → 숙소 화면이 이 기간 안으로만 고르게 해요
+const nights = computed(() => (store.planEndDate ? daysBetween(store.planStartDate, store.planEndDate) : 0))
+const whenLabel = computed(() => (nights.value ? `${nights.value}박 ${nights.value + 1}일 · ${toShortDate(store.planStartDate)}–${toShortDate(store.planEndDate)}` : `당일치기 · ${toShortDate(store.planStartDate)}`))
+// 여행 날짜를 바꿔서 기간 밖으로 나간 숙소 (목록에 "고쳐 주세요" 표시)
+function isOutside(stay) {
+  const tripEnd = store.planEndDate || store.planStartDate
+  return stay.checkInDate < store.planStartDate || stay.checkOutDate > tripEnd
 }
-const nights = computed(() => {
-  if (!end.value) return 0
-  const toDate = (key) => new Date(2026, Math.floor(key / 100) - 1, key % 100)
-  return (toDate(end.value) - toDate(start.value)) / 86400000
-})
-const whenLabel = computed(() => (nights.value ? `${nights.value}박 ${nights.value + 1}일 · ${dateLabel(start.value)}–${dateLabel(end.value)}` : `당일치기 · ${dateLabel(start.value)}`))
-const noStyle = computed(() => !styleList.some((s) => styles.value[s]))
+const noKind = computed(() => store.planKinds.length === 0) // 어디 위주로는 1개 이상
 
 function changePeople(diff) {
   people.value = Math.max(1, Math.min(10, people.value + diff))
@@ -58,7 +54,46 @@ function toggleMove(name) {
   if (!Object.values(next).some(Boolean)) return showToast('이동 수단을 하나는 골라 주세요')
   moves.value = next
 }
+// 담은 숙소의 박 수 합 (체크인~체크아웃 날짜 차이). 여행 박 수만큼 다 담으면 "숙소 더 담기"를 숨김
+const stayNights = computed(() => {
+  let total = 0
+  for (const stay of store.planStays) total += daysBetween(stay.checkInDate, stay.checkOutDate)
+  return total
+})
+// 칩 켜고 끄기 (코드 목록에 넣거나 빼기)
+function toggleCode(list, code) {
+  return list.includes(code) ? list.filter((item) => item !== code) : [...list, code]
+}
+
+// 여기서 고른 값을 일정 만들기 조건(store.planConditions)으로 → 대화(③ chat)가 이어서 채우고, 만들기(③ generate)가 씀
+function saveConditions() {
+  const transports = []
+  for (const m of moveList) {
+    if (moves.value[m.label]) transports.push(MOVE_CODES[m.label])
+  }
+  const area = store.planArea
+  const origin = store.planOrigin
+  store.planConditions = {
+    ...(store.planConditions || {}),
+    region: area ? area.fullName : null,
+    areaLat: area?.lat ?? null,
+    areaLng: area?.lng ?? null,
+    areaType: area?.type ?? null,
+    startDate: store.planStartDate,
+    endDate: store.planEndDate || store.planStartDate,
+    people: people.value,
+    transports,
+    kinds: store.planKinds,
+    tags: store.planTags,
+    originName: origin?.name ?? null,
+    originLat: origin?.lat ?? null,
+    originLng: origin?.lng ?? null,
+    stays: store.planStays,
+  }
+}
+
 function goNext() {
+  saveConditions()
   router.push(byMe ? '/plan/manual' : '/plan/chat')
 }
 </script>
@@ -71,23 +106,37 @@ function goNext() {
       <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 102px">
         <section class="card card--pad pa-sec" aria-labelledby="pa-where">
           <h2 id="pa-where" class="t-sub">어디로 가요?</h2>
-          <RouterLink to="/plan/search?mode=area" class="field__box pickbox"><i class="ic i-pin subtle" aria-hidden="true"></i><span class="val">서울 천호동</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+          <RouterLink to="/plan/search?mode=area" class="field__box pickbox"><i class="ic i-pin subtle" aria-hidden="true"></i><span class="val" :class="{ 'is-empty': !store.planArea }">{{ store.planArea ? store.planArea.fullName : '동·구 이름으로 찾기' }}</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-when">
           <div class="sec-h"><h2 id="pa-when" class="t-sub">언제 가요?</h2><span class="badge badge--navy tn">{{ whenLabel }}</span></div>
-          <RangeCalendar v-model:start="start" v-model:end="end" />
-          <p class="t-cap">{{ end ? '다른 날을 누르면 처음부터 다시 골라요' : '다른 날짜를 하나 더 누르면 1박 이상으로 바뀌어요' }}</p>
-          <RouterLink v-if="nights" to="/plan/stay" class="stayrow">
-            <span class="ico-tile"><i class="ic i-home" aria-hidden="true"></i></span>
-            <span class="row__body"><span class="row__title">숙소 위치</span><span class="row__meta">다음 날은 숙소에서 출발해요</span></span>
-            <span class="btn btn--sm btn--primary">지도에서 찍기</span>
-          </RouterLink>
+          <RangeCalendar v-model:start="store.planStartDate" v-model:end="store.planEndDate" />
+          <p class="t-cap">{{ store.planEndDate ? '다른 날을 누르면 처음부터 다시 골라요' : '다른 날짜를 하나 더 누르면 1박 이상으로 바뀌어요' }}</p>
+          <!-- 숙소: 1박 이상이면 담아요. 여러 박이면 날짜마다 다른 숙소를 + 로 더 담아요 (store.planStays) -->
+          <div v-if="nights || store.planStays.length" class="stays">
+            <div class="sec-h"><h3 class="t-sub" style="font-size: 15px">숙소</h3><span class="t-cap tn">{{ store.planStays.length }}곳 · {{ stayNights }}박 담음{{ nights ? ' / ' + nights + '박' : '' }}</span></div>
+            <!-- 담은 숙소를 누르면 수정·삭제 (/plan/stay?index=순서) -->
+            <RouterLink v-for="(stay, i) in store.planStays" :key="stay.name + stay.checkInDate" :to="'/plan/stay?index=' + i" class="stayrow is-set" :aria-label="stay.name + ' 수정·삭제'">
+              <span class="ico-tile"><i class="ic i-home" aria-hidden="true"></i></span>
+              <span class="row__body">
+                <span class="row__title">{{ stay.name }}</span>
+                <span class="row__meta tn">{{ toShortDate(stay.checkInDate) }} {{ stay.checkInTime }} 체크인 → {{ toShortDate(stay.checkOutDate) }} {{ stay.checkOutTime }} 체크아웃</span>
+                <span v-if="isOutside(stay)" class="row__meta c-warning">여행 날짜 밖이에요 · 눌러서 고쳐 주세요</span>
+              </span>
+              <i class="ic i-edit subtle" aria-hidden="true"></i>
+            </RouterLink>
+            <RouterLink v-if="stayNights < nights" to="/plan/stay" class="stayrow">
+              <span class="ico-tile"><i class="ic i-plus" aria-hidden="true"></i></span>
+              <span class="row__body"><span class="row__title">{{ store.planStays.length ? '숙소 더 담기' : '숙소 잡기' }}</span><span class="row__meta">예약하고 확정 화면을 캡처해서 올리면 위치를 잡아 줘요</span></span>
+              <i class="ic i-next subtle" aria-hidden="true"></i>
+            </RouterLink>
+          </div>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-from">
           <h2 id="pa-from" class="t-sub">어디서 출발해요?</h2>
-          <RouterLink to="/plan/search?mode=origin" class="field__box pickbox"><i class="ic i-search subtle" aria-hidden="true"></i><span class="val">천호역 1번 출구</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+          <RouterLink to="/plan/search?mode=origin" class="field__box pickbox"><i class="ic i-search subtle" aria-hidden="true"></i><span class="val" :class="{ 'is-empty': !store.planOrigin }">{{ store.planOrigin ? store.planOrigin.name : '역·건물·주소로 찾기' }}</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-who">
@@ -105,10 +154,19 @@ function goNext() {
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-style">
-          <div class="sec-h"><h2 id="pa-style" class="t-sub">어떤 여행이 좋아요?</h2><span class="t-cap">여러 개</span></div>
+          <div class="sec-h"><h2 id="pa-style" class="t-sub">어디 위주로 갈까요?</h2><span class="t-cap">여러 개</span></div>
           <div class="chips">
-            <button v-for="name in styleList" :key="name" type="button" class="chip chip--sm" :class="{ 'is-on': styles[name] }" :aria-pressed="!!styles[name]" @click="styles[name] = !styles[name]">{{ name }}</button>
+            <button v-for="chip in KIND_CHIPS" :key="chip.code" type="button" class="chip chip--sm" :class="{ 'is-on': store.planKinds.includes(chip.code) }" :aria-pressed="store.planKinds.includes(chip.code)" @click="store.planKinds = toggleCode(store.planKinds, chip.code)">{{ chip.label }}</button>
           </div>
+          <p class="t-cap">{{ noKind ? '하나 이상 골라 주세요' : '고른 곳 위주로 일정을 짜요' }}</p>
+        </section>
+
+        <section class="card card--pad pa-sec" aria-labelledby="pa-tag">
+          <div class="sec-h"><h2 id="pa-tag" class="t-sub">이런 곳이면 더 좋아요</h2><span class="t-cap">골라도 되고 안 골라도 돼요</span></div>
+          <div class="chips">
+            <button v-for="chip in TAG_CHIPS" :key="chip.code" type="button" class="chip chip--sm" :class="{ 'is-on': store.planTags.includes(chip.code) }" :aria-pressed="store.planTags.includes(chip.code)" @click="store.planTags = toggleCode(store.planTags, chip.code)">{{ chip.label }}</button>
+          </div>
+          <p class="t-cap">리뷰에 이런 말이 많은 곳을 먼저 넣어요</p>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-move">
@@ -143,7 +201,7 @@ function goNext() {
       </div>
 
       <div class="cta">
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="noStyle" @click="goNext">다음</button>
+        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="noKind" @click="goNext">다음</button>
       </div>
     </div>
   </div>
@@ -155,7 +213,9 @@ function goNext() {
 .scr-PlanAI .pickbox{padding-right:12px;text-decoration:none;color:var(--ink);transition:border-color .15s,background .15s}
 .scr-PlanAI .pickbox:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .pickbox .val{flex:1;font-size:16px}
+.scr-PlanAI .pickbox .val.is-empty{color:var(--ink-subtle)}
 .scr-PlanAI .stayrow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-lg);border:1.5px dashed var(--line-strong);text-decoration:none;color:var(--ink);transition:border-color .15s,background .15s}
 .scr-PlanAI .stayrow:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .stayrow.is-set{border-style:solid;border-color:var(--line)}
+.scr-PlanAI .stays{display:flex;flex-direction:column;gap:8px;padding-top:4px}
 </style>

@@ -3,12 +3,24 @@
 <!-- ② 장소 검색. 반경·가까운 순은 PostGIS, 평점 순은 '보정 평점'(리뷰가 적으면 평균 4.6 쪽으로 당김) -->
 <mapper namespace="com.tripbiseo.trip.mapper.PlaceMapper">
 
+  <!-- 장소 종류 코드 (여행 스타일 칩·일정 만들기·재분석이 같이 쓰는 분류표는 여기 하나). 11/03
+       stay 숙박 / tour 관광지·문화시설·축제·레포츠·쇼핑 / etc 여행과 먼 곳(스터디카페 등) / cafe / bar / 나머지 음식점 food -->
+  <sql id="kindCase">
+    CASE WHEN content_type_id = '32' THEN 'stay'
+         WHEN content_type_id IN ('12', '14', '15', '28', '38') THEN 'tour'
+         WHEN COALESCE(biz_type, '') ~ '스터디카페|PC방|노래방|키즈카페' THEN 'etc'
+         WHEN COALESCE(biz_type, '') ~ '카페|커피|디저트|베이커리|케이크|도넛|와플|아이스크림|베이글|크레페|^차$' THEN 'cafe'
+         WHEN COALESCE(biz_type, '') ~ '이자카야|주점|맥주|호프|포장마차|바\(BAR\)|와인' THEN 'bar'
+         ELSE 'food' END
+  </sql>
+
   <!-- Place 칸. category는 biz_type, 없으면 관광공사 분류 번호를 이름으로 -->
   <sql id="placeColumns">
     id, source, name,
     COALESCE(NULLIF(biz_type, ''), CASE content_type_id WHEN '12' THEN '관광지' WHEN '14' THEN '문화시설' WHEN '15' THEN '축제·행사'
       WHEN '28' THEN '레포츠' WHEN '32' THEN '숙박' WHEN '38' THEN '쇼핑' WHEN '39' THEN '음식점' ELSE '관광지' END) AS category,
-    address, tel, latitude AS lat, longitude AS lng, use_time, rest_date, image_url, rating, review_count, amenities, map_url
+    address, tel, latitude AS lat, longitude AS lng, use_time, rest_date, image_url, rating, review_count, amenities, map_url,
+    <include refid="kindCase"/> AS kind
   </sql>
 
   <!-- 보정 평점: (리뷰 수 × 평점 + 100 × 4.6) ÷ (리뷰 수 + 100). 리뷰 3개 5.0보다 리뷰 300개 4.7을 더 믿게 -->
@@ -49,6 +61,17 @@
       <if test="category != null and category != ''">p.category LIKE '%' || #{category} || '%'</if>
     </where>
     ORDER BY p.distance
+    LIMIT #{limit}
+  </select>
+
+  <!-- 일정 만들기 후보 (11/03): 반경 안에서 한 종류(kind)만, 보정 평점 순. 평점 3.0 미만은 뺌 -->
+  <select id="selectKindPlaceList" resultType="com.tripbiseo.trip.dto.Place">
+    SELECT <include refid="placeColumns"/>, ST_Distance(geom, <include refid="basePoint"/>) AS distance
+    FROM retrip_place
+    WHERE ST_DWithin(geom, <include refid="basePoint"/>, #{radius})
+      AND (<include refid="kindCase"/>) = #{kind}
+      AND COALESCE(rating, 4.0) &gt;= 3.0
+    ORDER BY <include refid="adjustedRating"/> DESC
     LIMIT #{limit}
   </select>
 

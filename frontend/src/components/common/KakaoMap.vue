@@ -1,7 +1,7 @@
 <script setup>
 // 카카오 지도 (공통): 진짜 위도·경도로 장소 핀, 내 위치, 동선(장소끼리 직선), 길 안내 경로선, 반경 원을 그려요.
 // 키가 없거나 SDK를 못 받으면 fail을 보내요 → 부모 화면이 안내 문구를 보여 줘요.
-// 부모가 ref로 부를 수 있는 것: focusMe() 내 위치로 옮기기, fitAll() 모든 점이 보이게 다시 맞추기
+// 부모가 ref로 부를 수 있는 것: focusMe() 내 위치로 옮기기, fitAll() 모든 점이 보이게 다시 맞추기, moveTo(lat, lng, level) 가운데 옮기기
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { loadKakaoMap } from '@/utils/kakaoMap'
 
@@ -13,10 +13,11 @@ const props = defineProps({
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
   follow: { type: Boolean, default: false }, // 내 위치가 바뀌면 지도를 따라 옮김 (길 안내)
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
+  pickCenter: { type: Boolean, default: false }, // 배민 주소 등록처럼: 지도를 움직이면 멈춘 자리의 가운데 좌표를 center로 알려 줌
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
   padding: { type: Object, default: () => ({ top: 150, right: 40, bottom: 444, left: 40 }) },
 })
-const emit = defineEmits(['pick', 'fail', 'me-point'])
+const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready'])
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
@@ -26,6 +27,7 @@ let kakao = null
 let map = null
 let overlays = [] // 지금 지도에 올린 핀·선 (다시 그릴 때 지움)
 let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 뒤엔 사용자가 옮긴 화면을 유지)
+let isMovingByCode = false // moveTo로 옮기는 중
 
 onMounted(async () => {
   try {
@@ -37,7 +39,13 @@ onMounted(async () => {
   if (!box.value) return // 불러오는 사이 다른 화면으로 넘어갔으면 그리지 않음
   map = new kakao.maps.Map(box.value, { center: new kakao.maps.LatLng(START_CENTER.lat, START_CENTER.lng), level: 5 })
   kakao.maps.event.addListener(map, 'idle', sendMePoint) // 지도를 옮기거나 확대한 뒤 내 위치 화면 좌표를 다시 알려 줌
+  // 지도 빈 곳을 누르면 그 자리의 위도·경도를 알려 줌 (숙소 핀 옮기기)
+  kakao.maps.event.addListener(map, 'click', (e) => emit('map-click', { lat: e.latLng.getLat(), lng: e.latLng.getLng() }))
+  // 사용자가 지도를 끌어 옮기고 손을 뗀 뒤 가운데 좌표 (pickCenter일 때만)
+  kakao.maps.event.addListener(map, 'dragend', sendCenter)
+  kakao.maps.event.addListener(map, 'zoom_changed', sendCenter)
   draw()
+  emit('ready') // 지도가 다 만들어졌어요 (부모가 moveTo 같은 걸 이때 부를 수 있음)
 })
 
 onUnmounted(clear)
@@ -169,12 +177,28 @@ function fitAll() {
   draw()
 }
 
+// 지도 가운데를 이 좌표로 옮김 (level: 확대 단계, 작을수록 가까이. 없으면 그대로)
+function moveTo(lat, lng, level = null) {
+  if (!map) return
+  hasFitted = true // 옮긴 화면을 핀 다시 그리기가 덮어쓰지 않게
+  isMovingByCode = true // 코드로 옮기는 동안의 zoom_changed는 사용자가 옮긴 게 아니라서 center를 보내지 않음
+  map.setCenter(new kakao.maps.LatLng(lat, lng))
+  if (level != null) map.setLevel(level)
+  isMovingByCode = false
+}
+
+function sendCenter() {
+  if (!props.pickCenter || !map || isMovingByCode) return
+  const center = map.getCenter()
+  emit('center', { lat: center.getLat(), lng: center.getLng() })
+}
+
 // 위도·경도가 지금 지도 칸의 어디(px)인지 (지도가 아직 없으면 null)
 function pointOf(lat, lng) {
   return map ? toScreenPoint(lat, lng) : null
 }
 
-defineExpose({ focusMe, fitAll, pointOf })
+defineExpose({ focusMe, fitAll, pointOf, moveTo })
 
 // 내 위치가 지도 칸의 어디(px)인지 알려 줌 → 화장실 칩·AI 패널이 내 위치 옆에 붙어요
 function sendMePoint() {

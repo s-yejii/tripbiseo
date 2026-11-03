@@ -45,8 +45,9 @@
 | `PUT /api/members/me/password` | 비밀번호 바꾸기 (지금 비밀번호 확인) | member/ProfileEditView | 있음 |
 | `GET·PUT /api/members/me/style` | 여행 스타일 (속도·좋아하는 곳·걷기·이동 수단·비 오면 실내) | member/StyleEditView, member/SignupView | 확인 필요 |
 | `GET·PUT /api/members/me/alarms` | 알림 설정 (출발·지연·날씨 켜기/끄기, 출발 몇 분 전) | member/MyView | 확인 필요 |
-| `GET /api/notifications` | 알림 목록 (종류별) | member/NotificationsView | 확인 필요 |
-| `POST /api/notifications/read-all` | 모두 읽음 | member/NotificationsView | 확인 필요 |
+| `GET /api/notifications` | 내 알림 최근 50개 + 안 읽은 수 (열 때 일정 알림을 만듦) | member/NotificationsView, member/NotiBell (홈·여행 중 종 아이콘) | 있음 |
+| `POST /api/notifications/{id}/read` | 알림 하나 읽음 | member/NotificationsView | 있음 |
+| `POST /api/notifications/read-all` | 모두 읽음 | member/NotificationsView | 있음 |
 | `GET /api/friends` · `GET /api/members/search?q=` · `POST /api/friends/requests` | 친구 목록·아이디 검색·친구 요청 | member/FriendInviteView | 확인 필요 |
 | `GET·PUT·DELETE /api/location-logs` | 내 위치 기록 보기·보관 기간·모두 지우기 | member/LocHistoryView | 확인 필요 |
 | `POST /api/auth/email-code` | 이메일 인증번호 보내기 (회원가입·계정 찾기) | member/SignupView, member/FindAccountView | 있음 |
@@ -74,6 +75,8 @@
 | `GET /api/places/search` | 장소 검색 (이름·분류) | plan/PlaceSearchView, trip/PlanManualView | 있음 |
 | `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
 | `GET /api/places/popular` | 요즘 인기 장소 (다른 회원들의 최근 30일 여행 기록) | trip/MainView | 있음 |
+| `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
+| `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? 역·건물·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -85,6 +88,7 @@
 | `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | plan/GeneratingView → trip/PlanCheckView | 있음 |
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
+| `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
 | `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks), plan/ShareAddView | 확인 필요 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 
@@ -371,6 +375,50 @@
 
 **오류** 400 "지금 비밀번호가 맞지 않아요." · 400 "비밀번호는 8~72자예요." · 400 "지금 비밀번호와 다른 비밀번호로 정해 주세요." · 401 "로그인이 필요해요."
 
+### `GET /api/notifications`
+내 알림함. 최근 것부터 50개와 안 읽은 수를 줘요. · 로그인 필요 · 화면: member/NotificationsView, 홈·여행 중 종 아이콘(member/NotiBell) (11/03 추가)
+
+부를 때 내 여행을 보고 일정 알림을 먼저 만들어 둬요. 같은 알림은 한 번만 쌓여요.
+- 내일 시작하는 여행(planned) → "내일 ○○ 여행이에요" (link `/trips/detail?id=`)
+- 오늘이 여행 기간인데 아직 시작 안 한 여행 → "오늘 ○○ 여행 날이에요" (날마다 한 번, link `/trips/today?id=`)
+- 끝난 지 3일 안 여행(done) → "○○ 여행은 어땠나요?" (link `/retro?id=`)
+
+그 밖의 알림은 쓰는 쪽이 `NotificationService.send`로 넣어요. 지금은 ④ 여행 중 맨 위 알림(`live/status`의 alert, 같은 칸·같은 종류는 하루 한 번)과 ④ 대안 적용(`live/apply`, 적용할 때마다)이에요.
+
+**요청** 없음
+
+**응답**
+```json
+{
+  "unreadCount": 2,
+  "notifications": [
+    { "id": 12, "kind": "trip", "level": "warn", "title": "10분 뒤 출발해야 해요", "text": "카페 출발 15:52 → 소품샵",
+      "link": "/live", "readAt": null, "createdAt": "2026-11-03T15:42:10" }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| kind | string | `trip` 여행 중 / `plan` 일정(내일·오늘 여행, 돌아보기) / `info` 날씨(비 소식) |
+| level | string | `ok` / `info` / `warn` / `danger` (아이콘 색) |
+| text | string (null 가능) | 설명 |
+| link | string (null 가능) | 누르면 갈 화면 주소. 화면은 `?back=/notifications`를 붙여 이동 |
+| readAt | string (null 가능) | 읽은 시각 `yyyy-MM-ddTHH:mm:ss`. null이면 안 읽음 |
+| createdAt | string | 만든 시각 `yyyy-MM-ddTHH:mm:ss` |
+
+**오류** 401 "로그인이 필요해요."
+
+### `POST /api/notifications/{id}/read`
+알림 하나를 읽음으로 표시해요 (이미 읽었으면 그대로). · 로그인 필요 · 화면: member/NotificationsView (11/03 추가)
+
+**요청** 없음 · **응답** `{ "ok": true }` · **오류** 401 "로그인이 필요해요." · 404 "알림을 찾을 수 없어요." (남의 알림 포함)
+
+### `POST /api/notifications/read-all`
+내 안 읽은 알림을 모두 읽음으로 표시해요. · 로그인 필요 · 화면: member/NotificationsView (11/03 추가)
+
+**요청** 없음 · **응답** `{ "ok": true }` · **오류** 401 "로그인이 필요해요."
+
 ### `GET /api/config/public`
 지도를 그릴 카카오 JavaScript 키를 줘요. · 로그인 불필요 · 화면: 지도를 그리는 모든 화면
 
@@ -603,6 +651,53 @@
 
 **오류** 401 "로그인이 필요해요."
 
+### `GET /api/places/areas`
+여행 정보의 "어디로 가요?"에서 서울 구·동을 이름으로 찾아요. 우리 장소 DB는 주소가 도로명이라 동 이름으로 못 찾아서 카카오 로컬에 물어봐요 (결과는 저장 안 함). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=area` (11/03 추가)
+
+**요청** 쿼리 `q` (1~40자)
+
+카카오 주소 검색에서 **지역(REGION)이면서 서울**인 것만 골라요. 3개보다 적으면 키워드 검색(서울시청 20km 안, 주소가 서울)으로 보충해요 → "홍대"처럼 동 이름이 아닌 동네도 역·장소 위치로 나와요.
+
+**응답** 최대 10개
+```json
+[ { "name": "성수동1가", "fullName": "서울 성동구 성수동1가", "type": "dong", "lat": 37.54, "lng": 127.05 },
+  { "name": "성동구", "fullName": "서울 성동구", "type": "gu", "lat": 37.56, "lng": 127.03 } ]
+```
+| 필드 | 설명 |
+|---|---|
+| type | `gu` 구 / `dong` 동 / `spot` 동네·역 (키워드로 찾은 것) |
+| lat, lng | 중심 좌표 |
+
+**오류** 400 "검색어를 1~40자로 입력해 주세요." · 502 "카카오 로컬 …" (키 거절·연결 실패) · 503 "위치 검색 키(KAKAO_REST_API_KEY)가 설정되지 않았어요."
+
+### `GET /api/places/locations`
+여행 정보의 "어디서 출발해요?"에서 역·출구·건물·가게·주소를 찾아요 (카카오). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가)
+
+**요청** 쿼리 `q` (1~40자), `lat`·`lng` (없어도 됨, 있으면 `distance`가 붙음)
+
+키워드 검색(최대 15개) → 결과가 없으면 주소 검색("천호대로 1005" 같은 도로명 주소). 서울만으로 거르지 않아요 (서울 밖에서 출발할 수 있으니까).
+
+**응답**
+```json
+[ { "name": "천호역 5호선", "address": "서울 강동구 천호대로 1005", "category": "지하철역", "lat": 37.538, "lng": 127.123, "distance": 420 } ]
+```
+| 필드 | 설명 |
+|---|---|
+| address | 도로명 주소, 없으면 지번 주소 |
+| category | 카카오 분류의 마지막 칸 (예: 지하철역). 주소 검색으로 찾았으면 `주소` |
+| distance | 내 위치에서 거리(m). `lat`·`lng`를 안 보냈으면 키 없음 |
+
+**오류** `/areas`와 같아요
+
+### `GET /api/places/locations/here`
+"현재 위치에서 출발": 내 좌표의 건물 이름·주소를 줘요 (카카오 좌표→주소). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가)
+
+**요청** 쿼리 `lat`, `lng` (필수)
+
+**응답** `{ "name": "현대백화점 천호점", "address": "서울 강동구 천호대로 1005", "category": "현재 위치", "lat": 37.538, "lng": 127.123 }` (건물 이름이 없으면 `name`도 주소)
+
+**오류** 404 "이 위치의 주소를 찾지 못했어요." · 502·503 `/areas`와 같아요
+
 ### `GET /api/places/{id}`
 장소 상세 (영업시간·리뷰). · 로그인 필요 · 화면: trip/PlaceView (일정 칸의 `placeId`로 이동)
 
@@ -627,7 +722,7 @@
 
 ## ③ AI 일정 (plan)
 
-**Gemini를 부르는 API 공통 오류:** 503 "Gemini 키가 없어요. 환경변수 GEMINI_API_KEY를 확인해 주세요." · 503 "Gemini 사용량이 몰려 잠시 응답하지 않아요. 1~2분 뒤 다시 시도해 주세요." · 504 "Gemini가 응답하지 않아요(시간 초과). 1~2분 뒤 다시 시도해 주세요." · 502 "Gemini 오류 {상태}: {내용}" · 502 "Gemini 응답이 비어 있어요." · 502 "Gemini 답을 읽지 못했어요. 다시 시도해 주세요." (JSON으로 받을 때만)
+**Gemini를 부르는 API 공통 오류:** 503 "Gemini 키가 없어요. 환경변수 GEMINI_API_KEY를 확인해 주세요." · 503 "Gemini 사용량이 몰려 잠시 응답하지 않아요. 1~2분 뒤 다시 시도해 주세요." · 504 "Gemini가 응답하지 않아요(시간 초과). 1~2분 뒤 다시 시도해 주세요." (한 번 묻는 데 25초까지 기다리고, 시간 초과는 다른 모델로 다시 묻지 않음 — 11/03) · 502 "Gemini 오류 {상태}: {내용}" · 502 "Gemini 응답이 비어 있어요." · 502 "Gemini 답을 읽지 못했어요. 다시 시도해 주세요." (JSON으로 받을 때만)
 
 ### `POST /api/plans/chat`
 사용자 말을 여행 조건으로 정리해요 (Gemini). · 로그인 필요 · 화면: plan/PlanChatView
@@ -682,6 +777,28 @@
 
 **오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "예약 정보를 읽지 못했어요. 장소 이름과 시간이 보이게 다시 찍어 주세요." · Gemini 공통 오류
 
+### `POST /api/plans/capture/stay`
+숙소 예약 확정 화면 캡처를 읽어 숙소 후보로 돌려줘요 (Gemini OCR). 주소로, 없으면 숙소 이름으로 카카오에서 위치를 찾아요. **저장하지 않아요** — 화면에서 확인·수정한 뒤 숙소로 담아요. · 로그인 필요 · 화면: plan/StayPinView (11/03 추가)
+
+**요청** `multipart/form-data`, 파일 칸 이름 `image` (PNG·JPG·WEBP, 5MB까지)
+
+**응답**
+```json
+{ "name": "신라스테이 광화문", "address": "서울 종로구 삼봉로 71", "checkInDate": "2026-11-14", "checkInTime": "15:00",
+  "checkOutDate": "2026-11-15", "checkOutTime": "11:00", "lat": 37.5718, "lng": 126.9801 }
+```
+
+| 필드 | 설명 |
+|---|---|
+| checkInDate, checkOutDate | `yyyy-MM-dd`. 형식이 틀리거나 안 보이면 `null` |
+| checkInTime, checkOutTime | `HH:mm`. 안 보이면 `null` (화면은 15:00 · 11:00으로 채움) |
+| address | 사진의 주소, 없으면 찾은 위치의 주소 |
+| lat, lng | 카카오 위치 검색 첫 결과 (주소 → 이름 순). 못 찾으면 `null` → 화면에서 지도를 눌러 정함 |
+
+> 예약 번호·예약자 이름·전화번호·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
+
+**오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "숙소 예약 정보를 읽지 못했어요. 숙소 이름과 체크인 날짜가 보이게 다시 찍어 주세요." · Gemini 공통 오류
+
 ### `POST /api/plans/generate`
 조건으로 일정 초안을 만들어요. 저장은 안 해요. · 로그인 필요 · 화면: plan/GeneratingView → trip/PlanCheckView
 
@@ -689,7 +806,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만) |
+| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
@@ -705,7 +822,11 @@
 
 **오류** 400 "여행 조건이 없어요." · 422 "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요." · 422 "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요."
 
-> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 꼭 갈 곳만으로 초안을 만들어요.
+> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 **규칙으로** 초안을 만들어요 (11/03): 꼭 갈 곳·고정 일정 + 고른 종류마다 정한 시각(점심 12:00 식당, 14:00 카페, 20:30 술집 …)에 "점수 − 거리" 가 가장 큰 후보. 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3, 거리는 앞 장소(첫 장소는 출발지·전날 숙소)에서 1km마다 0.3 뺌.
+>
+> 후보 (11/03): `areaLat`이 있으면 그 중심 반경(구 3km · 동 1.5km)에서 고른 종류마다 보정 평점 순 25곳 (장소 종류는 PlaceMapper `kindCase` 하나로 정해요). 없으면 예전처럼 내 위치·지역 이름.
+>
+> 숙소 (11/03): `stays`마다 체크인 날 마지막 일정 뒤(+30분, 체크인 시각보다 이르지 않게, 23:30까지)에 숙소 칸 (`placeId` null, `category` "숙소", `memo`에 체크인 시각). 다음 날 첫 장소는 숙소에서 가까운 곳부터.
 
 ---
 

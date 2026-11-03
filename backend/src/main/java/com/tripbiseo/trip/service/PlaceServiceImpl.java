@@ -10,7 +10,10 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.tripbiseo.common.external.FoundArea;
+import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.common.external.FoundPlace;
+import com.tripbiseo.common.external.LocationSearchClient;
 import com.tripbiseo.common.external.PlaceSearchClient;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.trip.dto.OpenInfo;
@@ -48,6 +51,7 @@ public class PlaceServiceImpl implements PlaceService {
     private final PlaceMapper placeMapper;
     private final OpeningHours openingHours;
     private final PlaceSearchClient placeSearchClient; // DB에 없는 이름일 때 TourAPI → 카카오
+    private final LocationSearchClient locationSearchClient; // 지역·출발 위치 (카카오)
 
     /** 장소 하나. 없으면 404 */
     @Override
@@ -118,6 +122,12 @@ public class PlaceServiceImpl implements PlaceService {
     @Override
     public List<Place> getNearbyPlaceList(double lat, double lng, int radius, String category) {
         return placeMapper.selectNearbyPlaceList(lat, lng, radius, category, NEARBY_SEARCH_LIMIT);
+    }
+
+    /** 반경 안 한 종류 장소, 보정 평점 순 */
+    @Override
+    public List<Place> getKindPlaceList(double lat, double lng, int radius, String kind, int limit) {
+        return placeMapper.selectKindPlaceList(lat, lng, radius, kind, limit);
     }
 
     /** 지역 이름이 들어간 장소, 보정 평점 순 */
@@ -203,7 +213,37 @@ public class PlaceServiceImpl implements PlaceService {
         return "https://map.naver.com/p/search/" + URLEncoder.encode(keyword, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
+    /** 어디로 가요? 서울 구·동 (카카오) */
+    @Override
+    public List<FoundArea> getAreaList(String query) {
+        return locationSearchClient.searchAreas(checkQuery(query));
+    }
+
+    /** 어디서 출발해요? 역·건물·주소 (카카오) */
+    @Override
+    public List<FoundLocation> getLocationList(String query, Double lat, Double lng) {
+        return locationSearchClient.searchLocations(checkQuery(query), lat, lng);
+    }
+
+    /** 현재 위치의 건물 이름·주소. 못 찾으면 404 */
+    @Override
+    public FoundLocation getLocationHere(double lat, double lng) {
+        FoundLocation location = locationSearchClient.findAddress(lat, lng);
+        if (location == null) {
+            throw fail(404, "이 위치의 주소를 찾지 못했어요.");
+        }
+        return location;
+    }
+
     // ---------------------------------------------------------------- 도우미
+
+    /** 검색어 1~40자 확인 후 앞뒤 공백 뺀 값 */
+    private String checkQuery(String query) {
+        if (query == null || query.isBlank() || query.trim().length() > 40) {
+            throw fail(400, "검색어를 1~40자로 입력해 주세요.");
+        }
+        return query.trim();
+    }
 
     /** "분식집" → "분식", "맛집" 같은 꼬리를 떼서 분류 검색에 씀 */
     private String toKind(String word) {

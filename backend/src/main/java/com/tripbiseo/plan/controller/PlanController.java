@@ -15,6 +15,7 @@ import com.tripbiseo.plan.dto.PlanChatResponse;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.CaptureResponse;
+import com.tripbiseo.plan.dto.StayCaptureResponse;
 import com.tripbiseo.plan.service.CaptureService;
 import com.tripbiseo.plan.service.PlanService;
 
@@ -47,5 +48,12 @@ public class PlanController {
     public CaptureResponse readCapture(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
         byte[] bytes = image == null ? null : image.getBytes();
         return captureService.readCapture(bytes, image == null ? null : image.getContentType());
+    }
+
+    /** 숙소 예약 캡처 사진 → 숙소 이름·주소·체크인·체크아웃 + 위치 (숙소 후보, 저장 안 함) */
+    @PostMapping("/capture/stay")
+    public StayCaptureResponse readStayCapture(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
+        byte[] bytes = image == null ? null : image.getBytes();
+        return captureService.readStayCapture(bytes, image == null ? null : image.getContentType());
     }
 }

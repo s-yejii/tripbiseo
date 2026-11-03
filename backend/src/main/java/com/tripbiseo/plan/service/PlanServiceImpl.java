@@ -25,6 +25,7 @@ import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanNote;
+import com.tripbiseo.plan.dto.PlanStay;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.service.PlaceService;
@@ -35,7 +36,8 @@ import lombok.RequiredArgsConstructor;
  * ③ AI 일정: 대화 → 여행 조건, 조건 → 일정 초안 (저장은 안 함).
  * 초안 = RAG: ① 후보를 DB에서 찾고(PlanCandidateFinder) ② Gemini가 후보 id 중에서 고르고 순서를 정하고
  *       ③ 서버가 id를 다시 확인(후보 밖이면 이름으로 실제 장소 찾기, 못 찾으면 notes에 적고 뺌).
- * Gemini가 실패하면 꼭 갈 곳·고정 일정만으로 초안 (오류 내지 않음). 좌표·회원 정보는 프롬프트에 넣지 않음.
+ * Gemini가 실패하면 규칙(PlanRuleMaker: 고른 종류·평점·거리)으로 초안 (오류 내지 않음). 좌표·회원 정보는 프롬프트에 넣지 않음.
+ * 11/03: 여행 정보 화면의 지역 좌표·장소 종류·분위기 태그·출발지·숙소를 조건으로 받아 반영.
  * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/PlanService.java (chat/generate/fallback)
  */
 @Service
@@ -55,6 +57,7 @@ public class PlanServiceImpl implements PlanService {
     private final AiService aiService;
     private final PlaceService placeService;
     private final PlanCandidateFinder planCandidateFinder; // 후보 장소 찾기 (RAG의 찾기)
+    private final PlanRuleMaker planRuleMaker;             // AI가 안 될 때 규칙으로 일정 + 숙소 칸 (11/03)
 
     /** 사용자 말 → 여행 조건. 보낸 조건은 남기고 Gemini가 새로 뽑은 값만 덮어씀. Gemini 실패는 오류 그대로 (API.md) */
     @Override
@@ -85,13 +88,16 @@ public class PlanServiceImpl implements PlanService {
         PlanGenerateResponse response = makeEmptyDraft(conditions);
         int days = (int) ChronoUnit.DAYS.between(LocalDate.parse(response.getStartDate()), LocalDate.parse(response.getEndDate())) + 1;
         String region = conditions.getRegion() == null ? "" : conditions.getRegion();
-        boolean isNearMe = planCandidateFinder.isNearMe(region);
+        boolean isNearMe = conditions.getAreaLat() == null && planCandidateFinder.isNearMe(region); // 지역을 골랐으면 내 위치는 안 씀
         Double baseLat = isNearMe ? request.getLat() : null; // 다른 지역을 말했으면 내 위치는 쓰지 않음
         Double baseLng = isNearMe ? request.getLng() : null;
 
-        Map<String, Place> candidates = findCandidates(conditions, region, isNearMe, baseLat, baseLng, response.getNotes());
-        List<AiDraftStop> picked = pickStops(conditions, request.getMessages(), candidates, days, response);
+        Map<String, Place> found = findCandidates(conditions, region, isNearMe, baseLat, baseLng, response.getNotes());
+        Map<String, Double> scores = planCandidateFinder.scoreOf(found, conditions.getTags() == null ? List.of() : conditions.getTags());
+        Map<String, Place> candidates = planCandidateFinder.sortByScore(found, scores); // 고른 태그가 많은 곳부터
+        List<AiDraftStop> picked = pickStops(conditions, request.getMessages(), candidates, scores, days, response);
         addPickedStops(response, picked, candidates, days, baseLat, baseLng);
+        planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
             boolean isMissingLocation = isNearMe && request.getLat() == null;
             throw fail(422, isMissingLocation ? "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요."
@@ -135,6 +141,14 @@ public class PlanServiceImpl implements PlanService {
             }
         }
         appendLine(text, "style", conditions.getStyle());
+        appendLine(text, "kinds(이 종류 위주로)", conditions.getKinds() == null ? null : String.join(",", conditions.getKinds()));
+        appendLine(text, "tags(이런 곳 우선, 후보는 이미 이 순서)", conditions.getTags() == null ? null : String.join(",", conditions.getTags()));
+        appendLine(text, "origin(1일차 출발지)", conditions.getOriginName());
+        if (conditions.getStays() != null) {
+            for (PlanStay stay : conditions.getStays()) {
+                appendLine(text, "stay(이날 밤 숙소, 다음 날 여기서 출발. 일정에는 넣지 마 — 서버가 넣음)", stay.getName() + " " + stay.getCheckInDate());
+            }
+        }
         return text.length() == 0 ? "(없음)\n" : text.toString();
     }
 
@@ -216,7 +230,11 @@ public class PlanServiceImpl implements PlanService {
     private Map<String, Place> findCandidates(PlanConditions conditions, String region, boolean isNearMe,
                                               Double baseLat, Double baseLng, List<PlanNote> notes) {
         Map<String, Place> candidates = planCandidateFinder.newCandidates();
-        if (baseLat != null && baseLng != null) {
+        List<String> kinds = planRuleMaker.kindsOf(conditions);
+        if (conditions.getAreaLat() != null) {
+            planCandidateFinder.addKinds(candidates, conditions.getAreaLat(), conditions.getAreaLng(), conditions.getAreaType(), kinds);
+        } else if (baseLat != null && baseLng != null) {
+            planCandidateFinder.addKinds(candidates, baseLat, baseLng, "dong", kinds);
             planCandidateFinder.addNearMe(candidates, baseLat, baseLng);
         }
         if (conditions.getMustVisit() != null) {
@@ -226,15 +244,15 @@ public class PlanServiceImpl implements PlanService {
                 }
             }
         }
-        if (!isNearMe) {
-            planCandidateFinder.addArea(candidates, region);
+        if (!isNearMe && conditions.getAreaLat() == null) {
+            planCandidateFinder.addArea(candidates, region); // 지역 좌표 없이 이름만 말했을 때 (대화)
         }
         return candidates;
     }
 
-    /** G 고르기: Gemini가 후보 안에서 고름. 키가 없거나 실패하면 꼭 갈 곳·고정 일정만 (notes에 안내) */
+    /** G 고르기: Gemini가 후보 안에서 고름. 키가 없거나 실패하면 규칙으로 (notes에 안내) */
     private List<AiDraftStop> pickStops(PlanConditions conditions, List<String> messages, Map<String, Place> candidates,
-                                        int days, PlanGenerateResponse response) {
+                                        Map<String, Double> scores, int days, PlanGenerateResponse response) {
         if (aiService.isReady()) {
             try {
                 AiDraft draft = aiService.askJson(makeDraftPrompt(conditions, messages, candidates, days, response.getStartDate()), AiDraft.class);
@@ -245,12 +263,12 @@ public class PlanServiceImpl implements PlanService {
                     return draft.getStops();
                 }
             } catch (ApiException e) {
-                response.getNotes().add(makeNote("AI 연결이 안 돼서 꼭 갈 곳만 순서대로 담았어요 (" + e.getMessage() + ")", null));
-                return makeFallbackStops(conditions);
+                response.getNotes().add(makeNote("AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요 (" + e.getMessage() + ")", null));
+                return planRuleMaker.makeStops(conditions, candidates, scores, days, response.getStartDate(), makeFallbackStops(conditions));
             }
         }
-        response.getNotes().add(makeNote("AI 연결이 안 돼서 꼭 갈 곳만 순서대로 담았어요", null));
-        return makeFallbackStops(conditions);
+        response.getNotes().add(makeNote("AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요", null));
+        return planRuleMaker.makeStops(conditions, candidates, scores, days, response.getStartDate(), makeFallbackStops(conditions));
     }
 
     /** 후보 목록(id | 이름 | 분류 | 평점 | 주소)과 규칙을 주고 JSON으로만 답하게 함. 좌표는 넣지 않음 */
