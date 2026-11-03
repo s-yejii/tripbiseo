@@ -116,3 +116,6 @@ CREATE INDEX IF NOT EXISTS idx_retrip_place_geom ON retrip_place USING GIST (geo
 -- 11/03 · ① DB 총괄 확인: 일정 칸 중요도. 대안(시간 줄이기·한 곳 빼기)에서 "꼭"은 줄이거나 빼지 않고 "빼도 됨"을 먼저 뺌
 ALTER TABLE trip_stop ADD COLUMN IF NOT EXISTS importance VARCHAR(10) NOT NULL DEFAULT 'maybe'
   CHECK (importance IN ('must', 'maybe', 'drop'));
+
+-- 11/03 · ① DB 총괄 확인: 회원가입 이메일 인증·계정 찾기용 이메일 (예전 회원은 NULL)
+ALTER TABLE member ADD COLUMN IF NOT EXISTS email VARCHAR(100) UNIQUE;

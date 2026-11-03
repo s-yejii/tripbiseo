@@ -8,4 +8,5 @@ public class SignupRequest {
     private String username; // 영문·숫자·_ 4~30자
     private String password; // 8~72자
     private String nickname; // 20자까지, 비우면 아이디
+    private String email;    // 인증을 마친 이메일 (POST /api/auth/email-code/verify)
 }

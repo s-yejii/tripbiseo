@@ -87,6 +87,12 @@
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
+		<!-- 메일 보내기 (① 회원가입·계정 찾기 인증번호, Gmail SMTP) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
 		<!-- Gemini 호출 (Spring AI) -->
 		<dependency>
 			<groupId>org.springframework.ai</groupId>

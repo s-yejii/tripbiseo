@@ -27,6 +27,9 @@
     <if test="lat != null and lng != null">, ST_Distance(geom, <include refid="basePoint"/>) AS distance</if>
     FROM retrip_place
     WHERE name ILIKE '%' || #{keyword} || '%' OR biz_type ILIKE '%' || #{kind} || '%'
+    <!-- 11/03 묶음 말: "카페"·"술집"은 분류 정규식(~), "음식점"·"식당"·"맛집"은 카페·술집이 아닌 음식점 전부 -->
+    <if test="groupPattern != null">OR biz_type ~ #{groupPattern}</if>
+    <if test="isFood">OR (content_type_id = '39' AND COALESCE(biz_type, '') !~ #{notFoodPattern})</if>
     ORDER BY
     <choose>
       <when test="lat != null and lng != null">geom &lt;-&gt; <include refid="basePoint"/></when>

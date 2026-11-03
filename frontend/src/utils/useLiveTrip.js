@@ -5,7 +5,7 @@
 //   - 시연 모드(?demo=1): 진짜 GPS 대신 오늘 일정 장소를 차례로 지나가는 가짜 GPS (발표장에서 걸어 다닐 수 없어서)
 // 화면을 떠날 때 stop()을 꼭 불러야 타이머·GPS 감시가 꺼져요.
 import { ref } from 'vue'
-import { getLiveStatus, sendTrack } from '@/api/trips'
+import { getLiveStatus, getTrip, getTripList, sendTrack } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 
 const STATUS_INTERVAL_MS = 30000 // 지금 상황 다시 계산 간격
@@ -16,19 +16,29 @@ const DEMO_STEPS_PER_STOP = 3 // 시연 모드: 장소 사이를 몇 걸음에 �
 export function useLiveTrip() {
   const store = useTripStore()
   const tripId = ref(null)
-  const status = ref(null) // live/status 응답 (없으면 null → 화면은 시연용 각본)
+  const status = ref(null) // live/status 응답
+  const trip = ref(null) // 여행 전체 (칸 state·arrivedAt·departedAt을 씀)
   const position = ref(null) // { lat, lng }
   const error = ref('')
+  // 화면 상태: loading 여행 찾는 중 / none 진행 중인 여행 없음 / gps 위치 기다리는 중 / gps-error 위치 못 받음 / ready
+  const phase = ref('loading')
+  const gpsError = ref('')
   let watchId = null
   let statusTimer = null
   let demoTimer = null
   let lastTrackAt = 0
 
-  // 진행 중인 여행이 있으면 시작 (없으면 false → 화면은 각본 그대로)
+  // 진행 중인 여행이 있으면 시작 (없으면 phase가 none)
   async function start(isDemo = false) {
-    const id = await store.findOngoingTripId()
-    if (!id) return false
+    phase.value = 'loading'
+    const id = await findOngoingTripId()
+    if (!id) {
+      phase.value = 'none'
+      return false
+    }
     tripId.value = id
+    store.tripId = id
+    phase.value = 'gps'
     if (isDemo) {
       await startDemo()
     } else {
@@ -45,15 +55,33 @@ export function useLiveTrip() {
     watchId = null
   }
 
-  // 지금 상황 다시 계산
+  // 상태가 ongoing인 여행만 (오늘 날짜인 planned 여행은 아직 시작 전이라 여행 중 화면에 오지 않음)
+  async function findOngoingTripId() {
+    try {
+      const trips = await getTripList()
+      const ongoing = trips.find((item) => item.status === 'ongoing')
+      return ongoing ? ongoing.id : null
+    } catch (e) {
+      error.value = e.message
+      return null
+    }
+  }
+
+  // 지금 상황 다시 계산 + 여행(칸 기록) 다시 받기
   async function refresh() {
     if (!tripId.value || !position.value) return
     try {
-      status.value = await getLiveStatus(tripId.value, position.value.lat, position.value.lng)
+      const [nextStatus, nextTrip] = await Promise.all([ // Promise.all: 두 요청을 같이 보내고 둘 다 올 때까지 기다림
+        getLiveStatus(tripId.value, position.value.lat, position.value.lng),
+        getTrip(tripId.value),
+      ])
+      status.value = nextStatus
+      trip.value = nextTrip
       error.value = ''
+      phase.value = 'ready'
     } catch (e) {
       error.value = e.message
-      if (e.status === 400 || e.status === 404) status.value = null // 진행 중이 아님 → 각본으로
+      if (e.status === 400 || e.status === 404) phase.value = 'none' // 그새 여행이 끝났거나 지워짐
     }
   }
 
@@ -76,13 +104,20 @@ export function useLiveTrip() {
   // 진짜 GPS: watchPosition은 위치가 바뀔 때마다 알려 줌
   function watchGps() {
     if (!navigator.geolocation) {
-      error.value = '이 브라우저는 위치를 지원하지 않아요'
+      gpsError.value = '이 브라우저는 위치를 지원하지 않아요'
+      phase.value = 'gps-error'
       return
     }
     watchId = navigator.geolocation.watchPosition(
-      (pos) => moveTo(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-      () => (error.value = '위치 권한을 허용해 주세요'),
-      { enableHighAccuracy: true, maximumAge: 10000 },
+      (pos) => {
+        gpsError.value = ''
+        moveTo(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy)
+      },
+      (e) => {
+        gpsError.value = e.code === 1 ? '위치 권한이 꺼져 있어요. 브라우저 주소창 옆 자물쇠에서 위치를 허용해 주세요.' : '지금 위치를 받지 못했어요. 잠시 뒤 다시 시도해 주세요.'
+        if (!position.value) phase.value = 'gps-error' // 이미 위치가 있으면 마지막 위치로 계속 보여 줌
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
     )
   }
 
@@ -120,5 +155,13 @@ export function useLiveTrip() {
     return route
   }
 
-  return { tripId, status, position, error, start, stop, refresh }
+  // GPS 다시 시도
+  function retryGps() {
+    stop()
+    phase.value = 'gps'
+    watchGps()
+    statusTimer = setInterval(refresh, STATUS_INTERVAL_MS)
+  }
+
+  return { tripId, status, trip, position, error, phase, gpsError, start, stop, refresh, retryGps }
 }

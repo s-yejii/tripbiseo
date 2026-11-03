@@ -72,6 +72,7 @@
 | username | VARCHAR(50) NOT NULL UNIQUE | 아이디 |
 | password | VARCHAR(100) NOT NULL | BCrypt 암호문 |
 | nickname | VARCHAR(50) | 닉네임 |
+| email | VARCHAR(100) UNIQUE | 가입할 때 인증한 이메일 (11/03 추가, 예전 회원은 NULL) |
 | role | VARCHAR(20) NOT NULL DEFAULT 'ROLE_USER' | 역할 |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 가입 시각 |
 

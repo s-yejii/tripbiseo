@@ -17,9 +17,15 @@ public interface PlaceMapper {
     /** 장소 하나 (없으면 null) */
     Place selectPlace(String placeId);
 
-    /** 이름 또는 분류 검색 최대 20개. lat·lng가 있으면 가까운 순 + distance, 없으면 리뷰 많은 순 */
+    /**
+     * 이름 또는 분류 검색 최대 20개. lat·lng가 있으면 가까운 순 + distance, 없으면 리뷰 많은 순.
+     * groupPattern: "카페"·"술집"처럼 묶음 말일 때 분류 정규식 (없으면 null).
+     * isFood: "음식점"·"식당"·"맛집"이면 true → 음식점(content_type_id 39) 중 카페·술집이 아닌 곳 전부
+     */
     List<Place> selectPlaceList(@Param("keyword") String keyword, @Param("kind") String kind,
-                                @Param("lat") Double lat, @Param("lng") Double lng);
+                                @Param("lat") Double lat, @Param("lng") Double lng,
+                                @Param("groupPattern") String groupPattern, @Param("isFood") boolean isFood,
+                                @Param("notFoodPattern") String notFoodPattern);
 
     /** 반경(m) 안 장소, 가까운 순 + distance. category가 있으면 분류에 그 말이 들어간 곳만. 최대 limit개 */
     List<Place> selectNearbyPlaceList(@Param("lat") double lat, @Param("lng") double lng, @Param("radius") int radius,
