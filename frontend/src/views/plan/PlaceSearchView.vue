@@ -245,4 +245,5 @@ function done() {
 .scr-PlaceSearch .ps-hit{display:flex;align-items:center;gap:12px;padding:12px;border:0;background:none;text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%;border-radius:var(--radius-lg)}
 .scr-PlaceSearch .sheet{bottom:0}
 .scr-PlaceSearch .ps-msg{text-align:center;padding:24px 0;line-height:20px}
+.scr-PlaceSearch input[type='search']::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none} /* 브라우저 기본 X 숨김 (우리 지우기 버튼만) */
 </style>
