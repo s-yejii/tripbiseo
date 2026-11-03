@@ -19,6 +19,8 @@ import com.tripbiseo.live.dto.AlternativesResponse;
 import com.tripbiseo.live.dto.AppliedStop;
 import com.tripbiseo.live.dto.ApplyRequest;
 import com.tripbiseo.live.dto.ApplyResponse;
+import com.tripbiseo.live.dto.PreviewRequest;
+import com.tripbiseo.live.dto.SwapCandidate;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -42,7 +44,12 @@ public class AlternativeServiceImpl implements AlternativeService {
     // B 한 곳 빼기: 뺄 순위 (클수록 먼저 뺌)
     private static final int DROP_RANK_CLOSED = 3;  // 도착하면 문 닫은 곳
     private static final int DROP_RANK_MISSED = 2;  // 계획 시간이 지난 곳
+    private static final int DROP_RANK_OPTIONAL = 1; // 중요도 "빼도 됨"
     private static final int DROP_RANK_NORMAL = 0;  // 그 밖 (그중 오래 머무는 곳)
+    private static final String IMPORTANCE_MUST = "must";     // 꼭 갈 곳: 줄이거나 빼지 않음
+    private static final String IMPORTANCE_OPTIONAL = "drop"; // 빼도 되는 곳: 먼저 뺌
+    private static final int SWAP_CANDIDATE_COUNT = 10;       // 장소 바꾸기 후보 수
+    private static final int PREVIEW_PRECISE_COUNT = 3;       // 직접 고친 일정: 여행 중 화면(StatusServiceImpl)과 같게 앞 3구간은 진짜 길찾기
     private static final int SWAP_RADIUS_M = 1500;  // C 장소 바꾸기: 뺄 곳에서 이 반경(m) 안에서 찾음
     private static final int DEFAULT_STAY_MIN = 60;   // 대안 적용: 머무는 시간이 없으면 60분 (API.md)
     private static final int NEW_STOP_START_MIN = 30; // 대안 적용: 새 칸에 시각이 없으면 지금부터 30분 뒤
@@ -320,6 +327,7 @@ public class AlternativeServiceImpl implements AlternativeService {
         stop.setStay(oldStop.getStay());
         stop.setFixed(false);
         stop.setState("todo");
+        stop.setImportance(oldStop.getImportance());
         return stop;
     }
 
@@ -331,7 +339,9 @@ public class AlternativeServiceImpl implements AlternativeService {
             if (Boolean.TRUE.equals(stop.getFixed())) {
                 continue; // 고정 일정은 빼지 않음
             }
-            // TODO: ①②에게 요청함 — trip_stop·Stop에 중요도(importance)가 생기면 "꼭"은 건너뛰고 "빼도 됨"을 먼저
+            if (isMust(stop)) {
+                continue; // 꼭 갈 곳은 빼지 않음
+            }
             int rank = getDropRank(stop);
             boolean isHigherRank = rank > dropRank;
             boolean isLongerStay = rank == dropRank && liveStopFinder.getStay(stop) > liveStopFinder.getStay(dropStop);
@@ -351,6 +361,9 @@ public class AlternativeServiceImpl implements AlternativeService {
         if (liveStopFinder.isMissed(stop)) {
             return DROP_RANK_MISSED;
         }
+        if (IMPORTANCE_OPTIONAL.equals(stop.getImportance())) {
+            return DROP_RANK_OPTIONAL;
+        }
         return DROP_RANK_NORMAL;
     }
 
@@ -361,6 +374,9 @@ public class AlternativeServiceImpl implements AlternativeService {
         }
         if (rank == DROP_RANK_MISSED) {
             return "계획 시간이 지난 곳을 빼요.";
+        }
+        if (rank == DROP_RANK_OPTIONAL) {
+            return "빼도 된다고 한 곳을 빼요.";
         }
         return "한 곳을 빼고 나머지는 계획대로 가요.";
     }
@@ -390,6 +406,9 @@ public class AlternativeServiceImpl implements AlternativeService {
         for (Stop stop : stops) {
             if (Boolean.TRUE.equals(stop.getFixed()) || need <= 0) {
                 break; // 고정 일정 뒤 칸은 늦는 것과 상관없어서 안 줄임
+            }
+            if (isMust(stop)) {
+                continue; // 꼭 갈 곳은 머무는 시간도 그대로
             }
             int stay = liveStopFinder.getStay(stop);
             int cut = Math.min(stay / TRIM_STAY_DIVIDE, need);
@@ -439,6 +458,156 @@ public class AlternativeServiceImpl implements AlternativeService {
         response.setNextAlert(getNextAlert(updatedTodayStops));
         response.setStops(toAppliedStops(updatedTodayStops, todayStops, current, noteMap));
         return response;
+    }
+
+    // ---------------------------------------------------------------- 직접 고친 일정 계산 · 바꿀 장소 후보
+
+    /** 사용자가 고친 남은 일정을 계산만 함 (저장 안 함). 목록에 없는 남은 칸은 뺀 것으로 봄 */
+    @Override
+    public Alternative previewAlternative(long memberId, long tripId, PreviewRequest request) {
+        // 1. 공통 오류 검사 후 남은 일정 꺼내기
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
+        List<Stop> remainingStops = getRemainingStops(todayStops, current);
+
+        // 2. 화면이 보낸 순서대로 계산할 칸 만들기
+        List<Stop> chosenStops = toChosenStops(request.getStops(), remainingStops, trip);
+        if (chosenStops.isEmpty()) {
+            throw fail(400, "계산할 일정이 없어요.");
+        }
+
+        // 3. 계산 + 영업 정보 + 바뀐 곳 표시
+        Alternative alternative = alternativeCalculator.calculate(trip, current, chosenStops, request.getLat(), request.getLng(), PREVIEW_PRECISE_COUNT);
+        fillOpenInfo(alternative);
+        alternative.setChanges(markPreviewChanges(alternative, remainingStops, chosenStops));
+        alternative.setShortName("직접 고르기");
+        alternative.setTitle("직접 고친 일정");
+        alternative.setReason("고른 대로 다시 계산했어요.");
+        return alternative;
+    }
+
+    /** 남은 칸 하나를 바꿀 장소 후보: 1.5km 안, 도착할 때 영업 중, 평점 있음, 일정에 없음. 가까운 순 최대 10곳 */
+    @Override
+    public List<SwapCandidate> getSwapCandidateList(long memberId, long tripId, long stopId, Double lat, Double lng) {
+        // 1. 공통 오류 검사 후 바꿀 칸 찾기
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, lat, lng);
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, lat, lng);
+        List<Stop> remainingStops = getRemainingStops(todayStops, current);
+        Stop swapStop = findStopById(remainingStops, stopId);
+        if (swapStop == null) {
+            throw fail(404, "남은 일정에서 찾을 수 없어요.");
+        }
+        if (Boolean.TRUE.equals(swapStop.getFixed())) {
+            throw fail(400, "고정 일정은 바꿀 수 없어요.");
+        }
+
+        // 2. 근처 장소 중 바꿀 수 있는 곳마다 바꿨을 때 계산 (가까운 순이라 앞에서부터 10곳)
+        List<Place> places = placeService.getNearbyPlaceList(swapStop.getLat(), swapStop.getLng(), SWAP_RADIUS_M, null);
+        int arrive = Math.max(Geo.toMinutes(swapStop.getTime()), Geo.nowMinutes());
+        int stay = liveStopFinder.getStay(swapStop);
+        List<SwapCandidate> candidates = new ArrayList<>();
+        for (Place place : places) {
+            if (candidates.size() >= SWAP_CANDIDATE_COUNT) {
+                break;
+            }
+            if (isSwapCandidate(place, remainingStops, arrive, stay)) {
+                candidates.add(toSwapCandidate(trip, current, remainingStops, swapStop, place, lat, lng));
+            }
+        }
+        return candidates;
+    }
+
+    /** 화면이 보낸 칸 → 계산할 칸 목록 (못 쓰는 칸은 건너뜀) */
+    private List<Stop> toChosenStops(List<AltStop> requestStops, List<Stop> remainingStops, Trip trip) {
+        List<Stop> chosenStops = new ArrayList<>();
+        if (requestStops == null) {
+            return chosenStops;
+        }
+        for (AltStop requested : requestStops) {
+            Stop stop = toChosenStop(requested, remainingStops, trip);
+            if (stop != null) {
+                chosenStops.add(stop);
+            }
+        }
+        return chosenStops;
+    }
+
+    /** id가 남은 칸이면 복사해서 머묾만 바꿈(고정 일정은 그대로), id가 없으면 새 장소 칸. 못 쓰면 null */
+    private Stop toChosenStop(AltStop requested, List<Stop> remainingStops, Trip trip) {
+        if (requested.getId() == null) {
+            if (requested.getLat() == null || requested.getLng() == null) {
+                return null; // 좌표 없는 새 장소는 계산할 수 없음
+            }
+            return toAddedStop(requested, liveStopFinder.getToday(trip));
+        }
+        Stop original = findStopById(remainingStops, requested.getId());
+        if (original == null) {
+            return null; // 다녀온 칸·남의 칸은 무시
+        }
+        Stop copy = alternativeCalculator.copyStops(List.of(original)).get(0);
+        boolean isFixed = Boolean.TRUE.equals(original.getFixed());
+        if (requested.getStay() != null && !isFixed) {
+            copy.setStay(Math.max(0, requested.getStay()));
+        }
+        return copy;
+    }
+
+    /** 칸마다 "60분 → 30분" 또는 "새로 추가"를 적고, 바뀐 칸 수(뺀 칸 포함)를 돌려줌 */
+    private int markPreviewChanges(Alternative alternative, List<Stop> remainingStops, List<Stop> chosenStops) {
+        int keptCount = 0;
+        int changes = 0;
+        for (int i = 0; i < chosenStops.size(); i++) {
+            Stop chosen = chosenStops.get(i);
+            AltStop altStop = alternative.getStops().get(i);
+            if (chosen.getId() == null) {
+                altStop.setChange("새로 추가");
+                changes++;
+                continue;
+            }
+            keptCount++;
+            int before = liveStopFinder.getStay(findStopById(remainingStops, chosen.getId()));
+            int after = liveStopFinder.getStay(chosen);
+            if (before != after) {
+                altStop.setChange(before + "분 → " + after + "분");
+                changes++;
+            }
+        }
+        return changes + (remainingStops.size() - keptCount); // 뺀 칸도 바뀐 것으로 셈
+    }
+
+    /** swapStop을 place로 바꿨을 때 계산해서 후보 한 줄로 */
+    private SwapCandidate toSwapCandidate(Trip trip, Stop current, List<Stop> remainingStops, Stop swapStop,
+                                          Place place, double lat, double lng) {
+        List<Stop> swappedStops = new ArrayList<>();
+        for (Stop stop : remainingStops) {
+            swappedStops.add(stop == swapStop ? toNewStop(place, swapStop) : stop);
+        }
+        Alternative alternative = alternativeCalculator.calculate(trip, current, swappedStops, lat, lng);
+        AltStop newStop = alternative.getStops().get(remainingStops.indexOf(swapStop));
+
+        SwapCandidate candidate = new SwapCandidate();
+        candidate.setId(place.getId());
+        candidate.setName(place.getName());
+        candidate.setCategory(place.getCategory());
+        candidate.setAddress(place.getAddress());
+        candidate.setLat(place.getLat());
+        candidate.setLng(place.getLng());
+        candidate.setRating(place.getRating());
+        candidate.setReviewCount(place.getReviewCount());
+        candidate.setNaverUrl(place.getMapUrl() != null ? place.getMapUrl() : placeService.getNaverUrl(place.getName(), place.getAddress()));
+        candidate.setDistance(place.getDistance() == null ? null : (int) Math.round(place.getDistance()));
+        candidate.setMoveMin(newStop.getMoveMin());
+        candidate.setEta(newStop.getEta());
+        candidate.setFinalArrive(alternative.getFinalArrive());
+        candidate.setSlackMin(alternative.getSlackMin());
+        return candidate;
+    }
+
+    /** 중요도가 "꼭"인 칸인지 */
+    private boolean isMust(Stop stop) {
+        return IMPORTANCE_MUST.equals(stop.getImportance());
     }
 
     // ---------------------------------------------------------------- 대안 적용 도우미 (4번)

@@ -58,7 +58,8 @@ public class StatusServiceImpl implements StatusService {
         Stop current = liveStopFinder.findCurrentStop(todayStops, lat, lng);
         Stop nextStop = liveStopFinder.findNextStop(todayStops, current);
         Stop fixedStop = liveStopFinder.findFixedStop(todayStops, current);
-        Map<Long, Integer> etaMap = getEtaMap(trip, todayStops, current, lat, lng);
+        Map<Long, Route> routeMap = new HashMap<>(); // 칸 id → 앞에서 오는 길 (카드 사이 이동 칩)
+        Map<Long, Integer> etaMap = getEtaMap(trip, todayStops, current, lat, lng, routeMap);
         Map<Long, String> reachMap = getReachMap(trip, todayStops, current, fixedStop, lat, lng);
         Map<Long, OpenInfo> openMap = getOpenInfoMap(todayStops, current, etaMap);
         // 여유(분) = 고정 일정 계획 시각 − 예상 도착. 음수면 지각
@@ -70,7 +71,7 @@ public class StatusServiceImpl implements StatusService {
         for (Stop stop : todayStops) {
             OpenInfo open = openMap.get(stop.getId());
             String reach = getReach(stop, current, reachMap, open);
-            response.getStops().add(toStatusStop(stop, etaMap.get(stop.getId()), reach, open));
+            response.getStops().add(toStatusStop(stop, etaMap.get(stop.getId()), reach, open, routeMap.get(stop.getId())));
         }
         response.setNext(getNextRoute(trip, nextStop, lat, lng));
         response.setFixed(toFixedStatus(fixedStop, etaMap, slack));
@@ -92,8 +93,9 @@ public class StatusServiceImpl implements StatusService {
 
     // ---------------------------------------------------------------- 지금 상황(status) 도우미
 
-    /** 남은 칸마다 예상 도착 시각(자정부터 센 분). key = 칸 id. 앞 칸 출발 시각에 이동 시간을 차례로 더해 감 */
-    private Map<Long, Integer> getEtaMap(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng) {
+    /** 남은 칸마다 예상 도착 시각(자정부터 센 분). key = 칸 id. 앞 칸 출발 시각에 이동 시간을 차례로 더해 감. 구간 길은 routeMap에 담음 */
+    private Map<Long, Integer> getEtaMap(Trip trip, List<Stop> todayStops, Stop current, double lat, double lng,
+                                         Map<Long, Route> routeMap) {
         Map<Long, Integer> etaMap = new HashMap<>();
         // 출발점: 지금 어떤 칸에 있으면 그 칸에서 (머무는 시간이 끝나면 출발), 이동 중이면 내 위치에서 지금 출발
         double fromLat = lat;
@@ -114,6 +116,7 @@ public class StatusServiceImpl implements StatusService {
             Route route = routeClient.getRoute(fromLat, fromLng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), isPrecise);
             int arrive = clock + route.getMinutes();
             etaMap.put(stop.getId(), arrive);
+            routeMap.put(stop.getId(), route);
 
             clock = liveStopFinder.getStartMinutes(stop, arrive) + liveStopFinder.getStay(stop);
             fromLat = stop.getLat();
@@ -236,8 +239,8 @@ public class StatusServiceImpl implements StatusService {
         return next;
     }
 
-    /** Stop → 화면용 StatusStop. eta: 남은 칸이면 예상 도착, 아니면 계획 시각. open: 영업 정보 (없으면 null) */
-    private StatusStop toStatusStop(Stop stop, Integer eta, String reach, OpenInfo open) {
+    /** Stop → 화면용 StatusStop. eta: 남은 칸이면 예상 도착, 아니면 계획 시각. open: 영업 정보, route: 앞에서 오는 길 (둘 다 없으면 null) */
+    private StatusStop toStatusStop(Stop stop, Integer eta, String reach, OpenInfo open, Route route) {
         StatusStop status = new StatusStop();
         status.setId(stop.getId());
         status.setPlaceId(stop.getPlaceId());
@@ -250,7 +253,13 @@ public class StatusServiceImpl implements StatusService {
         status.setFixed(stop.getFixed());
         status.setEta(eta == null ? stop.getTime() : Geo.toHhmm(eta));
         status.setReach(reach);
+        status.setImportance(stop.getImportance());
         status.setClosingSoon(false);
+        if (route != null) {
+            status.setMoveMin(route.getMinutes());
+            status.setMoveMode(route.getMode());
+            status.setMoveMeters(route.getMeters());
+        }
         if (open != null) {
             status.setCloseAt(open.getCloseAt());
             status.setClosedReason(open.getClosedReason());

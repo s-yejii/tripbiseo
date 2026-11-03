@@ -26,8 +26,16 @@ public class AlternativeCalculator {
     private final RouteClient routeClient;       // 이동 시간 (후보 비교는 isPrecise=false)
     private final LiveStopFinder liveStopFinder; // 출발·시작 시각, 머무는 시간 (④ 도우미)
 
-    /** 바뀐 칸 목록으로 대안 하나 계산: 칸마다 이동 시간·도착 시각, 경로선, 기준 칸 도착과 여유 */
+    /** 바뀐 칸 목록으로 대안 하나 계산: 칸마다 이동 시간·도착 시각, 경로선, 기준 칸 도착과 여유 (전부 거리로 추정) */
     public Alternative calculate(Trip trip, Stop current, List<Stop> stops, double lat, double lng) {
+        return calculate(trip, current, stops, lat, lng, 0);
+    }
+
+    /**
+     * 위와 같은데 앞에서 preciseCount 구간은 진짜 길찾기 API로 계산.
+     * 사용자가 고른 일정(/live/preview)은 여행 중 화면(/live/status)과 같은 방식으로 계산해야 두 화면 숫자가 맞음
+     */
+    public Alternative calculate(Trip trip, Stop current, List<Stop> stops, double lat, double lng, int preciseCount) {
         // 1. 출발점: 지금 어떤 칸에 있으면 그 칸에서 (머무는 시간이 끝나면 출발), 이동 중이면 내 위치에서 지금 출발
         double fromLat = lat;
         double fromLng = lng;
@@ -38,11 +46,12 @@ public class AlternativeCalculator {
             clock = Math.max(clock, liveStopFinder.getLeaveMinutes(current));
         }
 
-        // 2. 칸마다 이동 시간·도착 시각 (대안 후보를 여러 개 비교하니 길찾기 API 없이 거리로 추정: isPrecise=false)
+        // 2. 칸마다 이동 시간·도착 시각 (앞 preciseCount 구간만 길찾기 API, 나머지는 거리로 추정)
         Alternative alternative = new Alternative();
         List<Integer> arriveList = new ArrayList<>();
         for (Stop stop : stops) {
-            Route route = routeClient.getRoute(fromLat, fromLng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), false);
+            boolean isPrecise = arriveList.size() < preciseCount;
+            Route route = routeClient.getRoute(fromLat, fromLng, stop.getLat(), stop.getLng(), stop.getMode(), trip.getTransports(), isPrecise);
             int arrive = clock + route.getMinutes();
             arriveList.add(arrive);
             alternative.getStops().add(toAltStop(stop, arrive, route.getMinutes()));
@@ -95,6 +104,7 @@ public class AlternativeCalculator {
         altStop.setLng(stop.getLng());
         altStop.setStay(stop.getStay());
         altStop.setFixed(Boolean.TRUE.equals(stop.getFixed()));
+        altStop.setImportance(stop.getImportance());
         altStop.setEta(Boolean.TRUE.equals(stop.getFixed()) ? stop.getTime() : Geo.toHhmm(arrive));
         altStop.setMoveMin(moveMin);
         altStop.setClosingSoon(false);
@@ -118,6 +128,7 @@ public class AlternativeCalculator {
         copy.setFixed(stop.getFixed());
         copy.setMode(stop.getMode());
         copy.setState(stop.getState());
+        copy.setImportance(stop.getImportance());
         return copy;
     }
 }

@@ -19,4 +19,8 @@ public class StatusStop {
     private String closeAt;       // 영업 정보 일부 (null 가능)
     private String closedReason;
     private Boolean closingSoon;
+    private String importance;    // must / maybe / drop
+    private Integer moveMin;      // 남은 칸만: 앞에서(지금 위치·앞 칸) 오는 이동 분, 아니면 null
+    private String moveMode;      // 남은 칸만: walk / transit / car
+    private Integer moveMeters;   // 남은 칸만: 이동 거리(m)
 }
