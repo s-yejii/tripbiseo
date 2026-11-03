@@ -1,6 +1,7 @@
 <script setup>
 // 일정 목록 (시간 · 장소 카드 · 사이 이동). 일정 점검·여행 상세·테마 코스가 같이 써요
 // 이동 줄을 누르면 도보·버스·지하철·택시 중에 고를 수 있어요
+// 메모가 있으면 카드 아래 한 줄 (AI 일정: 고른 이유 · 리뷰 근거 "조용해요 · 리뷰 10개 중 4개")
 import { ref } from 'vue'
 import { importance, modes } from '@/data/places'
 import { minutesBy } from '@/data/trips'
@@ -75,6 +76,7 @@ function pickMode(i, mode) {
             <span class="stop__body">
               <span class="stop__name">{{ stop.name }}</span>
               <span class="stop__meta" :class="stop.metaCls"><i v-if="stop.metaIcon" class="ic ic--s" :class="stop.metaIcon" aria-hidden="true"></i>{{ stop.meta }}</span>
+              <span v-if="stop.memo" class="stop__memo">{{ stop.memo }}</span>
             </span>
             <span class="stop__side">
               <span v-if="!stop.fixed && stop.imp" class="imp" :class="'imp--' + stop.imp">{{ importance[stop.imp] }}</span>
@@ -86,3 +88,7 @@ function pickMode(i, mode) {
     </template>
   </ol>
 </template>
+
+<style>
+.tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
+</style>
