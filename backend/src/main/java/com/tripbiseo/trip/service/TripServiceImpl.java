@@ -30,6 +30,8 @@ public class TripServiceImpl implements TripService {
 
     private static final List<String> TRANSPORTS = List.of("bus", "subway", "walk", "taxi", "car");
     private static final List<String> MODES = List.of("walk", "transit", "taxi");
+    private static final List<String> IMPORTANCES = List.of("must", "maybe", "drop"); // 중요도 꼭 / 가능하면 / 빼도 됨
+    private static final String DEFAULT_IMPORTANCE = "maybe";
     private static final List<String> STATES = List.of("todo", "done", "skipped");
     private static final int MAX_TRIP_DAYS = 30;
     private static final int MAX_STAY_MIN = 720;
@@ -156,6 +158,9 @@ public class TripServiceImpl implements TripService {
         }
         if (form.getState() != null && STATES.contains(form.getState())) {
             stop.setState(form.getState());
+        }
+        if (form.getImportance() != null) {
+            stop.setImportance(form.getImportance());
         }
         stop.setMode(form.getMode());
         stop.setMemo(form.getMemo());
@@ -287,10 +292,13 @@ public class TripServiceImpl implements TripService {
         fillStopDefaults(stop);
     }
 
-    /** 칸 기본값: mode는 walk/transit/taxi만, fixed 기본 false, state 기본 todo, 없는 placeId는 null */
+    /** 칸 기본값: mode는 walk/transit/taxi만, importance는 must/maybe/drop만(기본 maybe), fixed 기본 false, state 기본 todo, 없는 placeId는 null */
     private void fillStopDefaults(Stop stop) {
         if (stop.getMode() != null && !MODES.contains(stop.getMode())) {
             stop.setMode(null);
+        }
+        if (stop.getImportance() == null || !IMPORTANCES.contains(stop.getImportance())) {
+            stop.setImportance(DEFAULT_IMPORTANCE);
         }
         if (stop.getFixed() == null) {
             stop.setFixed(false);

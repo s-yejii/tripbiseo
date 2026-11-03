@@ -77,7 +77,7 @@
   <!-- Stop과 이름이 다른 컬럼은 AS로 맞추고, 시각은 to_char로 yyyy-MM-ddTHH:mm:ss 글자로 바꿔요 -->
   <sql id="stopColumns">
     stop_id AS id, trip_id, day_no AS day, place_id, name, category, address, lat, lng,
-    start_time AS time, stay_min AS stay, fixed, move_mode AS mode, memo, state,
+    start_time AS time, stay_min AS stay, fixed, move_mode AS mode, memo, state, importance,
     to_char(arrived_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS arrived_at,
     to_char(departed_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS departed_at
   </sql>
@@ -97,15 +97,15 @@
 
   <insert id="insertStop" useGeneratedKeys="true" keyProperty="id" keyColumn="stop_id">
     INSERT INTO trip_stop (trip_id, day_no, place_id, name, category, address, lat, lng,
-                           start_time, stay_min, fixed, move_mode, memo, state)
+                           start_time, stay_min, fixed, move_mode, memo, state, importance)
     VALUES (#{tripId}, #{day}, #{placeId}, #{name}, #{category}, #{address}, #{lat}, #{lng},
-            #{time}, #{stay}, #{fixed}, #{mode}, #{memo}, 'todo')
+            #{time}, #{stay}, #{fixed}, #{mode}, #{memo}, 'todo', #{importance})
   </insert>
 
   <update id="updateStop">
     UPDATE trip_stop
     SET day_no = #{day}, start_time = #{time}, stay_min = #{stay}, fixed = #{fixed},
-        move_mode = #{mode}, memo = #{memo}, state = #{state}
+        move_mode = #{mode}, memo = #{memo}, state = #{state}, importance = #{importance}
     WHERE trip_id = #{tripId} AND stop_id = #{id}
   </update>
 
