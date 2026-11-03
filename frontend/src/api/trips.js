@@ -55,3 +55,14 @@ export const getRetro = (tripId) => get(`/trips/${tripId}/retro`)
 // ⑤ 길 안내: mode는 walk / bus / subway / car. 못 찾으면 available=false + message
 export const getRouteGuide = (fromLat, fromLng, toLat, toLng, mode) =>
   get(`/route?fromLat=${fromLat}&fromLng=${fromLng}&toLat=${toLat}&toLng=${toLng}&mode=${mode}`)
+
+// ② 요즘 인기 장소 (lat·lng 없으면 시범 지역 전체, radius 없으면 3km → 5km → 전체로 넓힘)
+export const getPopularPlaces = (lat, lng, limit = 6, radius = null) => {
+  const params = new URLSearchParams({ limit })
+  if (lat != null && lng != null) {
+    params.set('lat', lat)
+    params.set('lng', lng)
+  }
+  if (radius != null) params.set('radius', radius)
+  return get('/places/popular?' + params)
+}
