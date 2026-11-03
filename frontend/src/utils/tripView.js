@@ -15,6 +15,55 @@ export function toShortDate(dateText) {
   return `${date.getMonth() + 1}/${date.getDate()}(${WEEK[date.getDay()]})`
 }
 
+// 서버 이동 수단 → 화면 글자
+const TRANSPORT_NAMES = { subway: '지하철', bus: '버스', walk: '도보', taxi: '택시', car: '자동차' }
+const DAY_MS = 86400000 // 하루(밀리초)
+
+// "2026-10-24" → 오늘부터 며칠 남았는지 (오늘 0, 지난 날은 음수)
+export function daysLeft(dateText) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((new Date(dateText + 'T00:00:00') - today) / DAY_MS)
+}
+
+// 오늘이 여행 기간 안인지
+export function isTodayTrip(trip) {
+  return daysLeft(trip.startDate) <= 0 && daysLeft(trip.endDate) >= 0
+}
+
+// 여행 배지: 여행 중 / 오늘 / D-3
+export function tripBadge(trip) {
+  if (trip.status === 'ongoing') return { text: '여행 중', cls: 'badge--coral' }
+  if (isTodayTrip(trip)) return { text: '오늘', cls: 'badge--coral' }
+  return { text: 'D-' + daysLeft(trip.startDate), cls: 'badge--navy' }
+}
+
+// ["subway","walk"] → "지하철·도보"
+export function toTransportText(transports) {
+  const names = []
+  for (const key of transports || []) names.push(TRANSPORT_NAMES[key] || key)
+  return names.join('·')
+}
+
+// 홈에 크게 보여 줄 여행 하나: 여행 중 → 오늘 여행 → 가장 가까운 다가오는 여행 (없으면 null)
+// trips는 서버가 시작 날짜 최신순으로 줘요
+export function pickHomeTrip(trips) {
+  let next = null
+  for (const trip of trips) {
+    if (trip.status === 'ongoing') return trip
+    if (trip.status !== 'planned') continue
+    if (isTodayTrip(trip)) return trip
+    if (daysLeft(trip.startDate) > 0 && (!next || trip.startDate < next.startDate)) next = trip
+  }
+  return next
+}
+
+// 여행 상세 화면 주소 (오늘·여행 중이면 오늘 화면, 아니면 여행 전 화면)
+export function tripDetailLink(trip) {
+  if (trip.status === 'ongoing' || isTodayTrip(trip)) return '/trips/today?id=' + trip.id
+  return '/trips/detail?id=' + trip.id
+}
+
 // trip: 서버 Trip 또는 초안 / check: POST /plans/check 응답(없으면 null) / day: 몇째 날
 export function toViewTrip(trip, check = null, day = 1) {
   const dayStops = check ? check.stops : trip.stops.filter((stop) => (stop.day || 1) === day && stop.state !== 'skipped')
@@ -50,9 +99,11 @@ function toViewStop(stop, position) {
     meta: (stop.category ? stop.category + ' · ' : '') + toDuration(stay),
     metaIcon: stop.fixed ? 'i-lock' : stop.issue ? 'i-warning' : null,
     metaCls: stop.fixed ? 'c-navy' : stop.issue ? 'c-warning' : null,
-    imp: 'maybe',
-    wx: 'cloud',
+    imp: null, // 중요도·날씨는 서버에 아직 없어서 비워 둠 (화면에서 안 보임)
+    wx: null,
     fixed: !!stop.fixed,
+    lat: stop.lat,
+    lng: stop.lng,
     warn: !!stop.issue,
     leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walk: stop.leg.minutes } : null,
     x: position.x,

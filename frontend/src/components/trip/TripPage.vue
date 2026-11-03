@@ -9,6 +9,7 @@ import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import TripTimeline from '@/components/trip/TripTimeline.vue'
 import CheckList from '@/components/trip/CheckList.vue'
+import KakaoMap from '@/components/common/KakaoMap.vue'
 
 const props = defineProps({
   trip: { type: Object, required: true },
@@ -20,6 +21,44 @@ const props = defineProps({
 
 const selected = ref(null)
 const scrollBox = ref(null)
+const useRealMap = ref(true) // 카카오 지도를 못 쓰면(키 없음·불러오기 실패) false → 예전 지도 그림
+const pickedPoint = ref(null) // 카카오 지도에서 누른 핀의 화면 위치 { x, y } (말풍선 위치)
+const TRIP_MAP_PADDING = { top: 110, right: 40, bottom: 40, left: 40 } // 핀이 위 버튼에 가리지 않게
+
+// 모든 칸에 좌표가 있으면 카카오 지도 (좌표 없는 가짜 테마 코스는 그림 지도)
+const hasCoords = computed(() => props.trip.stops.length > 0 && props.trip.stops.every((stop) => stop.lat != null && stop.lng != null))
+const isKakao = computed(() => hasCoords.value && useRealMap.value)
+
+const mapPins = computed(() => props.trip.stops.map((stop, i) => ({
+  key: i,
+  index: i,
+  lat: stop.lat,
+  lng: stop.lng,
+  text: i + 1,
+  icon: stop.fixed ? 'i-lock' : '',
+  cls: pinClass(stop, i),
+  label: i + 1 + ' ' + stop.name,
+})))
+
+function pinClass(stop, i) {
+  let cls = ''
+  if (stop.fixed) cls += ' pin--fixed'
+  if (stop.warn) cls += ' pin--warn'
+  if (selected.value === i) cls += ' pin--sel'
+  return cls
+}
+
+// 카카오 지도 핀을 누름: 누른 위치에 말풍선
+function pickPin(pin) {
+  pickedPoint.value = { x: pin.x, y: pin.y }
+  select(pin.index)
+}
+
+// 목록을 누름: 카카오 지도에서는 핀 화면 위치를 몰라 말풍선 없이 핀만 강조
+function pickRow(i) {
+  pickedPoint.value = null
+  select(i)
+}
 
 const subText = computed(() => props.sub || `${props.trip.date} · ${props.trip.stops.length}곳 · 이동 ${props.trip.move}분 · ${props.trip.who}`)
 const routePoints = computed(() => props.trip.stops.map((s) => s.x + ',' + s.y).join(' '))
@@ -28,10 +67,12 @@ const routePoints = computed(() => props.trip.stops.map((s) => s.x + ',' + s.y).
 const tooltip = computed(() => {
   if (selected.value === null) return null
   const stop = props.trip.stops[selected.value]
+  const point = isKakao.value ? pickedPoint.value : stop
+  if (!point) return null
   return {
     stop,
-    x: Math.min(Math.max(stop.x, 110), 280),
-    y: stop.y - 82 < 104 ? stop.y + 26 : stop.y - 82,
+    x: Math.min(Math.max(point.x, 110), 280),
+    y: point.y - 82 < 104 ? point.y + 26 : point.y - 82,
   }
 })
 
@@ -47,6 +88,9 @@ async function select(i) {
 
 <template>
   <div class="app">
+    <KakaoMap v-if="isKakao" :pins="mapPins" :padding="TRIP_MAP_PADDING" style="bottom: 404px" @pick="pickPin" @fail="useRealMap = false" />
+    <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
+    <template v-else>
     <div class="map" aria-hidden="true" style="bottom: 404px"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
     <svg class="route trip-route" viewBox="0 0 390 344">
       <polyline :points="routePoints" fill="none" stroke="#1F3A68" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 8" />
@@ -64,6 +108,7 @@ async function select(i) {
       <i v-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <template v-else>{{ i + 1 }}</template>
     </button>
+    </template>
     <RouterLink v-if="tooltip" :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'" class="tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px', transform: 'translateX(-50%)' }">
       <img :src="tooltip.stop.img" alt="" /><b class="t-strong" style="font-size: 14px">{{ tooltip.stop.name }}</b><i class="ic ic--s i-next subtle" aria-hidden="true"></i>
     </RouterLink>
@@ -84,7 +129,8 @@ async function select(i) {
       </div>
       <div ref="scrollBox" class="trip-scroll">
         <CheckList :items="trip.checks" :rain-swap="rainSwap" />
-        <TripTimeline :stops="trip.stops" :selected="selected" @select="select" />
+        <TripTimeline :stops="trip.stops" :selected="selected" @select="pickRow" />
+        <p v-if="!trip.stops.length" class="t-cap" style="margin: 0; padding: 16px 0">아직 넣은 일정이 없어요. 일정 편집에서 장소를 넣어 주세요.</p>
         <slot name="below"></slot>
       </div>
     </BottomSheet>
