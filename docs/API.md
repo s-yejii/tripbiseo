@@ -75,6 +75,8 @@
 | `GET /api/places/search` | 장소 검색 (이름·분류) | plan/PlaceSearchView, trip/PlanManualView | 있음 |
 | `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
 | `GET /api/places/popular` | 요즘 인기 장소 (다른 회원들의 최근 30일 여행 기록) | trip/MainView | 있음 |
+| `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
+| `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? 역·건물·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -647,6 +649,53 @@
 `scope`: `near`(기준점 반경) / `wide`(5km로 넓힘) / `seoul`(시범 지역 전체). `visitors`는 5명 이상일 때만 숫자예요(개인정보).
 
 **오류** 401 "로그인이 필요해요."
+
+### `GET /api/places/areas`
+여행 정보의 "어디로 가요?"에서 서울 구·동을 이름으로 찾아요. 우리 장소 DB는 주소가 도로명이라 동 이름으로 못 찾아서 카카오 로컬에 물어봐요 (결과는 저장 안 함). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=area` (11/03 추가)
+
+**요청** 쿼리 `q` (1~40자)
+
+카카오 주소 검색에서 **지역(REGION)이면서 서울**인 것만 골라요. 3개보다 적으면 키워드 검색(서울시청 20km 안, 주소가 서울)으로 보충해요 → "홍대"처럼 동 이름이 아닌 동네도 역·장소 위치로 나와요.
+
+**응답** 최대 10개
+```json
+[ { "name": "성수동1가", "fullName": "서울 성동구 성수동1가", "type": "dong", "lat": 37.54, "lng": 127.05 },
+  { "name": "성동구", "fullName": "서울 성동구", "type": "gu", "lat": 37.56, "lng": 127.03 } ]
+```
+| 필드 | 설명 |
+|---|---|
+| type | `gu` 구 / `dong` 동 / `spot` 동네·역 (키워드로 찾은 것) |
+| lat, lng | 중심 좌표 |
+
+**오류** 400 "검색어를 1~40자로 입력해 주세요." · 502 "카카오 로컬 …" (키 거절·연결 실패) · 503 "위치 검색 키(KAKAO_REST_API_KEY)가 설정되지 않았어요."
+
+### `GET /api/places/locations`
+여행 정보의 "어디서 출발해요?"에서 역·출구·건물·가게·주소를 찾아요 (카카오). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가)
+
+**요청** 쿼리 `q` (1~40자), `lat`·`lng` (없어도 됨, 있으면 `distance`가 붙음)
+
+키워드 검색(최대 15개) → 결과가 없으면 주소 검색("천호대로 1005" 같은 도로명 주소). 서울만으로 거르지 않아요 (서울 밖에서 출발할 수 있으니까).
+
+**응답**
+```json
+[ { "name": "천호역 5호선", "address": "서울 강동구 천호대로 1005", "category": "지하철역", "lat": 37.538, "lng": 127.123, "distance": 420 } ]
+```
+| 필드 | 설명 |
+|---|---|
+| address | 도로명 주소, 없으면 지번 주소 |
+| category | 카카오 분류의 마지막 칸 (예: 지하철역). 주소 검색으로 찾았으면 `주소` |
+| distance | 내 위치에서 거리(m). `lat`·`lng`를 안 보냈으면 키 없음 |
+
+**오류** `/areas`와 같아요
+
+### `GET /api/places/locations/here`
+"현재 위치에서 출발": 내 좌표의 건물 이름·주소를 줘요 (카카오 좌표→주소). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가)
+
+**요청** 쿼리 `lat`, `lng` (필수)
+
+**응답** `{ "name": "현대백화점 천호점", "address": "서울 강동구 천호대로 1005", "category": "현재 위치", "lat": 37.538, "lng": 127.123 }` (건물 이름이 없으면 `name`도 주소)
+
+**오류** 404 "이 위치의 주소를 찾지 못했어요." · 502·503 `/areas`와 같아요
 
 ### `GET /api/places/{id}`
 장소 상세 (영업시간·리뷰). · 로그인 필요 · 화면: trip/PlaceView (일정 칸의 `placeId`로 이동)
