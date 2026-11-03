@@ -37,6 +37,12 @@ public class PlaceServiceImpl implements PlaceService {
     private static final int NAME_SEARCH_RADIUS_M = 2000;
     private static final int DETAIL_REVIEW_COUNT = 10;
     // 이 말이 분류에 들어가면 야외 (비 올 때 판단)
+    // 검색어가 묶음 말일 때 (11/03: "음식점"으로 찾으면 분류가 "돈가스"·"국밥"처럼 세세해서 아무것도 안 나오던 문제)
+    private static final List<String> FOOD_WORDS = List.of("음식점", "음식", "식당", "맛집", "밥집", "밥", "먹을곳");
+    private static final List<String> CAFE_WORDS = List.of("카페", "커피", "디저트", "빵집", "베이커리");
+    private static final List<String> BAR_WORDS = List.of("술집", "술", "주점", "호프", "맥주", "이자카야", "포차", "바");
+    private static final String CAFE_PATTERN = "카페|커피|디저트|베이커리|케이크|도넛|와플|아이스크림|베이글|크레페|^차$";
+    private static final String BAR_PATTERN = "이자카야|주점|맥주|호프|포장마차|바\\(BAR\\)|와인";
     private static final String OUTDOOR_WORDS = ".*(공원|산|한강|거리|해변|숲|길|광장|시장|레포츠|축제|관광지).*";
 
     private final PlaceMapper placeMapper;
@@ -61,7 +67,11 @@ public class PlaceServiceImpl implements PlaceService {
         }
         String keyword = query.trim();
         List<PlaceCard> cards = new ArrayList<>();
-        for (Place place : placeMapper.selectPlaceList(keyword, toKind(keyword), lat, lng)) {
+        String compact = keyword.replace(" ", "");
+        String groupPattern = CAFE_WORDS.contains(compact) ? CAFE_PATTERN : BAR_WORDS.contains(compact) ? BAR_PATTERN : null;
+        boolean isFood = FOOD_WORDS.contains(compact);
+        String notFoodPattern = CAFE_PATTERN + "|" + BAR_PATTERN;
+        for (Place place : placeMapper.selectPlaceList(keyword, toKind(keyword), lat, lng, groupPattern, isFood, notFoodPattern)) {
             cards.add(getPlaceCard(place, lat, lng));
         }
         return cards;
