@@ -11,6 +11,7 @@ import TabBar from '@/components/common/TabBar.vue'
 import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import PopularPlaces from '@/components/trip/PopularPlaces.vue'
+import NotiBell from '@/components/member/NotiBell.vue'
 import { getPopularPlaces, getTrip, getTripList } from '@/api/trips'
 import { getPositionOnce } from '@/utils/position'
 import { imageFor } from '@/utils/mapView'
@@ -127,7 +128,7 @@ async function loadSeoulPopular(caption = CAPTION_SEOUL) {
   <div class="scr scr-Main">
     <div class="app">
       <HomeHeader>
-        <RouterLink to="/notifications" class="iconbtn" aria-label="알림"><i class="ic ic--l i-bell" aria-hidden="true"></i></RouterLink>
+        <NotiBell />
       </HomeHeader>
 
       <div class="scroll" style="bottom: 84px; gap: 24px; padding-top: 4px">

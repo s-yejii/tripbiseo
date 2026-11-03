@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import HomeHeader from '@/components/common/HomeHeader.vue'
 import TabBar from '@/components/common/TabBar.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
+import NotiBell from '@/components/member/NotiBell.vue'
 import { getTrip, startTrip } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { imageFor } from '@/utils/mapView'
@@ -51,7 +52,7 @@ function notNow() {
   <div class="scr scr-MainStart">
     <div class="app">
       <HomeHeader>
-        <RouterLink to="/notifications" class="iconbtn" aria-label="알림"><i class="ic ic--l i-bell" aria-hidden="true"></i></RouterLink>
+        <NotiBell />
       </HomeHeader>
 
       <div class="scroll" style="bottom: 84px; gap: 24px; padding-top: 4px">
