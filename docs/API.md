@@ -40,15 +40,18 @@
 | `POST /api/auth/signup` | 회원가입 | member/SignupView | 있음 |
 | `GET /api/auth/check-id` | 아이디 중복 확인 | member/SignupView | 있음 |
 | `GET /api/config/public` | 카카오 지도 JS 키 | 지도를 그리는 모든 화면 | 있음 |
-| `GET /api/members/me` | 내 정보 (이름·아이디·사진) | member/MyView | 확인 필요 |
-| `PUT /api/members/me` | 이름·프로필 사진 수정 | member/ProfileEditView | 확인 필요 |
+| `GET /api/members/me` | 내 정보 (이름·아이디) | member/ProfileEditView | 있음 |
+| `PUT /api/members/me` | 이름(닉네임) 수정 (프로필 사진은 칸이 없어 아직 안 함) | member/ProfileEditView | 있음 |
+| `PUT /api/members/me/password` | 비밀번호 바꾸기 (지금 비밀번호 확인) | member/ProfileEditView | 있음 |
 | `GET·PUT /api/members/me/style` | 여행 스타일 (속도·좋아하는 곳·걷기·이동 수단·비 오면 실내) | member/StyleEditView, member/SignupView | 확인 필요 |
 | `GET·PUT /api/members/me/alarms` | 알림 설정 (출발·지연·날씨 켜기/끄기, 출발 몇 분 전) | member/MyView | 확인 필요 |
 | `GET /api/notifications` | 알림 목록 (종류별) | member/NotificationsView | 확인 필요 |
 | `POST /api/notifications/read-all` | 모두 읽음 | member/NotificationsView | 확인 필요 |
 | `GET /api/friends` · `GET /api/members/search?q=` · `POST /api/friends/requests` | 친구 목록·아이디 검색·친구 요청 | member/FriendInviteView | 확인 필요 |
 | `GET·PUT·DELETE /api/location-logs` | 내 위치 기록 보기·보관 기간·모두 지우기 | member/LocHistoryView | 확인 필요 |
-| (주소 미정) | 아이디·비밀번호 찾기, 이메일 인증번호 | member/FindAccountView, member/SignupView | 확인 필요 |
+| `POST /api/auth/email-code` | 이메일 인증번호 보내기 (회원가입·계정 찾기) | member/SignupView, member/FindAccountView | 있음 |
+| `POST /api/auth/email-code/verify` | 인증번호 확인 (계정 찾기면 아이디도 알려 줌) | member/SignupView, member/FindAccountView | 있음 |
+| `POST /api/auth/reset-password` | 계정 찾기: 새 비밀번호로 바꾸기 | member/FindAccountView | 있음 |
 | (주소 미정) | 간편 로그인 (카카오·네이버·구글) | member/LoginView | 확인 필요 |
 
 ### ② 여행·일정·점검·장소 (trip)
@@ -95,6 +98,8 @@
 | `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `POST /api/trips/{id}/live/apply` | 고른 대안을 일정에 반영 | live/AltTrimView, live/AltDropView, live/AltSwapView → live/AppliedView | 있음 |
+| `POST /api/trips/{id}/live/preview` | 직접 고친 남은 일정 계산 (저장 안 함) | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
+| `GET /api/trips/{id}/live/swap-candidates` | 바꿀 장소 후보 (바꿨을 때 여유 포함) | live/AltSwapView | 있음 |
 | (주소 미정) | 줄서기 대기 시간 반영 | live/LiveView (TablingModal) | 확인 필요 |
 | (주소 미정) | "그냥 갈게요" (늦어도 그대로 가기) | live/LateModalView, member/LockDelayView | 확인 필요 |
 
@@ -106,7 +111,7 @@
 | `GET·POST /api/trips/{id}/payments` | 장소 핀에 결제 금액·누가 냈는지 적기 | after/PayMemoView, member/LockPayView | 확인 필요 |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
 | `GET·POST /api/trips/{id}/photos` | 여행 앨범 사진 | after/AlbumView | 확인 필요 |
-| `GET /api/route?from&to&mode` | 길 안내 (도보·버스·지하철·택시) | after/RouteGuideView | 확인 필요 |
+| `GET /api/route` | 길 안내: 경로선 + 단계별 안내 (도보·버스·지하철·택시) | after/RouteGuideView | 있음 |
 | `GET /api/amenities/nearby?kind=` | 근처 화장실·쓰레기통 | after/RouteGuideView, live/LiveView (AmenityChips) | 확인 필요 |
 | `POST /api/trips/{id}/visits` | 일정에 없던 곳 "들렀어요" 기록 | live/LiveView (VisitedPin), member/LockStayView | 확인 필요 |
 
@@ -191,13 +196,14 @@
 | mode | string (null 가능) | | 앞 장소에서 오는 수단 `walk` / `transit` / `taxi`. 다른 값은 `null`로 바뀜. `null`이면 거리로 자동 (700m 미만 도보) |
 | memo | string (null 가능) | | 메모 200자까지 |
 | state | string | | `todo`(갈 곳) / `done`(다녀옴) / `skipped`(뺌). 기본 `todo`. 추가할 때는 보내도 `todo`로 저장 |
+| importance | string | | 중요도 `must`(꼭) / `maybe`(가능하면) / `drop`(빼도 됨). 기본·이상한 값은 `maybe`. 수정 때 안 보내면 원래 값 (11/03 추가) |
 | arrivedAt | string (null 가능) | | GPS로 150m 안에 들어온 시각. `live/track`이 기록하고 요청 값은 무시 |
 | departedAt | string (null 가능) | | 출발한 시각. 200m 밖으로 두 번 연속 나갔거나, 다음 칸에 도착한 시각 |
 
 ```json
 { "id": 101, "tripId": 12, "day": 1, "placeId": "e70caff5-27cf-5c76-a1f3-201b7032d672",
   "name": "경복궁", "category": "관광지", "address": "서울 종로구 사직로 161", "lat": 37.5796, "lng": 126.977,
-  "time": "10:00", "stay": 90, "fixed": false, "mode": null, "memo": "", "state": "todo",
+  "time": "10:00", "stay": 90, "fixed": false, "mode": null, "memo": "", "state": "todo", "importance": "maybe",
   "arrivedAt": null, "departedAt": null }
 ```
 
@@ -293,10 +299,40 @@
 | username | string | 필수 | 영문·숫자·`_` 4~30자 |
 | password | string | 필수 | 8~72자 (BCrypt로 저장) |
 | nickname | string | | 20자까지. 비우면 아이디로 저장 |
+| email | string | 필수 | 이 브라우저에서 `POST /api/auth/email-code/verify`(purpose signup)로 인증을 마친 이메일 (11/03 추가) |
 
 **응답** `{ "ok": true }`
 
-**오류** 400 "아이디는 영문·숫자·_ 4~30자예요." · 400 "비밀번호는 8~72자예요." · 400 "닉네임은 20자까지예요." · 409 "이미 쓰는 아이디예요."
+**오류** 400 "이메일 인증을 먼저 해 주세요." · 400 "아이디는 영문·숫자·_ 4~30자예요." · 400 "비밀번호는 8~72자예요." · 400 "닉네임은 20자까지예요." · 409 "이미 쓰는 아이디예요." · 409 "이미 가입된 이메일이에요."
+
+### `POST /api/auth/email-code`
+이메일로 6자리 인증번호를 보내요 (Gmail SMTP, 보내는 계정은 `MAIL_USERNAME`). 번호는 서버 메모리에 5분만 두고, 받은 브라우저(세션)만 확인할 수 있어요. · 로그인 불필요 · 화면: member/SignupView, member/FindAccountView (11/03 추가)
+
+**요청** `{ "email": "trip@example.com", "purpose": "signup", "username": null }`
+- `purpose`: `signup`(아직 가입 안 된 이메일만) / `find`(가입된 이메일만)
+- `username`: find에서 비밀번호를 찾을 때만. 그 아이디의 이메일이 맞는지 확인
+
+**응답** `{ "expiresInSec": 300, "resendAfterSec": 60 }`
+
+**오류** 400 "이메일 형식이 맞지 않아요." · 400 "purpose는 signup·find 중 하나예요." · 409 "이미 가입된 이메일이에요." · 404 "이 이메일로 가입한 회원이 없어요." · 404 "아이디와 이메일이 맞지 않아요." · 429 "인증번호는 1분에 한 번 받을 수 있어요." · 503 "메일 계정이 설정되지 않았어요…" · 502 "메일 계정 로그인에 실패했어요…" · 502 "인증 메일을 보내지 못했어요…"
+
+### `POST /api/auth/email-code/verify`
+인증번호를 확인해요. 맞으면 이 브라우저에서 30분 동안 "인증됨"이라 가입·비밀번호 바꾸기를 할 수 있어요. 5번 틀리면 번호를 다시 받아야 해요. · 로그인 불필요 (11/03 추가)
+
+**요청** `{ "email": "trip@example.com", "code": "482915", "purpose": "signup" }`
+
+**응답** `{ "verified": true }` · purpose가 `find`면 `{ "verified": true, "username": "tripuser" }`
+
+**오류** 400 "인증번호를 먼저 받아 주세요." · 400 "인증번호 시간이 지났어요. 다시 받아 주세요." · 400 "인증번호가 맞지 않아요. (n/5)" · 400 "5번 틀려서 인증번호를 지웠어요. 다시 받아 주세요."
+
+### `POST /api/auth/reset-password`
+계정 찾기에서 이메일 인증(purpose find)을 마친 브라우저만 새 비밀번호로 바꿔요. · 로그인 불필요 (11/03 추가)
+
+**요청** `{ "email": "trip@example.com", "newPassword": "새 비밀번호" }` (8~72자)
+
+**응답** `{ "ok": true }`
+
+**오류** 400 "이메일 인증을 먼저 해 주세요." · 400 "비밀번호는 8~72자예요." · 404 "이 이메일로 가입한 회원이 없어요."
 
 ### `GET /api/auth/check-id`
 가입 전에 아이디를 쓸 수 있는지 확인해요. · 로그인 불필요 · 화면: member/SignupView
@@ -310,6 +346,29 @@
 `available`이 false면 이미 쓰는 아이디예요.
 
 **오류** 400 "아이디는 영문·숫자·_ 4~30자예요."
+
+### `GET /api/members/me`
+내 정보를 줘요. · 로그인 필요 · 화면: member/ProfileEditView
+
+**요청** 없음 · **응답** `GET /api/auth/me`와 같은 `{username, nickname, admin}` · **오류** 401 "로그인이 필요해요." · 404 "회원 정보를 찾을 수 없어요."
+
+### `PUT /api/members/me`
+이름(닉네임)을 바꿔요. 아이디는 못 바꿔요. · 로그인 필요 · 화면: member/ProfileEditView (11/03 추가)
+
+**요청** `{ "nickname": "새 이름" }` (앞뒤 공백 빼고 1~20자)
+
+**응답** 바뀐 `{username, nickname, admin}`
+
+**오류** 400 "이름을 1~20자로 입력해 주세요." · 401 "로그인이 필요해요."
+
+### `PUT /api/members/me/password`
+비밀번호를 바꿔요. 지금 비밀번호가 맞아야 해요. 로그인은 그대로 유지돼요. · 로그인 필요 · 화면: member/ProfileEditView (11/03 추가)
+
+**요청** `{ "currentPassword": "지금 비밀번호", "newPassword": "새 비밀번호" }` (새 비밀번호 8~72자, BCrypt로 저장)
+
+**응답** `{ "ok": true }`
+
+**오류** 400 "지금 비밀번호가 맞지 않아요." · 400 "비밀번호는 8~72자예요." · 400 "지금 비밀번호와 다른 비밀번호로 정해 주세요." · 401 "로그인이 필요해요."
 
 ### `GET /api/config/public`
 지도를 그릴 카카오 JavaScript 키를 줘요. · 로그인 불필요 · 화면: 지도를 그리는 모든 화면
@@ -671,6 +730,8 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | stops[].eta | string | 남은 일정이면 예상 도착, 아니면 계획 `time` |
 | stops[].reach | string | `done`(done·skipped) / `here`(지금 있는 곳) / `closed` / `missed`(계획 시간 지남) / `fixed` / `ok` / `tight`(시간 줄이면 OK) / `no`(고정 일정에 못 돌아옴) |
 | stops[].closeAt, closedReason, closingSoon | | 영업 정보 일부 |
+| stops[].importance | string | 중요도 `must`/`maybe`/`drop` (11/03 추가) |
+| stops[].moveMin, moveMode, moveMeters | number, string, number | 남은 칸만: 앞(지금 위치·앞 칸)에서 오는 이동 분·수단(`walk`/`transit`/`car`)·거리(m). 아니면 `null`. 여행 중 화면 카드 사이 이동 칩 (11/03 추가) |
 | next | object (null 가능) | 내 위치 → 다음 남은 일정 `{id, minutes, coords, source}` |
 
 ```json
@@ -785,7 +846,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | ┗ finalArrive, slackMin | | 고정 일정(없으면 마지막 일정) 예상 도착과 여유 |
 | ┗ closedCount, changes | number | 도착 때 닫힌 곳 수, 바뀌는 칸 수 |
 | ┗ coords | number[][] | 전체 경로선 |
-| ┗ stops[] | object[] | `id`(새 장소면 `null`), `placeId`, `name, category, lat, lng, stay, fixed`, `eta`(고정 일정은 계획 시각), `moveMin`(앞에서 오는 이동 분), `change`("60분 → 30분" 또는 "새로 추가", 안 바뀌면 `null`), `closedReason`, `closeAt`, `closingSoon`, `naverUrl`(DB에 없는 새 장소일 때만) |
+| ┗ stops[] | object[] | `id`(새 장소면 `null`), `placeId`, `name, category, lat, lng, stay, fixed, importance`, `eta`(고정 일정은 계획 시각), `moveMin`(앞에서 오는 이동 분), `change`("60분 → 30분" 또는 "새로 추가", 안 바뀌면 `null`), `closedReason`, `closeAt`, `closingSoon`, `naverUrl`(DB에 없는 새 장소일 때만) |
 
 ```json
 { "title": "세종문화회관에 늦지 않는 대안", "subtitle": "지금 위치·시각에서 다시 계산했어요", "weather": null, "source": "rule",
@@ -822,9 +883,63 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 **오류** 공통 오류 · 400 "적용할 대안이 없어요."
 
+### `POST /api/trips/{id}/live/preview`
+사용자가 고친 남은 일정을 계산만 해요 (저장 안 함). 시간 줄이기 슬라이더·한 곳 빼기·장소 바꾸기 화면이 고를 때마다 불러요. · 로그인 필요 · 화면: live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView · 11/03 추가
+
+**요청**
+
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| lat, lng | 필수 | 지금 위치 |
+| stops | 필수 (1개 이상) | 갈 순서대로. `id`가 남은 일정 칸이면 그 칸을 `stay`로 계산(고정 일정 머묾은 안 바꿈, `stay`가 없으면 원래 값). `id`가 없으면 `lat, lng, placeId, name, category, stay`로 새 장소(좌표 없으면 건너뜀). **목록에 없는 남은 칸은 뺀 것으로 봄** |
+
+**응답** `/live/alternatives`의 대안 하나와 같은 모양 (`key`는 `null`, `short` "직접 고르기"). `stops[].change`에 "60분 → 30분"·"새로 추가", `changes`는 뺀 칸까지 센 수
+
+> 이동 시간은 `/live/status`와 같은 방식(앞 3구간은 길찾기 API, 나머지는 거리로 추정)이라 적용 뒤 여행 중 화면 숫자와 맞아요. `/live/alternatives`·`/live/swap-candidates`는 후보를 여러 개 비교해서 전부 거리로 추정해요.
+
+**오류** 공통 오류 · 400 "계산할 일정이 없어요."
+
+### `GET /api/trips/{id}/live/swap-candidates`
+남은 칸 하나를 바꿀 장소 후보예요. · 로그인 필요 · 화면: live/AltSwapView · 11/03 추가
+
+**요청** 쿼리 `stopId`(필수, 바꿀 남은 칸), `lat`, `lng`(필수, 지금 위치)
+
+**응답** 배열, 최대 10개, 바꿀 칸에서 가까운 순. 바꿀 칸 1.5km 안 · 그 칸 시각에 영업 중(영업시간 모르면 포함) · 평점 있음 · 남은 일정에 없는 곳
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| id, name, category, address, lat, lng, rating, reviewCount, naverUrl | | 장소 카드와 같음 |
+| distance | number | 바꿀 칸에서 거리(m) |
+| moveMin, eta | number, string | 앞 장소에서 이 장소까지 이동 분, 예상 도착 |
+| finalArrive, slackMin | string, number | 이 장소로 바꾸면 고정 일정(없으면 마지막 칸) 예상 도착과 여유 |
+
+**오류** 공통 오류 · 404 "남은 일정에서 찾을 수 없어요." · 400 "고정 일정은 바꿀 수 없어요."
+
 ---
 
 ## ⑤ 여행 후·지도 부가 (after)
+
+### `GET /api/route`
+길 안내: 지금 위치에서 도착지까지 경로선과 단계별 안내. · 로그인 필요 · 화면: after/RouteGuideView · 11/03 추가
+
+**요청** 쿼리 `fromLat, fromLng, toLat, toLng`(필수), `mode`(`walk` 기본 / `bus` / `subway` / `car`)
+
+**응답**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| mode | string | 요청한 수단 |
+| available | boolean | 이 수단으로 길을 찾았나. `false`면 `message`에 이유 (키 없음, 대중교통 상품 미신청, 버스로만 가는 길 없음 등) |
+| message | string (null 가능) | 못 찾은 이유 |
+| source | string | `tmap` / `odsay` |
+| minutes, meters | number | 걸리는 시간·거리 |
+| fare | number (null 가능) | 택시는 예상 택시비, 대중교통은 요금 |
+| coords | number[][] | 경로선 `[[위도, 경도], ...]` |
+| steps[] | object[] | `lat, lng`(없을 수 있음), `kind`(`start`/`straight`/`left`/`right`/`crosswalk`/`stairs`/`walk`/`bus`/`subway`/`getoff`/`car`/`end`), `text`("좌회전 후 50m 이동", "버스 470 타기"), `detail`("광화문 → 서울역 · 4정거장 · 8분 · ○○ 방면", 없으면 `null`), `key`(놓치면 안 되는 단계) |
+
+> 도보 TMAP 보행자, 택시 TMAP 자동차(예상 택시비), 버스·지하철은 TMAP 대중교통(상품 신청 필요) → 실패하면 ODsay. 버스는 버스만 타는 경로, 지하철은 지하철이 들어간 경로를 골라요. 같은 요청은 1분 동안 다시 부르지 않아요.
+
+**오류** 400 "출발·도착 좌표가 필요해요." · 400 "이동 수단은 walk·bus·subway·car 중 하나예요."
 
 ### `GET /api/trips/{id}/retro`
 회고: 계획과 실제를 비교하고 GPS 선을 줘요. · 로그인 필요 · 화면: after/RetroView
