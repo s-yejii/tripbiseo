@@ -6,11 +6,13 @@ import { useRoute, useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import RangeCalendar from '@/components/plan/RangeCalendar.vue'
 import WishLinks from '@/components/plan/WishLinks.vue'
+import { useTripStore } from '@/stores/trip'
 import { showToast } from '@/utils/toast'
 
 const route = useRoute()
 const router = useRouter()
 const byMe = route.query.method === 'me'
+const store = useTripStore() // 고른 지역·출발지 (planArea · planOrigin)
 
 const start = ref(1024)
 const end = ref(null)
@@ -71,7 +73,7 @@ function goNext() {
       <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 102px">
         <section class="card card--pad pa-sec" aria-labelledby="pa-where">
           <h2 id="pa-where" class="t-sub">어디로 가요?</h2>
-          <RouterLink to="/plan/search?mode=area" class="field__box pickbox"><i class="ic i-pin subtle" aria-hidden="true"></i><span class="val">서울 천호동</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+          <RouterLink to="/plan/search?mode=area" class="field__box pickbox"><i class="ic i-pin subtle" aria-hidden="true"></i><span class="val" :class="{ 'is-empty': !store.planArea }">{{ store.planArea ? store.planArea.fullName : '동·구 이름으로 찾기' }}</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-when">
@@ -87,7 +89,7 @@ function goNext() {
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-from">
           <h2 id="pa-from" class="t-sub">어디서 출발해요?</h2>
-          <RouterLink to="/plan/search?mode=origin" class="field__box pickbox"><i class="ic i-search subtle" aria-hidden="true"></i><span class="val">천호역 1번 출구</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+          <RouterLink to="/plan/search?mode=origin" class="field__box pickbox"><i class="ic i-search subtle" aria-hidden="true"></i><span class="val" :class="{ 'is-empty': !store.planOrigin }">{{ store.planOrigin ? store.planOrigin.name : '역·건물·주소로 찾기' }}</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-who">
@@ -155,6 +157,7 @@ function goNext() {
 .scr-PlanAI .pickbox{padding-right:12px;text-decoration:none;color:var(--ink);transition:border-color .15s,background .15s}
 .scr-PlanAI .pickbox:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .pickbox .val{flex:1;font-size:16px}
+.scr-PlanAI .pickbox .val.is-empty{color:var(--ink-subtle)}
 .scr-PlanAI .stayrow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-lg);border:1.5px dashed var(--line-strong);text-decoration:none;color:var(--ink);transition:border-color .15s,background .15s}
 .scr-PlanAI .stayrow:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .stayrow.is-set{border-style:solid;border-color:var(--line)}

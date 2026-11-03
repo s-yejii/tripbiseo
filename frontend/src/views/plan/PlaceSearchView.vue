@@ -1,69 +1,149 @@
 <script setup>
 // S06-b 장소 검색 · 시간 고정 (③): 지역 / 출발지 / 꼭 지킬 시간(예약) 고르기를 한 화면이 같이 해요
 // 주소: /plan/search?mode=area | origin | fixed
-import { computed, ref } from 'vue'
+//   area   : 어디로 가요? 서울 구·동 이름으로 찾기 → GET /api/places/areas (카카오)
+//   origin : 어디서 출발해요? 역·출구·건물·주소로 찾기 → GET /api/places/locations, 현재 위치 → /api/places/locations/here
+//   고른 값은 store.planArea · store.planOrigin 에 { 이름, 좌표 }로 담아요
+//   fixed  : 꼭 지킬 시간 (아직 가짜 목록)
+import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
+import { getLocationHere, searchAreas, searchLocations } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
 import { goBack } from '@/utils/back'
+import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
 
-const route = useRoute()
-const mode = ['area', 'origin', 'fixed'].includes(route.query.mode) ? route.query.mode : 'fixed'
+const SEARCH_WAIT_MS = 300 // 글자를 다 칠 때까지 기다렸다가 찾기
+const TYPE_TEXT = { gu: '구', dong: '동', spot: '동네' }
 
-// 가짜 데이터: 검색 결과 (백엔드가 붙으면 장소 검색 API)
-const results = {
-  area: [
-    { name: '서울 천호동', desc: '카페·편집숍·맛집이 모여 있어요', img: '/img/alley.jpg' },
-    { name: '서울 을지로', desc: '노포와 골목 술집', img: '/img/euljiro.jpg' },
-    { name: '전주 한옥마을', desc: '1박 2일로 많이 가요', img: '/img/jeonju.jpg' },
-    { name: '부산 해운대', desc: '바다·야경', img: '/img/busan.jpg' },
-  ],
-  origin: [
-    { name: '천호역 1번 출구', desc: '5·8호선 · 성내동 카페까지 도보 8분', img: '/img/alley.jpg' },
-    { name: '강동역 8번 출구', desc: '5호선 · 천호공원까지 도보 5분', img: '/img/seoulforest.jpg' },
-    { name: '천호공원역 4번 출구', desc: '수인분당선', img: '/img/forestshop.jpg' },
-  ],
-  fixed: [
-    { name: '잔나비 콘서트', desc: '공연 · 잠실실내체육관 · 19:00 공연 · 18:00 입장', img: '/img/concert.svg', time: '18:30' },
-    { name: '잔나비 콘서트 (일요일 회차)', desc: '공연 · 잠실실내체육관 · 18:00 공연', img: '/img/concert.svg', time: '17:30' },
-    { name: '천호 아트홀 전시', desc: '전시 · 천호동 · 10:00–19:00', img: '/img/gallery.jpg', time: '15:00' },
-    { name: '천호 40년 순댓국', desc: '노포·한식 · 천호역 · 07:00–21:00', img: '/img/euljiro.jpg', time: '12:00' },
-  ],
-}
+const route = useRoute()
+const store = useTripStore()
+const mode = ['area', 'origin', 'fixed'].includes(route.query.mode) ? route.query.mode : 'fixed'
+const isKakao = mode !== 'fixed' // 지역·출발지는 카카오로 진짜 검색
+
+// 가짜 데이터: 꼭 지킬 시간 검색 결과 (백엔드가 붙으면 장소 검색 API)
+const fixedResults = [
+  { name: '잔나비 콘서트', desc: '공연 · 잠실실내체육관 · 19:00 공연 · 18:00 입장', img: '/img/concert.svg', time: '18:30' },
+  { name: '잔나비 콘서트 (일요일 회차)', desc: '공연 · 잠실실내체육관 · 18:00 공연', img: '/img/concert.svg', time: '17:30' },
+  { name: '천호 아트홀 전시', desc: '전시 · 천호동 · 10:00–19:00', img: '/img/gallery.jpg', time: '15:00' },
+  { name: '천호 40년 순댓국', desc: '노포·한식 · 천호역 · 07:00–21:00', img: '/img/euljiro.jpg', time: '12:00' },
+]
 const texts = {
-  area: { title: '어디로 가요?', placeholder: '지역 이름', button: '이 지역으로' },
-  origin: { title: '어디서 출발해요?', placeholder: '역·건물 이름', button: '여기서 출발' },
-  fixed: { title: '꼭 지킬 시간 추가', placeholder: '예약한 곳 이름', button: '고정 일정으로 넣기' },
+  area: { title: '어디로 가요?', placeholder: '동·구 이름 (예: 성수동, 마포구, 홍대)', button: '이 지역으로', hint: '서울 안에서 동이나 구 이름으로 찾아요' },
+  origin: { title: '어디서 출발해요?', placeholder: '역·건물·주소 (예: 천호역 1번 출구)', button: '여기서 출발', hint: '역 출구, 건물 이름, 도로명 주소로 정확히 찾아요' },
+  fixed: { title: '꼭 지킬 시간 추가', placeholder: '예약한 곳 이름', button: '고정 일정으로 넣기', hint: '' },
 }
 const text = texts[mode]
+const current = mode === 'area' ? store.planArea : mode === 'origin' ? store.planOrigin : null // 지금 골라 둔 값
 
 const keyword = ref(mode === 'fixed' ? '천호' : '')
-const now = { area: '서울 천호동', origin: '천호역 1번 출구', fixed: null }
-const pickedName = ref(null) // null 이면 첫 결과(또는 지금 값)를 골라 둔 상태
+const found = ref([]) // 카카오 결과
+const isLoading = ref(false)
+const isLocating = ref(false)
+const error = ref('')
+const pickedIndex = ref(-1) // 카카오 결과에서 고른 칸
+const fixedPickedName = ref(null)
 const time = ref('')
+let position = null // 출발지: 내 위치 (가까운 곳 거리 표시)
+let timer = null
+let requestNo = 0 // 늦게 온 예전 검색 결과는 버리려고
 
-const list = computed(() => {
-  const word = keyword.value.trim()
-  return results[mode].filter((item) => !word || item.name.includes(word) || item.desc.includes(word))
-})
-const picked = computed(() => {
-  const name = pickedName.value || (mode === 'fixed' ? list.value[0]?.name : now[mode])
-  return list.value.find((item) => item.name === name) || null
-})
-
-function pick(item) {
-  pickedName.value = item.name
-  time.value = item.time || ''
+if (mode === 'origin') {
+  getPositionOnce().then((pos) => (position = pos))
 }
+onUnmounted(() => clearTimeout(timer))
+
+// 꼭 지킬 시간 (가짜)
+const fixedList = computed(() => {
+  const word = keyword.value.trim()
+  return fixedResults.filter((item) => !word || item.name.includes(word) || item.desc.includes(word))
+})
+const fixedPicked = computed(() => fixedList.value.find((item) => item.name === (fixedPickedName.value || fixedList.value[0]?.name)) || null)
+
+const picked = computed(() => (isKakao ? found.value[pickedIndex.value] || null : fixedPicked.value))
+
 function search(value) {
   keyword.value = value
-  pickedName.value = null
+  if (!isKakao) {
+    fixedPickedName.value = null
+    return
+  }
+  clearTimeout(timer)
+  pickedIndex.value = -1
+  error.value = ''
+  if (!value.trim()) {
+    found.value = []
+    isLoading.value = false
+    return
+  }
+  isLoading.value = true
+  timer = setTimeout(() => runSearch(value.trim()), SEARCH_WAIT_MS)
 }
+
+async function runSearch(word) {
+  const no = ++requestNo
+  try {
+    const list = mode === 'area' ? await searchAreas(word) : await searchLocations(word, position?.lat, position?.lng)
+    if (no !== requestNo) return
+    found.value = list
+  } catch (e) {
+    if (no !== requestNo) return
+    found.value = []
+    error.value = e.message
+  }
+  isLoading.value = false
+}
+
+// 현재 위치로 출발: GPS → 주소 → 맨 위에 넣고 골라 둠
+async function useHere() {
+  isLocating.value = true
+  const pos = await getPositionOnce()
+  if (!pos) {
+    isLocating.value = false
+    showToast('위치를 받지 못했어요. 브라우저 위치 권한을 확인해 주세요')
+    return
+  }
+  position = pos
+  try {
+    const here = await getLocationHere(pos.lat, pos.lng)
+    found.value = [here, ...found.value]
+    pickedIndex.value = 0
+  } catch (e) {
+    showToast(e.message)
+  }
+  isLocating.value = false
+}
+
+function iconOf(item) {
+  if (mode === 'area') return 'i-pin'
+  if (item.category === '현재 위치') return 'i-locate'
+  if (/지하철|전철/.test(item.category)) return 'i-subway'
+  if (/버스/.test(item.category)) return 'i-bus'
+  return 'i-pin'
+}
+function subOf(item) {
+  if (mode === 'area') return item.fullName
+  const distance = item.distance == null ? '' : ' · ' + (item.distance >= 1000 ? (item.distance / 1000).toFixed(1) + 'km' : item.distance + 'm')
+  return (item.category ? item.category + ' · ' : '') + item.address + distance
+}
+
+function pickFixed(item) {
+  fixedPickedName.value = item.name
+  time.value = item.time || ''
+}
+
 function done() {
   const item = picked.value
-  if (mode === 'area') showToast('지역을 ' + item.name + '(으)로 바꿨어요')
-  else if (mode === 'origin') showToast('출발지를 바꿨어요')
-  else showToast(item.name + ' ' + (time.value || item.time) + ' 고정했어요')
+  if (mode === 'area') {
+    store.planArea = { name: item.name, fullName: item.fullName, lat: item.lat, lng: item.lng }
+    showToast('지역을 ' + item.name + '(으)로 정했어요')
+  } else if (mode === 'origin') {
+    store.planOrigin = { name: item.name, address: item.address, lat: item.lat, lng: item.lng }
+    showToast(item.name + '에서 출발해요')
+  } else {
+    showToast(item.name + ' ' + (time.value || item.time) + ' 고정했어요')
+  }
   goBack('/plan/info')
 }
 </script>
@@ -78,7 +158,7 @@ function done() {
           <button type="button" class="iconbtn iconbtn--soft" aria-label="닫기" @click="goBack('/plan/info')"><i class="ic i-close" aria-hidden="true"></i></button>
         </div>
         <div class="field is-focus">
-          <label class="sr" for="ps-q">장소 검색</label>
+          <label class="sr" for="ps-q">{{ text.title }}</label>
           <div class="field__box">
             <i class="ic i-search subtle" aria-hidden="true"></i>
             <input id="ps-q" :value="keyword" type="search" :placeholder="text.placeholder" autocomplete="off" @input="search($event.target.value)" />
@@ -86,14 +166,41 @@ function done() {
           </div>
         </div>
 
-        <div role="radiogroup" aria-label="검색 결과" class="ps-list">
-          <div v-for="item in list" :key="item.name" class="opt ps-item" :class="{ 'is-on': picked === item }">
-            <button type="button" role="radio" :aria-checked="picked === item" class="ps-hit" @click="pick(item)">
+        <!-- 지역·출발지: 카카오 검색 -->
+        <template v-if="isKakao">
+          <button v-if="mode === 'origin'" type="button" class="btn btn--secondary btn--md" :disabled="isLocating" @click="useHere">
+            <i class="ic i-locate" aria-hidden="true"></i>{{ isLocating ? '위치 찾는 중…' : '현재 위치에서 출발' }}
+          </button>
+
+          <div role="radiogroup" :aria-label="text.title + ' 검색 결과'" class="ps-list">
+            <div v-for="(item, i) in found" :key="item.name + item.lat + item.lng" class="opt ps-item" :class="{ 'is-on': pickedIndex === i }">
+              <button type="button" role="radio" :aria-checked="pickedIndex === i" class="ps-hit" @click="pickedIndex = i">
+                <span class="ico-tile"><i class="ic" :class="iconOf(item)" aria-hidden="true"></i></span>
+                <span class="opt__body">
+                  <b class="t-sub">{{ item.name }} <span v-if="mode === 'area'" class="badge badge--neutral" style="vertical-align: 2px">{{ TYPE_TEXT[item.type] }}</span></b>
+                  <span class="t-cap">{{ subOf(item) }}</span>
+                </span>
+                <span class="radio"></span>
+              </button>
+            </div>
+            <p v-if="isLoading" class="t-cap ps-msg">'{{ keyword }}' 찾는 중…</p>
+            <p v-else-if="error" class="t-cap ps-msg"><i class="ic ic--s i-warning c-warning" aria-hidden="true"></i> {{ error }}</p>
+            <p v-else-if="keyword && !found.length" class="t-cap ps-msg">'{{ keyword }}' 결과가 없어요. {{ mode === 'area' ? '동이나 구 이름으로 찾아보세요 (서울만)' : '역 이름이나 도로명 주소로 찾아보세요' }}</p>
+            <p v-else-if="!keyword" class="t-cap ps-msg">
+              {{ text.hint }}<template v-if="current"><br />지금: <b>{{ current.name }}</b></template>
+            </p>
+          </div>
+        </template>
+
+        <!-- 꼭 지킬 시간 (가짜 목록) -->
+        <div v-else role="radiogroup" aria-label="검색 결과" class="ps-list">
+          <div v-for="item in fixedList" :key="item.name" class="opt ps-item" :class="{ 'is-on': picked === item }">
+            <button type="button" role="radio" :aria-checked="picked === item" class="ps-hit" @click="pickFixed(item)">
               <img class="thumb" :src="item.img" alt="" />
               <span class="opt__body"><b class="t-sub">{{ item.name }}</b><span class="t-cap">{{ item.desc }}</span></span>
               <span class="radio"></span>
             </button>
-            <template v-if="picked === item && mode === 'fixed'">
+            <template v-if="picked === item">
               <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px">
                 <label class="field__box" style="flex: 1; height: 44px" for="ps-time">
                   <i class="ic i-clock subtle" aria-hidden="true"></i>
@@ -104,7 +211,7 @@ function done() {
               <p class="t-cap" style="display: flex; gap: 4px; align-items: center; padding: 0 12px 12px"><i class="ic ic--s i-info c-navy" aria-hidden="true"></i>다른 일정이 이 시간에 맞춰 움직여요</p>
             </template>
           </div>
-          <p v-if="!list.length" class="t-cap" style="text-align: center; padding: 24px 0">'{{ keyword }}' 결과가 없어요. 다른 이름으로 찾아보세요.</p>
+          <p v-if="!fixedList.length" class="t-cap ps-msg">'{{ keyword }}' 결과가 없어요. 다른 이름으로 찾아보세요.</p>
         </div>
 
         <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!picked" @click="done">{{ text.button }}</button>
@@ -118,4 +225,5 @@ function done() {
 .scr-PlaceSearch .ps-item{flex-direction:column;align-items:stretch;gap:12px;padding:0}
 .scr-PlaceSearch .ps-hit{display:flex;align-items:center;gap:12px;padding:12px;border:0;background:none;text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%;border-radius:var(--radius-lg)}
 .scr-PlaceSearch .sheet{bottom:0}
+.scr-PlaceSearch .ps-msg{text-align:center;padding:24px 0;line-height:20px}
 </style>

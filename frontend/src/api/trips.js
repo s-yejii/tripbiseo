@@ -29,6 +29,18 @@ export const searchPlaces = (q, lat, lng) => {
 export const getNearbyPlaces = (lat, lng, radius = 200) => get(`/places/nearby?lat=${lat}&lng=${lng}&radius=${radius}`)
 export const getPlaceDetail = (placeId) => get(`/places/${encodeURIComponent(placeId)}`)
 
+// ② 어디로 가요?(서울 구·동) · 어디서 출발해요?(역·건물·주소) · 현재 위치 주소 — 카카오로 찾아요
+export const searchAreas = (q) => get('/places/areas?' + new URLSearchParams({ q }))
+export const searchLocations = (q, lat, lng) => {
+  const params = new URLSearchParams({ q })
+  if (lat != null && lng != null) {
+    params.set('lat', lat)
+    params.set('lng', lng)
+  }
+  return get('/places/locations?' + params)
+}
+export const getLocationHere = (lat, lng) => get(`/places/locations/here?lat=${lat}&lng=${lng}`)
+
 // ③ AI 일정
 export const chatPlan = (message, conditions) => post('/plans/chat', { message, conditions })
 export const generatePlan = (conditions, messages, lat, lng) => post('/plans/generate', { conditions, messages, lat, lng })
