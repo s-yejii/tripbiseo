@@ -4,7 +4,10 @@ export const KIND_CHIPS = [
   { code: 'food', label: '맛집' },
   { code: 'cafe', label: '카페·디저트' },
   { code: 'bar', label: '술집' },
-  // 관광·산책(tour)은 지금 관광지 데이터가 종로뿐이라 TourAPI로 서울 전체를 받은 뒤에 넣어요
+  // 관광·전시·쇼핑은 TourAPI 서울 데이터(db/06_retrip_seed_tour_seoul.sql)를 넣어야 종로 밖에서도 걸려요
+  { code: 'tour', label: '관광·산책' },
+  { code: 'culture', label: '전시·문화' },
+  { code: 'shop', label: '쇼핑' },
 ]
 export const TAG_CHIPS = [
   { code: 'mood', label: '분위기 좋은' },

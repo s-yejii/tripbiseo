@@ -51,10 +51,10 @@ function add() {
   if (found.value && found.value.lat != null) {
     store.addDraftPlace({ id: found.value.placeId, name: placeName, address: found.value.address, lat: found.value.lat, lng: found.value.lng }, true, time.value)
   }
-  if (store.planConditions) {
-    const fixed = store.planConditions.fixed || []
-    store.planConditions = { ...store.planConditions, fixed: [...fixed, { name: placeName, time: time.value }] }
-  }
+  // 여행 정보 화면에서 먼저 왔으면 조건이 아직 없어서 새로 만듦 (여행 정보의 다음 버튼이 이 값을 그대로 이어 씀)
+  const conditions = store.planConditions || {}
+  const fixed = conditions.fixed || []
+  store.planConditions = { ...conditions, fixed: [...fixed, { name: placeName, time: time.value }] }
   showToast(placeName + ' ' + time.value + ' 고정했어요')
   goBack('/plan/info')
 }

@@ -12,6 +12,7 @@
 | `db/01_common.sql` | PostGIS + 공통 테이블 5개 (member, trip, trip_stop, retrip_place, retrip_review) | DB 총괄 |
 | `db/02_retrip_schema.sql` | 예전 결제·테마 `retrip_expense`, `retrip_theme` (+ FK 때문에 `retrip_trip`) | DB 총괄 |
 | `db/03~05_…` | 장소·리뷰 데이터 넣기 (04·05는 고치지 않음) | DB 총괄 |
+| `db/06_retrip_seed_tour_seoul.sql` | 서울 관광지·문화시설·쇼핑 (TourAPI, `source='tour'`). `db/tour/make_tour_seed.mjs`로 만들어요 (11/03) | DB 총괄 |
 | `db/11_member.sql` | ① 테이블 | ① |
 | `db/12_trip.sql` | ② 테이블 (`trip_chat`) | ② |
 | `db/13_plan.sql` | ③ 테이블 | ③ |
@@ -21,7 +22,7 @@
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
 | `db/95_demo_seed.sql` | 시연용 가상 사용자 데이터 (회원 `demo_001`~`demo_300` · 여행 · 일정 칸, 비밀번호 demo1234!). `db/demo/make_demo_seed.py`로 만듦. 지우기: `DELETE FROM member WHERE username LIKE 'demo\_%';` | DB 총괄 |
 
-파일 번호 순서대로(01 → 02 → 03~05 → 11~15 → 90) 실행하면 내 PC DB에 모든 테이블이 생겨요. 모든 SQL은 다시 실행해도 오류가 나지 않게 써요 (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+파일 번호 순서대로(01 → 02 → 03~06 → 11~15 → 90 → 95) 실행하면 내 PC DB에 모든 테이블이 생겨요. 모든 SQL은 다시 실행해도 오류가 나지 않게 써요 (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
 ## 테이블 목록 (이름표)
 

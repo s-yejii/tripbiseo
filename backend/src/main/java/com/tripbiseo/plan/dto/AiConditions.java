@@ -17,4 +17,6 @@ public class AiConditions {
     private List<String> mustVisit;
     private List<FixedVisit> fixed;
     private String style;
+    private List<String> kinds;         // 새로 말한 장소 종류 코드 (food·cafe·bar·tour·culture·shop) — 기존에 더함 (11/03)
+    private List<String> tags;          // 새로 말한 분위기 태그 코드 (mood·quiet·value·no_wait·solo) — 기존에 더함
 }

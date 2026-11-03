@@ -748,8 +748,10 @@
 | conditions.startDate / endDate | 없으면 오늘 / startDate |
 | conditions.people | 없으면 1 |
 | conditions.transports | 없으면 `["subway","bus","walk"]` |
-| conditions.mustVisit | 꼭 갈 곳 이름 |
-| conditions.fixed | 시간이 정해진 일정 `[{name, time}]` |
+| conditions.mustVisit | 꼭 갈 곳 이름. **새로 말한 것을 기존 목록에 더함** (11/03, 빼기는 화면 조건 카드의 ×) |
+| conditions.fixed | 시간이 정해진 일정 `[{name, time}]`. 이름이 같은 건 빼고 더함 |
+| conditions.kinds / tags | (11/03) 말에서 나온 장소 종류·분위기 코드를 더함 ("웨이팅 싫어" → `no_wait`, "전시도 보고 싶어" → `culture`). 정해진 코드 밖 값은 버림 |
+| conditions.areaLat·areaLng·areaType | 말로 다른 지역을 말하면 `null`로 지움 (화면에서 고른 지역 좌표와 안 맞아서 → 지역 이름으로 후보). "성수동"처럼 같은 지역을 줄여 말한 건 그대로 |
 | conditions.style | 여행 스타일 한 줄 |
 
 `title·region·mustVisit·fixed·style`은 Gemini가 말하지 않으면 키가 없을 수 있어요.
@@ -806,7 +808,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
+| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
@@ -817,12 +819,17 @@
 | title | 여행 이름 (Gemini가 다시 지으면 그 이름, 60자까지) |
 | startDate, endDate, people | 조건 값 |
 | transports | 조건의 수단. **조건에 없으면 `[]`** (그대로 저장하면 400) |
-| stops | 초안 `Stop[]` (`day → time` 순). `id`·`tripId`·`mode`·`memo`·`arrivedAt`·`departedAt`는 `null`, `state`는 `"todo"`, `stay` 10~600, DB 밖 장소면 `placeId`가 `null` |
-| notes | 안내 문구 `[{text, url}]` (없으면 `[]`). 예: "{이름}의 위치를 찾지 못해 뺐어요", "AI 연결이 안 돼서 꼭 갈 곳만 순서대로 담았어요 (...)". `url`은 네이버 지도 검색 링크, AI 실패 안내는 `null` |
+| stops | 초안 `Stop[]` (`day → time` 순). `id`·`tripId`·`mode`·`arrivedAt`·`departedAt`는 `null`. `memo`는 고른 이유 · 리뷰 근거 (예: "조용한 동네 카페 · 조용해요 · 리뷰 10개 중 4개", 없으면 `null`, 200자까지 — 저장하면 그대로 칸 메모로 남음), `state`는 `"todo"`, `stay` 10~600, DB 밖 장소면 `placeId`가 `null` |
+| notes | 안내 문구 `[{text, url}]` (없으면 `[]`). 예: "{이름}의 위치를 찾지 못해 뺐어요", "AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요 (...)", "AI가 고른 2곳이 고른 종류·영업시간과 맞지 않아 평점·거리로 다시 골랐어요", "고른 지역 근처에서 쇼핑 장소를 찾지 못해 일정에 못 넣었어요". `url`은 네이버 지도 검색 링크, AI 실패 안내는 `null` |
 
 **오류** 400 "여행 조건이 없어요." · 422 "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요." · 422 "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요."
 
-> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 **규칙으로** 초안을 만들어요 (11/03): 꼭 갈 곳·고정 일정 + 고른 종류마다 정한 시각(점심 12:00 식당, 14:00 카페, 20:30 술집 …)에 "점수 − 거리" 가 가장 큰 후보. 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3, 거리는 앞 장소(첫 장소는 출발지·전날 숙소)에서 1km마다 0.3 뺌.
+> 꼭 갈 곳·시간 고정 일정 (11/03): Gemini 답에 빠졌으면 서버가 더함 (고정은 그 시각, 꼭 갈 곳은 10:00부터 2시간 간격으로 고정 일정과 안 겹치는 시각).
+>
+> 칩 반영 (11/03): **고른 칩은 서버가 지키고, Gemini는 칸 안에서 고르기·이유만** 맡아요.
+> ① 서버가 고른 종류로 하루 칸(S1 10:00 관광 …)을 만들어 프롬프트에 줌 ② 후보 목록은 종류마다 골고루(꼭 갈 곳 먼저, 종류마다 한 곳씩 돌아가며 90곳까지), 한 줄에 종류·평점·리뷰 근거(태그) ③ Gemini는 칸마다 `{day, slot, id, reason}` ④ 서버 검사: 후보 안·칸 종류와 같음(꼭 갈 곳은 예외)·안 겹침·도착 때 영업. 어긴 **그 칸만** 아래 규칙으로 다시 고르고 `notes`에 몇 곳 바꿨는지 적음. 꼭 갈 곳·시간 고정 일정(slot 없음)과 시간이 겹치는 칸은 비움.
+>
+> Gemini가 실패해도 오류를 내지 않고, `notes`에 적은 뒤 **규칙으로** 초안을 만들어요 (11/03): 꼭 갈 곳·고정 일정 + 하루 칸(10:00 관광·전시·쇼핑, 12:00 점심, 13:40 카페, 15:10 전시·관광, 16:50 쇼핑·카페, 18:30 저녁, 20:30 술집)마다 고른 종류 중 그 시각에 영업하는 곳에서 "점수 − 거리" 가 가장 큰 후보. 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3, 거리는 앞 장소(첫 장소는 출발지·전날 숙소)에서 1km마다 0.3 뺌.
 >
 > 후보 (11/03): `areaLat`이 있으면 그 중심 반경(구 3km · 동 1.5km)에서 고른 종류마다 보정 평점 순 25곳 (장소 종류는 PlaceMapper `kindCase` 하나로 정해요). 없으면 예전처럼 내 위치·지역 이름.
 >
