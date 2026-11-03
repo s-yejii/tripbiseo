@@ -17,7 +17,7 @@ function callTaxi() {
   showToast('택시 앱을 열어요 · 천호 로데오거리 → 잠실실내체육관')
 }
 function tellFriend() {
-  router.push('/live')
+  router.replace('/live')
   showToast('지은에게 보냈어요 · "택시 탔어, 18:40쯤 도착해"')
 }
 </script>

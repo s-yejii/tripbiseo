@@ -46,7 +46,7 @@ function editLabel(selected) {
 
 async function save() {
   if (!hasDraft.value) {
-    router.push('/trips/today')
+    router.replace('/trips/today')
     showToast('일정을 저장했어요')
     return
   }
@@ -56,7 +56,7 @@ async function save() {
     store.tripId = saved.id
     store.resetDraft()
     showToast('일정을 저장했어요')
-    router.push('/trips/today?id=' + saved.id)
+    router.replace('/trips/today?id=' + saved.id)
   } catch (e) {
     showToast(e.message)
   } finally {

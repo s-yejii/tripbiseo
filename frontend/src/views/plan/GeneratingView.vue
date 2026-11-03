@@ -58,11 +58,11 @@ function getPosition() {
 onUnmounted(() => clearInterval(timer))
 
 function openResult() {
-  router.push(tooMany.value ? '/plan/fail' : '/plan/check')
+  router.replace(tooMany.value ? '/plan/fail' : '/plan/check')
 }
 function waitAtHome() {
   showToast('끝나면 알림을 보낼게요')
-  router.push('/')
+  router.replace('/')
 }
 </script>
 
