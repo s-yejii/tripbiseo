@@ -12,6 +12,7 @@ import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import PopularPlaces from '@/components/trip/PopularPlaces.vue'
 import NotiBell from '@/components/member/NotiBell.vue'
+import ThemeCircles from '@/components/plan/ThemeCircles.vue'
 import { getPopularPlaces, getTrip, getTripList } from '@/api/trips'
 import { getPositionOnce } from '@/utils/position'
 import { imageFor } from '@/utils/mapView'
@@ -163,6 +164,9 @@ async function loadSeoulPopular(caption = CAPTION_SEOUL) {
             <RouterLink v-else :to="tripDetailLink(trip)" class="btn btn--primary btn--lg btn--block">일정 보기</RouterLink>
           </div>
         </section>
+
+        <!-- 테마로 떠나기 (③, 지금은 가짜 테마 → 누르면 준비 중) -->
+        <ThemeCircles v-if="!isLoading && !error" />
 
         <!-- 요즘 인기 장소 (다른 사람들의 최근 한 달 여행 기록) -->
         <PopularPlaces v-if="popular" :title="popular.title" :caption="popular.caption" :places="popular.places" />
