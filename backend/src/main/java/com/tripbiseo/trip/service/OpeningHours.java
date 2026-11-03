@@ -148,6 +148,11 @@ public class OpeningHours {
         return text;
     }
 
+    /** 그날 쉬는 날인지 (인기 장소에서 오늘 쉬는 곳을 뺄 때) */
+    public boolean isRestDay(Place place, LocalDate date) {
+        return findRestReason(place, date) != null;
+    }
+
     /** 휴무일이면 이유 글, 아니면 null ("매주 월요일" / 요일별 표기의 "월 정기휴무") */
     private String findRestReason(Place place, LocalDate date) {
         String dayName = getDayName(date);

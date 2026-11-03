@@ -39,4 +39,12 @@ public interface PlaceMapper {
 
     /** 장소 리뷰 본문, 긴 순 최대 limit개 */
     List<String> selectReviewList(@Param("placeId") String placeId, @Param("limit") int limit);
+
+    /**
+     * 인기 장소 (11/03): 다른 회원들의 최근 30일 일정 기록 점수 순 → 같으면 보정 평점 순.
+     * 다녀옴 1점·계획 0.3점, 최근 7일 여행은 2배. 평점 3.0 미만·숙박·내가 최근 30일 다녀온 곳은 뺌.
+     * lat·lng가 있으면 distance, radius가 있으면 그 반경(m) 안만. 최대 limit개
+     */
+    List<Place> selectPopularPlaceList(@Param("memberId") long memberId, @Param("lat") Double lat, @Param("lng") Double lng,
+                                       @Param("radius") Integer radius, @Param("limit") int limit);
 }
