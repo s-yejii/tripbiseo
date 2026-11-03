@@ -34,6 +34,9 @@ public class PlanCandidateFinder {
     private static final int DONG_RADIUS_M = 1500;  // 동·동네를 고르면 1.5km (걸어서 20분)
     private static final int KIND_LIMIT = 25;       // 종류마다 후보 수 (평점 순)
     // 화면 태그 코드 → ④ PlaceTagReader가 리뷰에서 세는 태그 이름
+    // 종류 코드 → 프롬프트·안내에 쓰는 이름 (PlaceMapper kindCase와 같은 코드)
+    private static final Map<String, String> KIND_NAMES = Map.of("food", "밥집", "cafe", "카페", "bar", "술집", "tour", "관광·산책",
+            "culture", "전시·문화", "shop", "쇼핑", "stay", "숙소", "etc", "기타");
     private static final Map<String, String> TAG_NAMES = Map.of("mood", "분위기", "quiet", "조용", "value", "가성비",
             "no_wait", "웨이팅없음", "solo", "혼밥");
 
@@ -80,20 +83,81 @@ public class PlanCandidateFinder {
         }
     }
 
+    /** 후보들의 리뷰 태그 개수 (장소 id → 개수). 점수·이유에 같이 쓰려고 한 번만 셈 */
+    public Map<String, PlaceTagCount> countTags(Map<String, Place> candidates) {
+        return placeTagReader.countTags(new ArrayList<>(candidates.values()));
+    }
+
     /** 후보마다 점수 = 보정 평점 + 고른 태그가 리뷰에 많으면 태그마다 0.3 (장소 id → 점수) */
-    public Map<String, Double> scoreOf(Map<String, Place> candidates, List<String> tags) {
-        List<String> wantedTags = new ArrayList<>();
-        for (String tag : tags) {
-            if (TAG_NAMES.containsKey(tag)) {
-                wantedTags.add(TAG_NAMES.get(tag));
-            }
-        }
-        Map<String, PlaceTagCount> countMap = placeTagReader.countTags(new ArrayList<>(candidates.values()));
+    public Map<String, Double> scoreOf(Map<String, Place> candidates, Map<String, PlaceTagCount> tagCounts, List<String> tags) {
+        List<String> wantedTags = toTagNames(tags);
         Map<String, Double> scores = new HashMap<>();
         for (Place place : candidates.values()) {
-            scores.put(place.getId(), placeTagReader.getScore(place, countMap.get(place.getId()), wantedTags));
+            scores.put(place.getId(), placeTagReader.getScore(place, tagCounts.get(place.getId()), wantedTags));
         }
         return scores;
+    }
+
+    /** 후보마다 리뷰 근거 (장소 id → "분위기 좋아요 · 리뷰 10개 중 6개" 목록). 근거가 없는 곳은 빠짐 */
+    public Map<String, List<String>> reasonsOf(Map<String, Place> candidates, Map<String, PlaceTagCount> tagCounts, List<String> tags) {
+        List<String> wantedTags = toTagNames(tags);
+        Map<String, List<String>> reasons = new HashMap<>();
+        for (Place place : candidates.values()) {
+            List<String> found = placeTagReader.getReasons(tagCounts.get(place.getId()), wantedTags);
+            if (!found.isEmpty()) {
+                reasons.put(place.getId(), found);
+            }
+        }
+        return reasons;
+    }
+
+    /**
+     * Gemini에게 보여 줄 후보 (11/03). 점수순으로 자르면 점수가 낮게 깔린 종류(관광공사 장소 등)가 통째로 빠져서,
+     * 꼭 갈 곳을 먼저 넣고 → 고른 종류부터 종류마다 한 곳씩 돌아가며(점수순) max곳까지 채움
+     */
+    public Map<String, Place> pickForPrompt(Map<String, Place> sorted, List<String> kinds, List<String> mustVisit, int max) {
+        Map<String, Place> picked = newCandidates();
+        Map<String, List<Place>> kindLists = new LinkedHashMap<>(); // 종류 → 그 종류 후보 (점수순)
+        for (String kind : kinds) {
+            kindLists.put(kind, new ArrayList<>());
+        }
+        for (Place place : sorted.values()) {
+            if (isMustVisit(place, mustVisit) && picked.size() < max) {
+                picked.put(place.getId(), place);
+                continue;
+            }
+            String kind = place.getKind() == null ? "etc" : place.getKind();
+            if (!kindLists.containsKey(kind)) {
+                kindLists.put(kind, new ArrayList<>()); // 고르지 않은 종류(꼭 갈 곳 주변 등)는 뒤에
+            }
+            kindLists.get(kind).add(place);
+        }
+        int index = 0;
+        boolean hasMore = true;
+        while (picked.size() < max && hasMore) {
+            hasMore = false;
+            for (List<Place> places : kindLists.values()) {
+                if (index < places.size() && picked.size() < max) {
+                    picked.put(places.get(index).getId(), places.get(index));
+                    hasMore = true;
+                }
+            }
+            index++;
+        }
+        return picked;
+    }
+
+    /** 꼭 갈 곳으로 말한 이름과 같은 장소인지 (이름이 서로 포함되면 같은 곳으로 봄) */
+    public boolean isMustVisit(Place place, List<String> mustVisit) {
+        if (mustVisit == null || place.getName() == null) {
+            return false;
+        }
+        for (String name : mustVisit) {
+            if (name != null && name.length() >= 2 && (place.getName().contains(name) || name.contains(place.getName()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 점수 높은 순으로 다시 줄 세운 후보 표 (Gemini에게 좋은 후보부터 보여 주려고) */
@@ -110,6 +174,25 @@ public class PlanCandidateFinder {
     /** 새 후보 표 (넣은 순서를 지키는 Map: LinkedHashMap) */
     public Map<String, Place> newCandidates() {
         return new LinkedHashMap<>();
+    }
+
+    /** 종류 코드 → 이름 (food → 밥집). 모르는 코드면 기타 */
+    public String kindName(String kind) {
+        return KIND_NAMES.getOrDefault(kind == null ? "etc" : kind, "기타");
+    }
+
+    /** 화면 태그 코드(quiet…) → 리뷰에서 세는 태그 이름(조용…) */
+    public List<String> toTagNames(List<String> tags) {
+        List<String> names = new ArrayList<>();
+        if (tags == null) {
+            return names;
+        }
+        for (String tag : tags) {
+            if (TAG_NAMES.containsKey(tag)) {
+                names.add(TAG_NAMES.get(tag));
+            }
+        }
+        return names;
     }
 
     /** 이미 있는 id는 그대로 두고 앞에서부터 limit개까지 추가 */

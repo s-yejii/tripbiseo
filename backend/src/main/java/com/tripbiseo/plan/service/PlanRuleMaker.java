@@ -3,6 +3,8 @@ package com.tripbiseo.plan.service;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -15,17 +17,27 @@ import com.tripbiseo.plan.dto.AiDraftStop;
 import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanStay;
+import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
+import com.tripbiseo.trip.service.PlaceService;
+
+import lombok.RequiredArgsConstructor;
 
 /**
- * ③ 규칙으로 일정 짜기 (11/03). Gemini가 없거나 응답이 없을 때도 고른 종류·평점·거리로 하루 일정을 만들어요.
- *   하루 틀: 정해 둔 칸(10:00 관광·전시·쇼핑, 12:00 점심, 13:40 카페 …)마다 고른 종류 후보 중 "점수 − 거리" 가 가장 큰 곳을 차례로
+ * ③ 하루 칸 틀과 칸 채우기 (11/03). 고른 칩(종류)은 서버가 지키고, Gemini는 칸 안에서 고르기·이유만 맡아요.
+ *   하루 틀: 정해 둔 칸(S1 10:00 관광·전시·쇼핑, S2 12:00 점심, S3 13:40 카페 …) 중 고른 종류가 있는 칸만
+ *   칸 채우기: Gemini가 고른 곳이 조건(후보 안·칸 종류·안 겹침·도착 때 영업)을 지키면 그대로, 어기면 그 칸만 규칙으로
+ *   규칙 = 칸 종류 후보 중 "점수 − 거리"가 가장 큰 곳 (영업 안 하는 곳 빼고)
  *   점수 = 보정 평점 + 고른 태그 가산점 (PlanCandidateFinder.scoreOf), 거리는 앞 장소(첫 장소는 출발지·숙소)에서 1km마다 0.3점 뺌
  * 숙소: 체크인 날 마지막 일정으로 넣고, 다음 날 첫 장소는 숙소에서 가까운 곳부터 (addStayStops · dayStartPoint)
  */
 @Component
+@RequiredArgsConstructor
 public class PlanRuleMaker {
+
+    private final PlaceService placeService;               // 영업시간 확인
+    private final PlanCandidateFinder planCandidateFinder; // 꼭 갈 곳인지 · 종류 이름
 
     private static final double DISTANCE_PENALTY_PER_KM = 0.3; // 평점 0.3점 = 1km 더 가는 것과 같게 봄
     private static final int TODAY_START_AFTER_MIN = 60;       // 오늘 출발이면 지금부터 1시간 뒤 칸부터
@@ -33,6 +45,7 @@ public class PlanRuleMaker {
     private static final int STAY_AFTER_LAST_MIN = 30;         // 마지막 일정이 끝나고 숙소까지 여유
     private static final int LATEST_STAY_MIN = 23 * 60 + 30;   // 숙소 칸은 늦어도 23:30
     private static final List<String> DEFAULT_KINDS = List.of("food", "cafe");
+    private static final int DEFAULT_EXTRA_STAY_MIN = 90;      // 꼭 갈 곳·고정 일정의 머무는 분을 모를 때
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
     // 칸 사이는 이동 20~40분을 비워 둠 (10:00~11:30 → 12:00 점심)
@@ -58,31 +71,42 @@ public class PlanRuleMaker {
         return conditions.getKinds() == null || conditions.getKinds().isEmpty() ? DEFAULT_KINDS : conditions.getKinds();
     }
 
-    /** 날마다 시각 칸을 채운 일정 (후보 id로 고름). 이미 정한 일정(꼭 갈 곳·고정)은 그대로 두고 뒤에 붙임 */
-    public List<AiDraftStop> makeStops(PlanConditions conditions, Map<String, Place> candidates, Map<String, Double> scores,
-                                       int days, String startDate, List<AiDraftStop> already) {
-        List<AiDraftStop> stops = new ArrayList<>(already);
-        Set<String> used = new HashSet<>();
-        List<String[]> slots = slotsOf(kindsOf(conditions));
-        boolean isToday = startDate.equals(Geo.now().toLocalDate().toString());
-        for (int day = 1; day <= days; day++) {
-            double[] point = dayStartPoint(conditions, startDate, day, candidates);
-            for (String[] slot : slots) {
-                if (day == 1 && isToday && Geo.toMinutes(slot[1]) < Geo.nowMinutes() + TODAY_START_AFTER_MIN) {
-                    continue; // 이미 지난 시각
-                }
-                Place best = null;
-                for (String kind : slot[0].split(",")) { // 이 칸에 넣을 종류를 앞에서부터
-                    best = best != null ? best : pickBest(candidates, scores, used, kind, point);
-                }
-                if (best == null) {
-                    continue; // 넣을 종류 후보가 다 떨어짐
-                }
-                used.add(best.getId());
-                stops.add(toDraftStop(best, day, slot[1], Integer.parseInt(slot[2])));
-                point = new double[] {best.getLat(), best.getLng()};
+    /** 하루 칸 목록: [넣을 종류들(쉼표), "HH:mm", 머무는 분]. 칸 번호는 순서대로 S1, S2 … */
+    public List<String[]> getSlotList(PlanConditions conditions) {
+        return slotsOf(kindsOf(conditions));
+    }
+
+    /**
+     * 날마다 칸 채우기. picks = Gemini가 고른 것 (Gemini가 안 되면 꼭 갈 곳·고정 일정만).
+     * 칸 없이 온 것(꼭 갈 곳·시간 고정)은 그 시각 그대로 두고, 그 시간과 겹치는 칸은 비움.
+     * 칸마다 Gemini가 고른 곳이 조건을 어기면 그 칸만 규칙으로 다시 고르고, 바꾼 수·못 채운 종류는 warnings에 적음
+     */
+    public List<AiDraftStop> fillSlots(PlanConditions conditions, Map<String, Place> candidates, Map<String, Double> scores,
+                                       int days, String startDate, List<AiDraftStop> picks, List<String> warnings) {
+        List<AiDraftStop> extras = new ArrayList<>();
+        Map<String, AiDraftStop> slotPicks = new HashMap<>(); // "1/S2"(날/칸) → Gemini가 고른 것
+        for (AiDraftStop pick : picks) {
+            if (pick.getSlot() == null || pick.getSlot().isBlank()) {
+                extras.add(pick);
+            } else {
+                slotPicks.put(dayOf(pick) + "/" + pick.getSlot().trim().toUpperCase(), pick);
             }
         }
+        List<AiDraftStop> stops = new ArrayList<>(extras);
+        Set<String> used = new HashSet<>();
+        for (AiDraftStop extra : extras) {
+            if (extra.getId() != null) {
+                used.add(extra.getId());
+            }
+        }
+        int replaced = 0;
+        for (int day = 1; day <= days; day++) {
+            replaced += fillDay(conditions, candidates, scores, startDate, day, extras, slotPicks, used, stops);
+        }
+        if (replaced > 0) {
+            warnings.add("AI가 고른 " + replaced + "곳이 고른 종류·영업시간과 맞지 않아 평점·거리로 다시 골랐어요");
+        }
+        addMissingKindWarnings(conditions, candidates, stops, warnings);
         return stops;
     }
 
@@ -107,6 +131,110 @@ public class PlanRuleMaker {
     }
 
     // ---------------------------------------------------------------- 도우미
+
+    /** 하루 칸 채우기. Gemini가 고른 곳을 규칙으로 바꾼 칸 수를 돌려줌 */
+    private int fillDay(PlanConditions conditions, Map<String, Place> candidates, Map<String, Double> scores, String startDate,
+                        int day, List<AiDraftStop> extras, Map<String, AiDraftStop> slotPicks, Set<String> used, List<AiDraftStop> stops) {
+        LocalDate date = LocalDate.parse(startDate).plusDays(day - 1);
+        boolean isToday = date.equals(Geo.now().toLocalDate());
+        double[] point = dayStartPoint(conditions, startDate, day, candidates);
+        List<String[]> slots = getSlotList(conditions);
+        int replaced = 0;
+        for (int i = 0; i < slots.size(); i++) {
+            List<String> slotKinds = Arrays.asList(slots.get(i)[0].split(","));
+            int start = Geo.toMinutes(slots.get(i)[1]);
+            int stay = Integer.parseInt(slots.get(i)[2]);
+            if ((isToday && start < Geo.nowMinutes() + TODAY_START_AFTER_MIN) || overlapsExtra(extras, day, start, stay)) {
+                continue; // 이미 지난 시각이거나 꼭 갈 곳·고정 일정과 겹치는 칸
+            }
+            AiDraftStop pick = slotPicks.get(day + "/S" + (i + 1));
+            Place place = pick == null ? null : checkPick(pick, slotKinds, candidates, used, conditions, date, start, stay);
+            String reason = place == null ? null : pick.getReason();
+            if (pick != null && place == null) {
+                replaced++;
+            }
+            for (int k = 0; place == null && k < slotKinds.size(); k++) { // 이 칸에 넣을 종류를 앞에서부터
+                place = pickBest(candidates, scores, used, slotKinds.get(k), point, date, start, stay);
+            }
+            if (place == null) {
+                continue; // 넣을 종류 후보가 다 떨어짐
+            }
+            used.add(place.getId());
+            AiDraftStop stop = toDraftStop(place, day, slots.get(i)[1], stay);
+            stop.setReason(reason);
+            stops.add(stop);
+            point = new double[] {place.getLat(), place.getLng()};
+        }
+        return replaced;
+    }
+
+    /** Gemini가 고른 곳 검사: 후보 안 · 아직 안 씀 · 칸 종류와 같음(꼭 갈 곳은 예외) · 도착할 때 영업. 어기면 null */
+    private Place checkPick(AiDraftStop pick, List<String> slotKinds, Map<String, Place> candidates, Set<String> used,
+                            PlanConditions conditions, LocalDate date, int start, int stay) {
+        Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
+        if (place == null || used.contains(place.getId())) {
+            return null;
+        }
+        boolean isKindOk = slotKinds.contains(place.getKind()) || planCandidateFinder.isMustVisit(place, conditions.getMustVisit());
+        return isKindOk && isOpenFor(place, date, start, stay) ? place : null;
+    }
+
+    /** 도착 시각에 열려 있고 머무는 동안 안 닫는지. 영업시간 정보가 없으면 통과 (모르는 걸 틀렸다고 하지 않음) */
+    private boolean isOpenFor(Place place, LocalDate date, int start, int stay) {
+        OpenInfo open = placeService.getOpenInfo(place, date, start, stay);
+        if (Boolean.FALSE.equals(open.getOpen())) {
+            return false;
+        }
+        return open.getMinutesLeft() == null || open.getMinutesLeft() >= stay;
+    }
+
+    /** 그날 꼭 갈 곳·고정 일정과 시간이 겹치는지 (칸 [start, start+stay) 와 일정 [시각, 시각+머무는 분)) */
+    private boolean overlapsExtra(List<AiDraftStop> extras, int day, int start, int stay) {
+        for (AiDraftStop extra : extras) {
+            if (dayOf(extra) != day || extra.getTime() == null || !extra.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            int extraStart = Geo.toMinutes(extra.getTime());
+            int extraEnd = extraStart + (extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay());
+            if (start < extraEnd && extraStart < start + stay) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 고른 종류인데 일정에 한 곳도 못 넣었으면 안내 ("근처에 전시·문화 장소가 없어요") */
+    private void addMissingKindWarnings(PlanConditions conditions, Map<String, Place> candidates, List<AiDraftStop> stops, List<String> warnings) {
+        Set<String> placedKinds = new HashSet<>();
+        for (AiDraftStop stop : stops) {
+            Place place = stop.getId() == null ? null : candidates.get(stop.getId());
+            if (place != null) {
+                placedKinds.add(place.getKind());
+            }
+        }
+        for (String kind : kindsOf(conditions)) {
+            if (placedKinds.contains(kind)) {
+                continue;
+            }
+            String name = planCandidateFinder.kindName(kind);
+            warnings.add(hasKind(candidates, kind) ? "일정 시간이 모자라거나 영업시간이 안 맞아 " + name + " 장소를 못 넣었어요"
+                                                   : "고른 지역 근처에서 " + name + " 장소를 찾지 못해 일정에 못 넣었어요");
+        }
+    }
+
+    /** 후보에 그 종류가 한 곳이라도 있는지 */
+    private boolean hasKind(Map<String, Place> candidates, String kind) {
+        for (Place place : candidates.values()) {
+            if (kind.equals(place.getKind())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int dayOf(AiDraftStop stop) {
+        return stop.getDay() == null ? 1 : stop.getDay();
+    }
 
     /** 하루 칸 목록: [넣을 종류들(쉼표), "HH:mm", 머무는 분]. 고른 종류만 남기고, 하나도 없는 칸은 뺌 */
     private List<String[]> slotsOf(List<String> kinds) {
@@ -152,13 +280,17 @@ public class PlanRuleMaker {
         return first == null ? null : new double[] {first.getLat(), first.getLng()};
     }
 
-    /** 그 종류 후보 중 아직 안 쓴 곳에서 (점수 − 거리 벌점)이 가장 큰 곳. 없으면 null */
-    private Place pickBest(Map<String, Place> candidates, Map<String, Double> scores, Set<String> used, String kind, double[] point) {
+    /** 그 종류 후보 중 아직 안 쓰고 그 시각에 영업하는 곳에서 (점수 − 거리 벌점)이 가장 큰 곳. 없으면 null */
+    private Place pickBest(Map<String, Place> candidates, Map<String, Double> scores, Set<String> used, String kind, double[] point,
+                           LocalDate date, int start, int stay) {
         Place best = null;
         double bestValue = Double.NEGATIVE_INFINITY;
         for (Place place : candidates.values()) {
             if (place.getId() == null || used.contains(place.getId()) || !kind.equals(place.getKind())) {
                 continue;
+            }
+            if (!isOpenFor(place, date, start, stay)) {
+                continue; // 도착할 때 문 닫았거나 휴무
             }
             double km = point == null ? 0 : Geo.distanceMeters(point[0], point[1], place.getLat(), place.getLng()) / 1000;
             double value = scores.getOrDefault(place.getId(), 0.0) - DISTANCE_PENALTY_PER_KM * km;
