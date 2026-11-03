@@ -37,6 +37,16 @@ const movedText = computed(() => {
   if (meters < 1000) return meters + 'm'
   return (meters / 1000).toFixed(1) + 'km' // toFixed(1) 소수점 첫째 자리까지만 글자로 만듬 
 })
+
+const skippedCount = computed(() => {
+  if (!retro.value) return 0 //응답이 오기 전이면 0
+  let count = 0
+  for (const place of retro.value.stops) {
+    if (place.state === 'skipped') count++
+  }
+  return count
+})
+
 // 재생 위치에 따라 현재 시각을 계산(시작 시간 + 진행률 + 도착 시간 - 시작 시간 + 진행률)
 const startMinutes = computed(() => { // 첫 점의 시각
   if (trackPoints.value.length === 0) return 0
@@ -282,7 +292,7 @@ function toggleInfo(no) {
           <div class="stat"><b>{{ movedText }}</b><span class="t-cap">이동 거리</span></div>
 
 
-          <div class="stat"><b class="c-success">16분</b><span class="t-cap">예약 여유</span></div>
+          <div class="stat"><b>{{  skippedCount }}</b><span class="t-cap">건너 뛴 곳</span></div>
         </div>
 
         <section class="card card--pad retro-cmp" aria-labelledby="cmp-h">
