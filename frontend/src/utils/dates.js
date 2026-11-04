@@ -21,6 +21,12 @@ export function addDays(dateText, days) {
 }
 
 // 두 날짜 사이 날 수 ('2026-11-14' → '2026-11-16' = 2)
+// '2026-12-05' → '12/5' (일차 칸처럼 좁은 곳에 쓰는 짧은 날짜)
+export function toMonthDay(dateText) {
+  const [, month, day] = dateText.split('-')
+  return Number(month) + '/' + Number(day)
+}
+
 export function daysBetween(fromText, toText) {
   return Math.round((new Date(toText + 'T00:00:00') - new Date(fromText + 'T00:00:00')) / DAY_MS)
 }

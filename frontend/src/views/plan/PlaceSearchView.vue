@@ -5,14 +5,18 @@
 //   origin : 어디서 출발해요? 역·출구·건물·주소로 찾기 → GET /api/places/locations, 현재 위치 → /api/places/locations/here
 //   고른 값은 store.planArea · store.planOrigin 에 { 이름, 좌표 }로 담아요
 //   fixed  : 꼭 지킬 시간: 예약한 곳을 같은 GET /api/places/locations (카카오)로 찾고 시각을 정해요
-//            → store.planConditions.fixed 에 { name, time } (예약 캡처와 같은 모양) + 직접 고르기 초안에 고정 칸
+//            → store.planConditions.fixed 에 { name, time, day } + 직접 고르기 초안에 고정 칸
+//            여러 날 여행이면 시각 위에서 며칠째(1일차·2일차…)인지 골라요 (11/04)
+//            넣으면 화면을 닫지 않고 검색창을 비운 뒤 "넣은 꼭 지킬 시간" 목록을 보여 줘요 → 더 넣거나 "완료" (11/04)
 import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import { getLocationHere, searchAreas, searchLocations } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { goBack } from '@/utils/back'
+import { addDays, daysBetween, toMonthDay } from '@/utils/dates'
 import { getPositionOnce } from '@/utils/position'
+import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
 
 const SEARCH_WAIT_MS = 300 // 글자를 다 칠 때까지 기다렸다가 찾기
@@ -38,6 +42,16 @@ const isLocating = ref(false)
 const error = ref('')
 const pickedIndex = ref(-1) // 카카오 결과에서 고른 칸
 const time = ref('') // 꼭 지킬 시각 'HH:mm'
+const fixedDay = ref(1) // 꼭 지킬 시간이 며칠째인지 (여러 날 여행에서만 고름)
+// 여행 날짜 목록 [{ day: 1, label: '12/4(금)' }] (여행 정보 달력에서 고른 기간, 당일치기면 1개)
+const dayList = computed(() => {
+  const count = store.planEndDate ? daysBetween(store.planStartDate, store.planEndDate) + 1 : 1
+  const list = []
+  for (let i = 0; i < count; i++) {
+    list.push({ day: i + 1, label: toShortDate(addDays(store.planStartDate, i)) })
+  }
+  return list
+})
 let position = null // 거리 기준: 출발지는 내 위치, 꼭 지킬 시간은 고른 여행 지역
 let timer = null
 let requestNo = 0 // 늦게 온 예전 검색 결과는 버리려고
@@ -64,8 +78,11 @@ onUnmounted(() => clearTimeout(timer))
 
 const picked = computed(() => found.value[pickedIndex.value] || null)
 const isTimeOk = computed(() => TIME_PATTERN.test(time.value))
-// 꼭 지킬 시간은 시각까지 정해야 넣을 수 있어요
-const canDone = computed(() => picked.value !== null && (mode !== 'fixed' || isTimeOk.value))
+const fixedAdded = computed(() => store.planConditions?.fixed || []) // 지금까지 넣은 꼭 지킬 시간
+const isFixedDone = computed(() => mode === 'fixed' && picked.value === null) // 꼭 지킬 시간에서 고른 곳이 없으면 버튼은 "완료"
+// 꼭 지킬 시간은 시각까지 정해야 넣을 수 있어요 (고른 곳이 없으면 "완료"라서 늘 누를 수 있음)
+const canDone = computed(() => isFixedDone.value || (picked.value !== null && (mode !== 'fixed' || isTimeOk.value)))
+const buttonText = computed(() => (isFixedDone.value ? '완료' : text.button))
 
 function search(value) {
   keyword.value = value
@@ -144,13 +161,18 @@ function addFixed(item) {
   for (const fixed of conditions.fixed || []) {
     if (fixed.name !== item.name) fixedList.push(fixed)
   }
-  fixedList.push({ name: item.name, time: time.value })
+  fixedList.push({ name: item.name, time: time.value, day: fixedDay.value })
   store.planConditions = { ...conditions, fixed: fixedList }
   store.draft.stops = store.draft.stops.filter((stop) => !(stop.fixed && stop.name === item.name))
-  store.addDraftPlace({ name: item.name, category: item.category, address: item.address, lat: item.lat, lng: item.lng }, true, time.value)
+  const place = { name: item.name, category: item.category, address: item.address, lat: item.lat, lng: item.lng }
+  store.addDraftPlace(place, true, time.value, fixedDay.value)
 }
 
 function done() {
+  if (isFixedDone.value) {
+    goBack('/plan/info')
+    return
+  }
   const item = picked.value
   if (mode === 'area') {
     store.planArea = { name: item.name, fullName: item.fullName, type: item.type, lat: item.lat, lng: item.lng }
@@ -160,9 +182,28 @@ function done() {
     showToast(item.name + '에서 출발해요')
   } else {
     addFixed(item)
-    showToast(item.name + ' ' + time.value + ' 고정했어요')
+    showToast(item.name + ' ' + dayTextOf(fixedDay.value) + time.value + ' 고정했어요')
+    search('') // 화면은 그대로 두고 검색창을 비움 → 넣은 목록이 보임
+    time.value = ''
+    return
   }
   goBack('/plan/info')
+}
+
+// 여러 날 여행이면 "2일차 " (당일치기면 빈 글)
+function dayTextOf(day) {
+  return dayList.value.length > 1 ? (day || 1) + '일차 ' : ''
+}
+// 일차 칸 글: 위 "2일차"(당일치기면 "당일"), 아래 "12/5"
+function dayTileOf(day) {
+  const index = (day || 1) - 1
+  return { title: dayList.value.length > 1 ? index + 1 + '일차' : '당일', date: toMonthDay(addDays(store.planStartDate, index)) }
+}
+
+// 넣은 꼭 지킬 시간 빼기 (일정 만들기 조건과 직접 고르기 초안에서 같이)
+function removeFixed(name) {
+  store.planConditions = { ...store.planConditions, fixed: fixedAdded.value.filter((item) => item.name !== name) }
+  store.draft.stops = store.draft.stops.filter((stop) => !(stop.fixed && stop.name === name))
 }
 </script>
 
@@ -201,12 +242,17 @@ function done() {
             </button>
             <!-- 꼭 지킬 시간: 고른 곳 바로 아래에서 시각 정하기 -->
             <template v-if="mode === 'fixed' && pickedIndex === i">
+              <div v-if="dayList.length > 1" class="chips ps-days" role="radiogroup" aria-label="며칠째 일정인지">
+                <button v-for="d in dayList" :key="d.day" type="button" role="radio" class="chip chip--sm" :class="{ 'is-on': fixedDay === d.day }" :aria-checked="fixedDay === d.day" @click="fixedDay = d.day">
+                  {{ d.day }}일차 · {{ d.label }}
+                </button>
+              </div>
               <div style="display: flex; align-items: center; gap: 8px; padding: 0 12px">
                 <label class="field__box" style="flex: 1; height: 44px" for="ps-time">
                   <i class="ic i-clock subtle" aria-hidden="true"></i>
                   <input id="ps-time" v-model="time" type="time" aria-label="지킬 시각" style="font-variant-numeric: tabular-nums" />
                 </label>
-                <span class="badge badge--navy" style="height: 32px"><i class="ic ic--s i-lock" aria-hidden="true"></i>시간 고정</span>
+                <span class="badge badge--navy" style="height: 32px">시간 고정</span>
               </div>
               <p class="t-cap" style="display: flex; gap: 4px; align-items: center; padding: 0 12px 12px"><i class="ic ic--s i-info c-navy" aria-hidden="true"></i>{{ isTimeOk ? '다른 일정이 이 시간에 맞춰 움직여요' : '도착해야 하는 시각을 정해 주세요' }}</p>
             </template>
@@ -214,12 +260,24 @@ function done() {
           <p v-if="isLoading" class="t-cap ps-msg">'{{ keyword }}' 찾는 중…</p>
           <p v-else-if="error" class="t-cap ps-msg"><i class="ic ic--s i-warning c-warning" aria-hidden="true"></i> {{ error }}</p>
           <p v-else-if="keyword && !found.length" class="t-cap ps-msg">'{{ keyword }}' 결과가 없어요. {{ text.empty }}</p>
-          <p v-else-if="!keyword" class="t-cap ps-msg">
+          <!-- 꼭 지킬 시간: 검색창이 비어 있으면 넣은 목록 -->
+          <template v-if="mode === 'fixed' && !keyword && !isLoading">
+            <p v-if="fixedAdded.length" class="t-cap">넣은 꼭 지킬 시간 {{ fixedAdded.length }}개 · 더 넣으려면 위에서 찾아요</p>
+            <p v-else class="t-cap ps-msg">{{ text.hint }}</p>
+            <div v-for="item in fixedAdded" :key="'added' + item.name" class="opt ps-item">
+              <div class="ps-hit">
+                <span class="day-tile"><b>{{ dayTileOf(item.day).title }}</b><span>{{ dayTileOf(item.day).date }}</span></span>
+                <span class="opt__body"><b class="t-sub">{{ item.name }}</b><span class="t-cap tn">{{ item.time }} · 시간 고정</span></span>
+                <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(item.name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
+              </div>
+            </div>
+          </template>
+          <p v-else-if="!keyword && mode !== 'fixed'" class="t-cap ps-msg">
             {{ text.hint }}<template v-if="current"><br />지금: <b>{{ current.name }}</b></template>
           </p>
         </div>
 
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!canDone" @click="done">{{ text.button }}</button>
+        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!canDone" @click="done">{{ buttonText }}</button>
       </BottomSheet>
     </div>
   </div>
@@ -230,6 +288,7 @@ function done() {
 .scr-PlaceSearch .ps-item{flex-direction:column;align-items:stretch;gap:12px;padding:0}
 .scr-PlaceSearch .ps-hit{display:flex;align-items:center;gap:12px;padding:12px;border:0;background:none;text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%;border-radius:var(--radius-lg)}
 .scr-PlaceSearch .sheet{bottom:0}
+.scr-PlaceSearch .ps-days{padding:0 12px;flex-wrap:wrap}
 .scr-PlaceSearch .ps-msg{text-align:center;padding:24px 0;line-height:20px}
 .scr-PlaceSearch input[type='search']::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none} /* 브라우저 기본 X 숨김 (우리 지우기 버튼만) */
 </style>

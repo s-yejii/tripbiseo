@@ -20,4 +20,10 @@ public class AiConditions {
     private List<String> kinds;         // 새로 말한 장소 종류 코드 (food·cafe·bar·tour·culture·shop) — 기존에 더함 (11/03)
     private List<String> tags;          // 새로 말한 분위기 태그 코드 (mood·quiet·value·no_wait·solo) — 기존에 더함
     private List<String> needs;         // 새로 말한, 칩으로 못 담는 장소 요청 ("4명이 앉을 자리") — 기존에 더함 (11/04)
+    private List<String> wishVisit;     // 새로 말한 가능하면 갈 곳 (11/04)
+    private List<String> mustKinds;     // 새로 말한 꼭 넣을 종류 코드
+    private List<String> avoidKinds;    // 새로 말한 빼 달라는 종류 코드
+    private List<String> avoidVisit;    // 새로 말한 피하고 싶은 곳 이름
+    private FixedVisit finish;          // 여행이 끝나는 곳·도착 시각
+    private Integer maxWalkMin;         // 한 번에 걷는 시간 상한(분)
 }

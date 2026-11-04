@@ -80,9 +80,12 @@ public class PlanRuleMaker {
      * 날마다 칸 채우기. picks = Gemini가 고른 것 (Gemini가 안 되면 꼭 갈 곳·고정 일정만).
      * 칸 없이 온 것(꼭 갈 곳·시간 고정)은 그 시각 그대로 두고, 그 시간과 겹치는 칸은 비움.
      * 칸마다 Gemini가 고른 곳이 조건을 어기면 그 칸만 규칙으로 다시 고르고, 바꾼 수·못 채운 종류는 warnings에 적음
+     * 11/04: lastDayEndMin(끝 장소로 가야 해서 마지막 날 일정이 끝나야 하는 시각, 없으면 null) 뒤 칸은 비움,
+     *        maxWalkMeters(한 번에 걷는 거리 상한, 없으면 null)보다 먼 곳은 가까운 곳이 하나도 없을 때만 고름
      */
     public List<AiDraftStop> fillSlots(PlanConditions conditions, Map<String, Place> candidates, Map<String, Double> scores,
-                                       int days, String startDate, List<AiDraftStop> picks, List<String> warnings) {
+                                       int days, String startDate, List<AiDraftStop> picks, List<String> warnings,
+                                       Integer lastDayEndMin, Integer maxWalkMeters) {
         List<AiDraftStop> extras = new ArrayList<>();
         Map<String, AiDraftStop> slotPicks = new HashMap<>(); // "1/S2"(날/칸) → Gemini가 고른 것
         for (AiDraftStop pick : picks) {
@@ -101,7 +104,8 @@ public class PlanRuleMaker {
         }
         int replaced = 0;
         for (int day = 1; day <= days; day++) {
-            replaced += fillDay(conditions, candidates, scores, startDate, day, extras, slotPicks, used, stops);
+            Integer dayEndMin = day == days ? lastDayEndMin : null; // 끝 장소 마감은 마지막 날만
+            replaced += fillDay(conditions, candidates, scores, startDate, day, extras, slotPicks, used, stops, dayEndMin, maxWalkMeters);
         }
         if (replaced > 0) {
             warnings.add("AI가 고른 " + replaced + "곳이 고른 종류·영업시간과 맞지 않아 평점·거리로 다시 골랐어요");
@@ -134,7 +138,8 @@ public class PlanRuleMaker {
 
     /** 하루 칸 채우기. Gemini가 고른 곳을 규칙으로 바꾼 칸 수를 돌려줌 */
     private int fillDay(PlanConditions conditions, Map<String, Place> candidates, Map<String, Double> scores, String startDate,
-                        int day, List<AiDraftStop> extras, Map<String, AiDraftStop> slotPicks, Set<String> used, List<AiDraftStop> stops) {
+                        int day, List<AiDraftStop> extras, Map<String, AiDraftStop> slotPicks, Set<String> used, List<AiDraftStop> stops,
+                        Integer dayEndMin, Integer maxWalkMeters) {
         LocalDate date = LocalDate.parse(startDate).plusDays(day - 1);
         boolean isToday = date.equals(Geo.now().toLocalDate());
         double[] point = dayStartPoint(conditions, startDate, day, candidates);
@@ -144,17 +149,22 @@ public class PlanRuleMaker {
             List<String> slotKinds = Arrays.asList(slots.get(i)[0].split(","));
             int start = Geo.toMinutes(slots.get(i)[1]);
             int stay = Integer.parseInt(slots.get(i)[2]);
-            if ((isToday && start < Geo.nowMinutes() + TODAY_START_AFTER_MIN) || overlapsExtra(extras, day, start, stay)) {
-                continue; // 이미 지난 시각이거나 꼭 갈 곳·고정 일정과 겹치는 칸
+            boolean isPast = isToday && start < Geo.nowMinutes() + TODAY_START_AFTER_MIN;
+            boolean isAfterEnd = dayEndMin != null && start + stay > dayEndMin; // 끝 장소로 가야 해서 못 쓰는 칸
+            if (isPast || isAfterEnd || overlapsExtra(extras, day, start, stay)) {
+                continue; // 이미 지난 시각이거나 마감 뒤이거나 꼭 갈 곳·고정 일정과 겹치는 칸
             }
             AiDraftStop pick = slotPicks.get(day + "/S" + (i + 1));
-            Place place = pick == null ? null : checkPick(pick, slotKinds, candidates, used, conditions, date, start, stay);
+            Place place = pick == null ? null : checkPick(pick, slotKinds, candidates, used, conditions, date, start, stay, point, maxWalkMeters);
             String reason = place == null ? null : pick.getReason();
             if (pick != null && place == null) {
                 replaced++;
             }
-            for (int k = 0; place == null && k < slotKinds.size(); k++) { // 이 칸에 넣을 종류를 앞에서부터
-                place = pickBest(candidates, scores, used, slotKinds.get(k), point, date, start, stay);
+            for (int k = 0; place == null && k < slotKinds.size(); k++) { // 이 칸에 넣을 종류를 앞에서부터 (걷는 거리 안에서)
+                place = pickBest(candidates, scores, used, slotKinds.get(k), point, date, start, stay, maxWalkMeters);
+            }
+            for (int k = 0; place == null && maxWalkMeters != null && k < slotKinds.size(); k++) { // 가까운 곳이 없으면 거리 제한 없이
+                place = pickBest(candidates, scores, used, slotKinds.get(k), point, date, start, stay, null);
             }
             if (place == null) {
                 continue; // 넣을 종류 후보가 다 떨어짐
@@ -170,12 +180,14 @@ public class PlanRuleMaker {
 
     /** Gemini가 고른 곳 검사: 후보 안 · 아직 안 씀 · 칸 종류와 같음(꼭 갈 곳은 예외) · 도착할 때 영업. 어기면 null */
     private Place checkPick(AiDraftStop pick, List<String> slotKinds, Map<String, Place> candidates, Set<String> used,
-                            PlanConditions conditions, LocalDate date, int start, int stay) {
+                            PlanConditions conditions, LocalDate date, int start, int stay, double[] point, Integer maxWalkMeters) {
         Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
-        if (place == null || used.contains(place.getId())) {
+        if (place == null || used.contains(place.getId()) || isTooFar(point, place, maxWalkMeters)) {
             return null;
         }
-        boolean isKindOk = slotKinds.contains(place.getKind()) || planCandidateFinder.isMustVisit(place, conditions.getMustVisit());
+        // 꼭 갈 곳·가능하면 갈 곳은 칸 종류와 달라도 됨 (사용자가 직접 말한 곳)
+        boolean isKindOk = slotKinds.contains(place.getKind()) || planCandidateFinder.isMustVisit(place, conditions.getMustVisit())
+                || planCandidateFinder.isMustVisit(place, conditions.getWishVisit());
         return isKindOk && isOpenFor(place, date, start, stay) ? place : null;
     }
 
@@ -282,11 +294,11 @@ public class PlanRuleMaker {
 
     /** 그 종류 후보 중 아직 안 쓰고 그 시각에 영업하는 곳에서 (점수 − 거리 벌점)이 가장 큰 곳. 없으면 null */
     private Place pickBest(Map<String, Place> candidates, Map<String, Double> scores, Set<String> used, String kind, double[] point,
-                           LocalDate date, int start, int stay) {
+                           LocalDate date, int start, int stay, Integer maxMeters) {
         Place best = null;
         double bestValue = Double.NEGATIVE_INFINITY;
         for (Place place : candidates.values()) {
-            if (place.getId() == null || used.contains(place.getId()) || !kind.equals(place.getKind())) {
+            if (place.getId() == null || used.contains(place.getId()) || !kind.equals(place.getKind()) || isTooFar(point, place, maxMeters)) {
                 continue;
             }
             if (!isOpenFor(place, date, start, stay)) {
@@ -300,6 +312,14 @@ public class PlanRuleMaker {
             }
         }
         return best;
+    }
+
+    /** 앞 장소에서 걷는 거리 상한보다 먼지 (상한이 없거나 앞 장소를 모르면 false) */
+    private boolean isTooFar(double[] point, Place place, Integer maxMeters) {
+        if (maxMeters == null || point == null) {
+            return false;
+        }
+        return Geo.distanceMeters(point[0], point[1], place.getLat(), place.getLng()) > maxMeters;
     }
 
     /** 여행 첫날부터 몇째 날인지 (첫날 = 1) */

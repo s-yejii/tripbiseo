@@ -750,11 +750,20 @@
 | conditions.people | 없으면 1 |
 | conditions.transports | 없으면 `["subway","bus","walk"]` |
 | conditions.mustVisit | 꼭 갈 곳 이름. **새로 말한 것을 기존 목록에 더함** (11/03, 빼기는 화면 조건 카드의 ×) |
-| conditions.fixed | 시간이 정해진 일정 `[{name, time}]`. 이름이 같은 건 빼고 더함 |
+| conditions.fixed | 시간이 정해진 일정 `[{name, time, day}]`. 이름이 같은 건 빼고 더함. `day`는 며칠째(1부터, 없으면 1일차, 11/04). 일정 만들기는 그 날·시각에 넣고 AI가 날을 틀려도 서버가 다시 맞춤 |
 | conditions.kinds / tags | (11/03) 말에서 나온 장소 종류·분위기 코드를 더함 ("웨이팅 싫어" → `no_wait`, "전시도 보고 싶어" → `culture`). 정해진 코드 밖 값은 버림 |
 | conditions.areaLat·areaLng·areaType | 말로 다른 지역을 말하면 `null`로 지움 (화면에서 고른 지역 좌표와 안 맞아서 → 지역 이름으로 후보). "성수동"처럼 같은 지역을 줄여 말한 건 그대로 |
 | conditions.style | 여행 스타일 한 줄 |
+| conditions.wishVisit | (11/04) 가능하면 갈 곳 이름. "가능하면·되면·시간 남으면"이거나 애매하면 여기, "꼭·반드시"면 `mustVisit`. 새로 말한 쪽으로 옮김(두 목록에 같이 안 있음) |
+| conditions.avoidVisit | (11/04) 피하고 싶은 곳 이름 ("롯데월드는 가 봐서 빼 줘"). 갈 곳 목록에서 빼고, 일정 만들 때 이름이 맞는 후보를 뺌 |
+| conditions.mustKinds / avoidKinds | (11/04) 꼭 넣을 종류 코드("선물 사기는 꼭" → `shop`, `kinds`에도 더함) / 빼 달라는 종류 코드("카페는 별로 안 가고 싶어" → `cafe`, `kinds`·`mustKinds`에서 뺌, `kinds`는 하나 이상 남김) |
+| conditions.finish | (11/04) 여행이 끝나는 곳·도착 시각 `{name, time}` ("KTX 19시 광명역" → `{광명역, 18:30}`). `fixed`에 같은 이름이 있으면 뺌 |
+| conditions.maxWalkMin | (11/04) 한 번에 걷는 분 상한 ("오래 걷기 싫어" → 15). 5~60 |
+| conditions.asked | (11/04) 이미 물어본 질문 키 `visit`·`avoid`·`time`. 화면은 받은 그대로 다음 요청에 보내면 돼요 (없으면 `visit`만 물어본 걸로 봄) |
+| question | (11/04) 서버가 고른 다음 질문. 안 물어봤고 답도 없는 것 중 앞에서부터: 꼭/가능하면 갈 곳 → 피하고 싶은 것 → 시간이 정해진 일정. 다 끝나면 "더 말할 게 없으면 '이대로 일정 만들기'를 눌러 주세요." |
 | conditions.needs | (11/04) 칩(kinds·tags)으로 못 담는 장소 요청 `["4명이 앉을 자리", "주차되는 곳"]`. 새로 말한 것을 더함, **3개·20자까지**. 일정 만들기가 후보 리뷰로 확인해요 |
+
+말에서 조건을 하나도 못 뽑으면(인사·날씨 등) `reply`는 늘 "여행 조건으로 담을 말을 찾지 못했어요. …"이고 `question`은 방금 물은 질문(답이 이미 있으면 다음 질문)이에요. `finish`를 새로 말하면 `reply` 끝에 "광명역에 18:30까지 가려면 마지막 일정은 17:40쯤 끝나야 해요 (이동 약 40분)."을 서버가 경로로 계산해 붙여요 (지역을 안 골랐으면 안내만).
 
 `title·region·mustVisit·fixed·style·needs`은 Gemini가 말하지 않으면 키가 없을 수 있어요.
 
@@ -810,7 +819,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}]. 11/04 추가: `needs`(칩에 없는 장소 요청, 3개까지 확인 — 아래 "리뷰로 확인") |
+| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}]. 11/04 추가: `needs`(칩에 없는 장소 요청, 3개까지 확인 — 아래 "리뷰로 확인") · `wishVisit` · `mustKinds` · `avoidKinds` · `avoidVisit` · `finish` · `maxWalkMin` (아래 "꼭·가능하면·제한") |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
@@ -838,6 +847,8 @@
 > 숙소 (11/03): `stays`마다 체크인 날 마지막 일정 뒤(+30분, 체크인 시각보다 이르지 않게, 23:30까지)에 숙소 칸 (`placeId` null, `category` "숙소", `memo`에 체크인 시각). 다음 날 첫 장소는 숙소에서 가까운 곳부터.
 >
 > 리뷰로 확인 (11/04): `needs`마다 ① Gemini가 리뷰에서 찾을 단어를 정함 ("4명이 앉을 자리" → 단체석·단체·자리가 넓…) ② 점수 높은 후보 20곳(꼭 갈 곳 제외)의 `retrip_review`에서 그 단어가 든 리뷰를 곳마다 4개까지 꺼내 단어 앞뒤 60자만 자름 ③ Gemini가 곳마다 `ok`·`bad`·`unknown` + 근거 글 ④ **서버가 근거 글이 ②에서 보낸 리뷰에 그대로 있는지 확인**(없으면 버림). `ok`는 점수 +1.0과 칸 `memo`에 `4명이 앉을 자리: 리뷰 "…"`, `bad`는 후보에서 뺌, 결과는 `notes`에 요청마다 한 줄. 관련 리뷰가 없거나 AI가 안 되면 확인하지 않고 `notes`에만 적어요. 리뷰는 네이버 장소(카페·음식점)에만 있어요
+>
+> 꼭·가능하면·제한 (11/04): 일정 칸 `importance`를 채워요 — 시간 고정·꼭 갈 곳(`mustVisit`)·꼭 넣을 종류(`mustKinds`, 종류마다 첫 칸)·끝 칸은 `must`, 나머지는 `maybe` (저장하면 여행 중 대안이 `must`는 안 줄임). `wishVisit`은 후보에 넣고 점수 +2.0, 칸 종류가 달라도 넣을 수 있음. 못 넣으면 `notes`에 "가능하면 갈 곳 '…'은(는) … 못 넣었어요". `avoidKinds` 종류는 후보에서 뺌(직접 말한 곳은 남김), `avoidVisit`은 이름이 맞는 후보를 뺌 (뺀 수는 진행 알림 `candidates`의 `detail`). `finish`: 카카오로 끝 장소를 찾고 지역 중심 → 끝 장소 경로로 "마지막 날 일정이 끝나야 하는 시각"(= 도착 시각 − 이동 − 10분)을 정해 그 뒤 칸은 비움. 다 짠 뒤 마지막 일정 → 끝 장소 경로로 다시 재서 늦으면 뒤에서부터 3곳까지 뺌(`must`는 안 빼고 안내). 마지막에 끝 칸(`category` "여행 끝", `fixed` true, `stay` 10) 추가. `maxWalkMin`: 칸 사이 직선 거리를 `분×75m÷1.3` 안으로 고름(그 안에 없으면 제한 없이), 다 짠 뒤 구간마다 경로의 걷는 거리로 분을 계산해 넘는 구간을 `notes`에 3개까지
 
 ---
 
@@ -859,6 +870,8 @@
 | reviews | 25 → 40 | 리뷰로 요청 확인 (4명이 앉을 자리) | 안 맞는다는 리뷰가 있는 1곳 뺌 · 뺀 곳 없음 (`needs`가 없으면 이 단계 없음) |
 | ai | 45 → 80 | AI가 칸마다 장소 고르기 / 평점·거리로 장소 고르기 (AI 연결 안 됨) | 5칸 고름 |
 | rules | 90 | 영업시간·종류·겹침 검사 | 모두 통과 / 다시 고른 안내 문구 |
+| finish | 93 | 광명역 18:30 도착 맞추기 | 16:44 도착 예정 · 1곳 뺌 (`finish`가 없으면 이 단계 없음) |
+| walk | 94 | 걷는 시간 확인 (한 번에 15분까지) | 가장 오래 걷는 구간 8분 / 2구간이 15분을 넘어요 (`maxWalkMin`이 없으면 이 단계 없음) |
 | fixed | 95 | 18:30 광명역 시간에 맞추기 | (`fixed`가 없으면 이 단계 없음) |
 
 로그인 안 했으면 알림 없이 401 JSON (`/generate`와 같음).

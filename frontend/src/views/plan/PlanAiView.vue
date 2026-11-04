@@ -7,7 +7,7 @@ import TopBar from '@/components/common/TopBar.vue'
 import RangeCalendar from '@/components/plan/RangeCalendar.vue'
 import WishLinks from '@/components/plan/WishLinks.vue'
 import { useTripStore } from '@/stores/trip'
-import { daysBetween } from '@/utils/dates'
+import { addDays, daysBetween, toMonthDay } from '@/utils/dates'
 import { KIND_CHIPS, MOVE_CODES, TAG_CHIPS } from '@/utils/styleCodes'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
@@ -61,6 +61,11 @@ const stayNights = computed(() => {
   for (const stay of store.planStays) total += daysBetween(stay.checkInDate, stay.checkOutDate)
   return total
 })
+// 일차 칸 글: 위 "2일차"(당일치기면 "당일"), 아래 "12/5"
+function dayTileOf(day) {
+  const index = (day || 1) - 1
+  return { title: nights.value ? index + 1 + '일차' : '당일', date: toMonthDay(addDays(store.planStartDate, index)) }
+}
 // 꼭 지킬 시간 빼기 (일정 만들기 조건과 직접 고르기 초안에서 같이)
 function removeFixed(name) {
   store.planConditions = { ...store.planConditions, fixed: fixedList.value.filter((item) => item.name !== name) }
@@ -188,7 +193,8 @@ function goNext() {
           <div class="sec-h"><h2 id="pa-fix" class="t-sub">꼭 지킬 시간</h2><span class="t-cap">예약·공연</span></div>
           <div v-for="item in fixedList" :key="item.name" class="stop is-fixed" style="grid-template-columns: 1fr">
             <div class="stop__card">
-              <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><i class="ic ic--s i-lock c-navy" aria-hidden="true"></i><b class="c-navy tn">{{ item.time }} 고정</b></span></span>
+              <span class="day-tile"><b>{{ dayTileOf(item.day).title }}</b><span>{{ dayTileOf(item.day).date }}</span></span>
+              <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><b class="c-navy tn">{{ item.time }}</b> · 시간 고정</span></span>
               <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(item.name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
             </div>
           </div>

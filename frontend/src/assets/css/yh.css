@@ -141,6 +141,10 @@ button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
 .ico-tile--ok{background:var(--success-soft);color:var(--success)}
 .ico-tile--danger{background:var(--danger-soft);color:var(--danger)}
 .ico-tile--neutral{background:var(--surface-sunken);color:var(--ink-muted)}
+/* 일차 칸 (꼭 지킬 시간 목록): 위 "2일차", 아래 "12/5". 당일치기면 "당일" (11/04) */
+.day-tile{width:48px;height:44px;flex:none;border-radius:var(--radius-md);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:#F2F8FF;border:1px solid #D6E7FA;color:var(--navy);line-height:1.1}
+.day-tile b{font-size:13px;font-weight:700}
+.day-tile span{font-size:11px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
 
 /* 선택 카드(라디오·체크) — 방법 고르기, 대안, 뺄 곳, 바꿀 곳에 공통 */
 .opt{position:relative;display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-raised);cursor:pointer;text-decoration:none;color:var(--ink);box-shadow:var(--shadow-card)}

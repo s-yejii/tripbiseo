@@ -36,10 +36,10 @@ export const useTripStore = defineStore('trip', () => {
   const planStartDate = ref(today())
   const planEndDate = ref(null)
 
-  // 초안에 장소 카드 하나 추가 (time은 비워 두면 일정 점검이 앞 일정에 이어서 정해 줌)
-  function addDraftPlace(place, isFixed = false, time = null) {
+  // 초안에 장소 카드 하나 추가 (time은 비워 두면 일정 점검이 앞 일정에 이어서 정해 줌, day는 며칠째 · 기본 1일차)
+  function addDraftPlace(place, isFixed = false, time = null, day = 1) {
     draft.value.stops.push({
-      day: 1,
+      day,
       placeId: place.id ?? null,
       name: place.name,
       category: place.category ?? null,
