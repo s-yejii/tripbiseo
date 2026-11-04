@@ -1,8 +1,9 @@
 <script setup>
 // S06 여행 정보 입력 (③): 지역·날짜(달력)·출발지·인원·취향·이동 수단·꼭 지킬 시간·가고 싶은 곳
 // 주소: /plan/info (AI로 짜기) · /plan/info?method=me (직접 고르기)
-// 11/04: 칩은 처음에 아무것도 안 골라져 있어요. "다음"을 누를 때 지역·출발지·동행·어디 위주로·이동 수단 중
-//   안 고른 게 있으면 넘어가지 않고, 그 칸으로 스크롤 + "○○를 골라 주세요" 안내
+// 11/04: 칩은 처음에 아무것도 안 골라져 있어요. 지역·숙소(1박 이상이면 박 수만큼)·출발지·동행·어디 위주로·이동 수단 중
+//   안 알려 준 게 있으면 "다음"으로 넘어가지 않고, 버튼 위에 "어디로 가는지, 어디서 출발하는지 알려 주세요"처럼
+//   빠진 것을 이름으로 보여 줘요. 눌렀을 때는 첫 번째 빠진 칸으로 스크롤
 //   인원·동행·이동 수단은 저장소(store.planPeople·planCompanion·planMoves)에 둬서 장소 검색에 다녀와도 그대로예요
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -39,16 +40,26 @@ function isOutside(stay) {
   const tripEnd = store.planEndDate || store.planStartDate
   return stay.checkInDate < store.planStartDate || stay.checkOutDate > tripEnd
 }
-// 다음으로 가기 전에 꼭 골라야 하는 것 (위에서부터 순서대로, 안 고른 것만) → [{ id: 칸 id, text: 안내 }]
+// 다음으로 가기 전에 꼭 알려 줘야 하는 것 (화면 위에서부터, 빠진 것만) → [{ id: 칸 id, ask: "어디로 가는지" }]
+//   ask 뒤에 "알려 주세요"를 붙여서 안내해요
 const missingList = computed(() => {
   const list = []
-  if (!store.planArea) list.push({ id: 'pa-where', text: '어디로 가요?를 골라 주세요' })
-  if (!store.planOrigin) list.push({ id: 'pa-from', text: '어디서 출발해요?를 골라 주세요' })
-  if (!store.planCompanion) list.push({ id: 'pa-who', text: '누구랑 가요?를 골라 주세요' })
-  if (store.planKinds.length === 0) list.push({ id: 'pa-style', text: '어디 위주로 갈지 하나 이상 골라 주세요' })
-  if (store.planMoves.length === 0) list.push({ id: 'pa-move', text: '무엇으로 다닐지 하나 이상 골라 주세요' })
+  if (!store.planArea) list.push({ id: 'pa-where', ask: '어디로 가는지' })
+  if (nights.value > 0 && okStayNights.value < nights.value) list.push({ id: 'pa-when', ask: stayAsk() })
+  if (!store.planOrigin) list.push({ id: 'pa-from', ask: '어디서 출발하는지' })
+  if (!store.planCompanion) list.push({ id: 'pa-who', ask: '누구랑 가는지' })
+  if (store.planKinds.length === 0) list.push({ id: 'pa-style', ask: '어디 위주로 갈지' })
+  if (store.planMoves.length === 0) list.push({ id: 'pa-move', ask: '무엇으로 다닐지' })
   return list
 })
+// 버튼 위 안내: "어디로 가는지, 어디서 출발하는지 알려 주세요"
+const missingText = computed(() => missingList.value.map((item) => item.ask).join(', ') + ' 알려 주세요')
+
+// 숙소 안내: 하나도 없으면 "어디서 자는지", 일부만 담았으면 "남은 1박은 어디서 자는지"
+function stayAsk() {
+  if (okStayNights.value === 0) return '어디서 자는지'
+  return `남은 ${nights.value - okStayNights.value}박은 어디서 자는지`
+}
 
 function changePeople(diff) {
   store.planPeople = Math.max(1, Math.min(10, store.planPeople + diff))
@@ -63,6 +74,14 @@ function pickCompanion(name) {
 const stayNights = computed(() => {
   let total = 0
   for (const stay of store.planStays) total += daysBetween(stay.checkInDate, stay.checkOutDate)
+  return total
+})
+// 여행 날짜 안에 있는 숙소의 박 수 합 (날짜 밖 숙소는 고쳐야 해서 "다음" 확인에서 안 쳐줌)
+const okStayNights = computed(() => {
+  let total = 0
+  for (const stay of store.planStays) {
+    if (!isOutside(stay)) total += daysBetween(stay.checkInDate, stay.checkOutDate)
+  }
   return total
 })
 // 일차 칸 글: 위 "2일차"(당일치기면 "당일"), 아래 "12/5"
@@ -112,7 +131,7 @@ function goNext() {
   const missing = missingList.value[0]
   if (missing) {
     document.getElementById(missing.id)?.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    showToast(missing.text)
+    showToast(missing.ask + ' 알려 주세요')
     return
   }
   saveConditions()
@@ -125,7 +144,7 @@ function goNext() {
     <div class="app">
       <TopBar title="여행 정보" back="/new"><span class="topbar__side tn">{{ byMe ? '2 / 3' : '2 / 4' }}</span></TopBar>
 
-      <div class="scroll" style="padding-top: 4px; gap: 12px" :style="{ bottom: missingList.length ? '124px' : '102px' }">
+      <div class="scroll" style="padding-top: 4px; gap: 12px" :style="{ bottom: missingList.length ? '160px' : '102px' }">
         <section class="card card--pad pa-sec" aria-labelledby="pa-where">
           <h2 id="pa-where" class="t-sub">어디로 가요?</h2>
           <RouterLink to="/plan/search?mode=area" class="field__box pickbox"><i class="ic i-pin subtle" aria-hidden="true"></i><span class="val" :class="{ 'is-empty': !store.planArea }">{{ store.planArea ? store.planArea.fullName : '동·구 이름으로 찾기' }}</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
@@ -223,7 +242,7 @@ function goNext() {
       </div>
 
       <div class="cta">
-        <p v-if="missingList.length" class="t-cap pa-left">{{ missingList.length }}개 더 골라야 다음으로 갈 수 있어요</p>
+        <p v-if="missingList.length" class="t-cap pa-left" aria-live="polite">{{ missingText }}</p>
         <button type="button" class="btn btn--primary btn--lg btn--block" :class="{ 'is-wait': missingList.length }" @click="goNext">다음</button>
       </div>
     </div>
