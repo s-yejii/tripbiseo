@@ -76,7 +76,7 @@
 | `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
 | `GET /api/places/popular` | 요즘 인기 장소 (다른 회원들의 최근 30일 여행 기록) | trip/MainView | 있음 |
 | `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
-| `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? 역·건물·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
+| `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? · 꼭 지킬 시간(예약한 곳) 역·건물·가게·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`, `?mode=fixed`) | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -85,7 +85,8 @@
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
 | `POST /api/plans/chat` | 사용자 말 → 여행 조건 정리 (Gemini) | plan/PlanChatView | 있음 |
-| `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | plan/GeneratingView → trip/PlanCheckView | 있음 |
+| `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | (화면은 11/04부터 아래 `/generate/stream`) → trip/PlanCheckView | 있음 |
+| `POST /api/plans/generate/stream` | 위와 같음 + 단계마다 진행 알림 (SSE) | plan/GeneratingView → trip/PlanCheckView | 있음 (11/04) |
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
@@ -671,7 +672,7 @@
 **오류** 400 "검색어를 1~40자로 입력해 주세요." · 502 "카카오 로컬 …" (키 거절·연결 실패) · 503 "위치 검색 키(KAKAO_REST_API_KEY)가 설정되지 않았어요."
 
 ### `GET /api/places/locations`
-여행 정보의 "어디서 출발해요?"에서 역·출구·건물·가게·주소를 찾아요 (카카오). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가)
+여행 정보의 "어디서 출발해요?"에서 역·출구·건물·가게·주소를 찾아요 (카카오). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가), `?mode=fixed` 꼭 지킬 시간의 예약한 곳 찾기 (11/04 추가, 고른 여행 지역의 좌표를 `lat`·`lng`로 보내 거리를 보여 줌)
 
 **요청** 쿼리 `q` (1~40자), `lat`·`lng` (없어도 됨, 있으면 `distance`가 붙음)
 
@@ -753,8 +754,9 @@
 | conditions.kinds / tags | (11/03) 말에서 나온 장소 종류·분위기 코드를 더함 ("웨이팅 싫어" → `no_wait`, "전시도 보고 싶어" → `culture`). 정해진 코드 밖 값은 버림 |
 | conditions.areaLat·areaLng·areaType | 말로 다른 지역을 말하면 `null`로 지움 (화면에서 고른 지역 좌표와 안 맞아서 → 지역 이름으로 후보). "성수동"처럼 같은 지역을 줄여 말한 건 그대로 |
 | conditions.style | 여행 스타일 한 줄 |
+| conditions.needs | (11/04) 칩(kinds·tags)으로 못 담는 장소 요청 `["4명이 앉을 자리", "주차되는 곳"]`. 새로 말한 것을 더함, **3개·20자까지**. 일정 만들기가 후보 리뷰로 확인해요 |
 
-`title·region·mustVisit·fixed·style`은 Gemini가 말하지 않으면 키가 없을 수 있어요.
+`title·region·mustVisit·fixed·style·needs`은 Gemini가 말하지 않으면 키가 없을 수 있어요.
 
 **오류** 400 "메시지를 1~300자로 입력해 주세요." · Gemini 공통 오류
 
@@ -808,7 +810,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}] |
+| conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}]. 11/04 추가: `needs`(칩에 없는 장소 요청, 3개까지 확인 — 아래 "리뷰로 확인") |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
@@ -820,7 +822,7 @@
 | startDate, endDate, people | 조건 값 |
 | transports | 조건의 수단. **조건에 없으면 `[]`** (그대로 저장하면 400) |
 | stops | 초안 `Stop[]` (`day → time` 순). `id`·`tripId`·`mode`·`arrivedAt`·`departedAt`는 `null`. `memo`는 고른 이유 · 리뷰 근거 (예: "조용한 동네 카페 · 조용해요 · 리뷰 10개 중 4개", 없으면 `null`, 200자까지 — 저장하면 그대로 칸 메모로 남음), `state`는 `"todo"`, `stay` 10~600, DB 밖 장소면 `placeId`가 `null` |
-| notes | 안내 문구 `[{text, url}]` (없으면 `[]`). 예: "{이름}의 위치를 찾지 못해 뺐어요", "AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요 (...)", "AI가 고른 2곳이 고른 종류·영업시간과 맞지 않아 평점·거리로 다시 골랐어요", "고른 지역 근처에서 쇼핑 장소를 찾지 못해 일정에 못 넣었어요". `url`은 네이버 지도 검색 링크, AI 실패 안내는 `null` |
+| notes | 안내 문구 `[{text, url}]` (없으면 `[]`). 예: "{이름}의 위치를 찾지 못해 뺐어요", "AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요 (...)", "AI가 고른 2곳이 고른 종류·영업시간과 맞지 않아 평점·거리로 다시 골랐어요", "고른 지역 근처에서 쇼핑 장소를 찾지 못해 일정에 못 넣었어요", "'4명이 앉을 자리' 리뷰 확인: 맞는 곳 2곳(…) · 뺀 곳 1곳(…(\"자리가 좁아요\"))" (11/04). `url`은 네이버 지도 검색 링크, AI 실패 안내는 `null` |
 
 **오류** 400 "여행 조건이 없어요." · 422 "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요." · 422 "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요."
 
@@ -834,8 +836,32 @@
 > 후보 (11/03): `areaLat`이 있으면 그 중심 반경(구 3km · 동 1.5km)에서 고른 종류마다 보정 평점 순 25곳 (장소 종류는 PlaceMapper `kindCase` 하나로 정해요). 없으면 예전처럼 내 위치·지역 이름.
 >
 > 숙소 (11/03): `stays`마다 체크인 날 마지막 일정 뒤(+30분, 체크인 시각보다 이르지 않게, 23:30까지)에 숙소 칸 (`placeId` null, `category` "숙소", `memo`에 체크인 시각). 다음 날 첫 장소는 숙소에서 가까운 곳부터.
+>
+> 리뷰로 확인 (11/04): `needs`마다 ① Gemini가 리뷰에서 찾을 단어를 정함 ("4명이 앉을 자리" → 단체석·단체·자리가 넓…) ② 점수 높은 후보 20곳(꼭 갈 곳 제외)의 `retrip_review`에서 그 단어가 든 리뷰를 곳마다 4개까지 꺼내 단어 앞뒤 60자만 자름 ③ Gemini가 곳마다 `ok`·`bad`·`unknown` + 근거 글 ④ **서버가 근거 글이 ②에서 보낸 리뷰에 그대로 있는지 확인**(없으면 버림). `ok`는 점수 +1.0과 칸 `memo`에 `4명이 앉을 자리: 리뷰 "…"`, `bad`는 후보에서 뺌, 결과는 `notes`에 요청마다 한 줄. 관련 리뷰가 없거나 AI가 안 되면 확인하지 않고 `notes`에만 적어요. 리뷰는 네이버 장소(카페·음식점)에만 있어요
 
 ---
+
+### `POST /api/plans/generate/stream`
+`/generate`와 같은 일을 하면서, 단계가 끝날 때마다 진행 알림을 보내요 (11/04). · 로그인 필요 · 화면: plan/GeneratingView
+
+**요청** `/generate`와 같아요. 응답은 `text/event-stream`(SSE: 응답 하나를 열어 두고 서버가 알림을 여러 번 나눠 보냄). 연결은 2분까지.
+
+**알림 순서** (`event:` 이름 + `data:` JSON + 빈 줄)
+| event | data | 언제 |
+|---|---|---|
+| progress | `{step, state, percent, text, detail}` | 단계마다. 오래 걸리는 단계는 `now`(하는 중) → `done`(끝) 두 번 |
+| done | `/generate` 응답과 같은 초안 | 마지막 (이걸 받으면 끝) |
+| fail | `{status, message}` | 오류 (`/generate`의 오류와 같은 내용). 이걸 받으면 끝 |
+
+| step | percent (done 때) | text 예 | detail 예 |
+|---|---|---|---|
+| candidates | 20 | 장소 후보 52곳 찾기 | |
+| reviews | 25 → 40 | 리뷰로 요청 확인 (4명이 앉을 자리) | 안 맞는다는 리뷰가 있는 1곳 뺌 · 뺀 곳 없음 (`needs`가 없으면 이 단계 없음) |
+| ai | 45 → 80 | AI가 칸마다 장소 고르기 / 평점·거리로 장소 고르기 (AI 연결 안 됨) | 5칸 고름 |
+| rules | 90 | 영업시간·종류·겹침 검사 | 모두 통과 / 다시 고른 안내 문구 |
+| fixed | 95 | 18:30 광명역 시간에 맞추기 | (`fixed`가 없으면 이 단계 없음) |
+
+로그인 안 했으면 알림 없이 401 JSON (`/generate`와 같음).
 
 ## ④ 여행 중 판별 (live)
 

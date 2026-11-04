@@ -1,6 +1,7 @@
 <script setup>
 // S07 원하는 것 말하기 (③): 말로 적거나 칩을 누르면 "일정에 넣을 조건" 카드에 쌓이고, 일정 만들기가 그 조건을 그대로 써요 (11/03 진짜 동작)
 //   말 → 서버(POST /api/plans/chat, Gemini)가 조건으로 정리: 꼭 갈 곳(mustVisit) · 시간 고정(fixed) · 장소 종류(kinds) · 분위기(tags) · 날짜·지역
+//        + 칩에 없는 요청(needs: "4명이 앉을 자리") → 일정 만들 때 서버가 후보 리뷰로 확인 (11/04)
 //   칩 → Gemini 없이 바로 종류·분위기 조건에 더함 (일정 만들기에서 칸 종류·리뷰 태그 점수로 쓰임)
 //   조건 카드의 ×로 뺄 수 있어요. AI가 안 되면 정리는 못 하고, 한 말은 일정 만들 때 AI에게 그대로 넘겨요
 import { computed, nextTick, ref } from 'vue'
@@ -33,7 +34,8 @@ const mustList = computed(() => conditions.value.mustVisit || [])
 const fixedList = computed(() => conditions.value.fixed || [])
 const kindList = computed(() => conditions.value.kinds || [])
 const tagList = computed(() => conditions.value.tags || [])
-const ruleCount = computed(() => mustList.value.length + fixedList.value.length + kindList.value.length + tagList.value.length)
+const needList = computed(() => conditions.value.needs || []) // 칩에 없는 요청 → 서버가 후보 리뷰로 확인 (11/04)
+const ruleCount = computed(() => mustList.value.length + fixedList.value.length + kindList.value.length + tagList.value.length + needList.value.length)
 
 // 아직 안 고른 종류·분위기만 칩으로
 const quickChips = computed(() => {
@@ -146,6 +148,10 @@ async function send() {
           <p v-for="(code, i) in tagList" :key="'t' + code" class="pc-rule">
             <i class="ic ic--s i-check c-success" aria-hidden="true"></i><span class="pc-rule__text">먼저 고르기 · <b>{{ labelOf(TAG_CHIPS, code) }}</b></span>
             <button type="button" class="pc-x" :aria-label="labelOf(TAG_CHIPS, code) + ' 빼기'" @click="removeItem('tags', i)"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
+          </p>
+          <p v-for="(need, i) in needList" :key="'n' + need" class="pc-rule">
+            <i class="ic ic--s i-search c-navy" aria-hidden="true"></i><span class="pc-rule__text">리뷰로 확인 · <b>{{ need }}</b></span>
+            <button type="button" class="pc-x" :aria-label="need + ' 빼기'" @click="removeItem('needs', i)"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
           </p>
         </div>
       </div>

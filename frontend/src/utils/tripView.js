@@ -68,7 +68,7 @@ export function tripDetailLink(trip) {
 export function toViewTrip(trip, check = null, day = 1) {
   const dayStops = check ? check.stops : trip.stops.filter((stop) => (stop.day || 1) === day && stop.state !== 'skipped')
   const positions = toMapPositions(dayStops, TRIP_MAP_BOX)
-  const stops = dayStops.map((stop, i) => toViewStop(stop, positions[i]))
+  const stops = dayStops.map((stop, i) => toViewStop(stop, positions[i], findMemo(trip, stop)))
   let move = 0
   for (const stop of stops) move += stop.leg ? stop.leg.min : 0
   const view = {
@@ -85,8 +85,15 @@ export function toViewTrip(trip, check = null, day = 1) {
   return view
 }
 
+// 칸 메모 (점검 결과 칸에는 memo가 없어서 원래 일정에서 이름·날짜로 찾음). AI 일정이면 고른 이유·리뷰 근거
+function findMemo(trip, stop) {
+  if (stop.memo) return stop.memo
+  const original = trip.stops.find((s) => s.name === stop.name && (s.day || 1) === (stop.day || 1))
+  return original ? original.memo : null
+}
+
 // 일정 한 칸 (check 결과 칸이면 arrive·issue·leg가 있음)
-function toViewStop(stop, position) {
+function toViewStop(stop, position, memo = null) {
   const stay = stop.stay || 0
   return {
     id: stop.id ?? stop.placeId ?? stop.name,
@@ -99,6 +106,7 @@ function toViewStop(stop, position) {
     meta: (stop.category ? stop.category + ' · ' : '') + toDuration(stay),
     metaIcon: stop.fixed ? 'i-lock' : stop.issue ? 'i-warning' : null,
     metaCls: stop.fixed ? 'c-navy' : stop.issue ? 'c-warning' : null,
+    memo,
     imp: null, // 중요도·날씨는 서버에 아직 없어서 비워 둠 (화면에서 안 보임)
     wx: null,
     fixed: !!stop.fixed,

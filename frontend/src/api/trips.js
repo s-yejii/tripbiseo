@@ -1,6 +1,6 @@
 // 서버 API 모음. 주소·요청·응답 모양은 docs/API.md 그대로예요.
 // 화면은 이 함수들만 불러요 (주소를 화면마다 직접 쓰지 않게).
-import { get, post, put, del, upload } from '@/api/http'
+import { get, post, put, del, upload, postStream } from '@/api/http'
 
 // ② 여행·일정
 export const getTripList = () => get('/trips')
@@ -44,6 +44,9 @@ export const getLocationHere = (lat, lng) => get(`/places/locations/here?lat=${l
 // ③ AI 일정
 export const chatPlan = (message, conditions) => post('/plans/chat', { message, conditions })
 export const generatePlan = (conditions, messages, lat, lng) => post('/plans/generate', { conditions, messages, lat, lng })
+// 위와 같고 단계마다 onProgress(이름, { step, state, percent, text, detail })를 불러요 → 끝나면 초안 (11/04)
+export const generatePlanStream = (conditions, messages, lat, lng, onProgress) =>
+  postStream('/plans/generate/stream', { conditions, messages, lat, lng }, onProgress)
 // ③ 숙소 예약 캡처 → { name, address, checkInDate, checkInTime, checkOutDate, checkOutTime, lat, lng } (저장 안 함)
 export function readStayCapture(file) {
   const form = new FormData()

@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,7 @@ import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanNote;
+import com.tripbiseo.plan.dto.PlanProgress;
 import com.tripbiseo.plan.dto.PlanStay;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -39,6 +41,7 @@ import lombok.RequiredArgsConstructor;
  *       ③ 서버가 id를 다시 확인(후보 밖이면 이름으로 실제 장소 찾기, 못 찾으면 notes에 적고 뺌).
  * Gemini가 실패하면 규칙(PlanRuleMaker: 고른 종류·평점·거리)으로 초안 (오류 내지 않음). 좌표·회원 정보는 프롬프트에 넣지 않음.
  * 11/03: 여행 정보 화면의 지역 좌표·장소 종류·분위기 태그·출발지·숙소를 조건으로 받아 반영.
+ * 11/04: 칩으로 못 고르는 요청(needs: "4명이 앉을 자리")은 ReviewNeedChecker가 후보 리뷰로 확인해 점수·후보에 반영.
  * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/PlanService.java (chat/generate/fallback)
  */
 @Service
@@ -62,11 +65,14 @@ public class PlanServiceImpl implements PlanService {
     private static final int FIXED_STAY_MIN = 120;
     private static final int MIN_STAY = 10;
     private static final int MAX_STAY = 600;
+    private static final int MAX_NEEDS = 3;          // 칩에 없는 요청은 3개까지 (리뷰 확인이 요청마다 Gemini를 불러서)
+    private static final int MAX_NEED_LENGTH = 20;
 
     private final AiService aiService;
     private final PlaceService placeService;
     private final PlanCandidateFinder planCandidateFinder; // 후보 장소 찾기 (RAG의 찾기)
     private final PlanRuleMaker planRuleMaker;             // AI가 안 될 때 규칙으로 일정 + 숙소 칸 (11/03)
+    private final ReviewNeedChecker reviewNeedChecker;     // 칩에 없는 요청을 후보 리뷰로 확인 (11/04)
 
     /** 사용자 말 → 여행 조건. 보낸 조건은 남기고 Gemini가 새로 뽑은 값만 덮어씀. Gemini 실패는 오류 그대로 (API.md) */
     @Override
@@ -87,9 +93,15 @@ public class PlanServiceImpl implements PlanService {
         return response;
     }
 
-    /** 조건 → 일정 초안: 후보 찾기 → Gemini 고르기(실패하면 꼭 갈 곳만) → 실제 장소로 바꾸기 */
+    /** 조건 → 일정 초안 (진행 알림 없이: 예전 주소 /generate) */
     @Override
     public PlanGenerateResponse generatePlan(long memberId, PlanGenerateRequest request) {
+        return generatePlan(memberId, request, step -> { }); // 진행 알림은 받아도 아무것도 안 함
+    }
+
+    /** 조건 → 일정 초안: 후보 찾기 → 리뷰로 요청 확인 → Gemini 고르기(실패하면 규칙) → 검사 → 실제 장소로. 단계가 끝날 때마다 progress로 알림 */
+    @Override
+    public PlanGenerateResponse generatePlan(long memberId, PlanGenerateRequest request, Consumer<PlanProgress> progress) {
         PlanConditions conditions = request.getConditions();
         if (conditions == null) {
             throw fail(400, "여행 조건이 없어요.");
@@ -102,16 +114,14 @@ public class PlanServiceImpl implements PlanService {
         Double baseLng = isNearMe ? request.getLng() : null;
 
         Map<String, Place> found = findCandidates(conditions, region, isNearMe, baseLat, baseLng, response.getNotes());
+        progress.accept(makeProgress("candidates", "done", 20, "장소 후보 " + found.size() + "곳 찾기", null));
         Map<String, PlaceTagCount> tagCounts = planCandidateFinder.countTags(found);
         Map<String, Double> scores = planCandidateFinder.scoreOf(found, tagCounts, conditions.getTags());
         Map<String, List<String>> reasons = planCandidateFinder.reasonsOf(found, tagCounts, conditions.getTags());
+        checkNeeds(conditions, found, scores, reasons, response, progress);
         Map<String, Place> candidates = planCandidateFinder.sortByScore(found, scores); // 고른 태그가 많은 곳부터
-        List<AiDraftStop> picks = pickStops(conditions, request.getMessages(), candidates, reasons, days, response);
-        List<String> warnings = new ArrayList<>();
-        List<AiDraftStop> filled = planRuleMaker.fillSlots(conditions, candidates, scores, days, response.getStartDate(), picks, warnings);
-        for (String warning : warnings) {
-            response.getNotes().add(makeNote(warning, null));
-        }
+
+        List<AiDraftStop> filled = chooseStops(conditions, request.getMessages(), candidates, scores, reasons, days, response, progress);
         addPickedStops(response, filled, candidates, reasons, days, baseLat, baseLng);
         planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
@@ -119,10 +129,68 @@ public class PlanServiceImpl implements PlanService {
             throw fail(422, isMissingLocation ? "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요."
                                               : "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요.");
         }
+        reportFixed(conditions, progress);
         // day → time 순 (sort에 넘기는 규칙: day가 같으면 time 글자 순, "09:00" < "10:00")
         response.getStops().sort((first, second) -> first.getDay().equals(second.getDay())
                 ? first.getTime().compareTo(second.getTime()) : first.getDay() - second.getDay());
         return response;
+    }
+
+    // ---------------------------------------------------------------- 진행 단계 (11/04)
+
+    /** 칩에 없는 요청을 리뷰로 확인 (요청이 없으면 이 단계는 건너뜀) */
+    private void checkNeeds(PlanConditions conditions, Map<String, Place> found, Map<String, Double> scores,
+                            Map<String, List<String>> reasons, PlanGenerateResponse response, Consumer<PlanProgress> progress) {
+        if (conditions.getNeeds() == null || conditions.getNeeds().isEmpty()) {
+            return;
+        }
+        String text = "리뷰로 요청 확인 (" + String.join(", ", conditions.getNeeds()) + ")";
+        progress.accept(makeProgress("reviews", "now", 25, text, null));
+        int before = found.size();
+        reviewNeedChecker.check(conditions, found, scores, reasons, response.getNotes()); // 안 맞는 곳은 빼고, 맞는 곳은 점수·리뷰 근거
+        int removed = before - found.size();
+        progress.accept(makeProgress("reviews", "done", 40, text, removed > 0 ? "안 맞는다는 리뷰가 있는 " + removed + "곳 뺌" : "뺀 곳 없음"));
+    }
+
+    /** Gemini 고르기(실패하면 규칙) → 칸 검사·빈 칸 채우기. 두 단계를 알림 */
+    private List<AiDraftStop> chooseStops(PlanConditions conditions, List<String> messages, Map<String, Place> candidates,
+                                          Map<String, Double> scores, Map<String, List<String>> reasons, int days,
+                                          PlanGenerateResponse response, Consumer<PlanProgress> progress) {
+        String aiText = aiService.isReady() ? "AI가 칸마다 장소 고르기" : "평점·거리로 장소 고르기 (AI 연결 안 됨)";
+        progress.accept(makeProgress("ai", "now", 45, aiText, null));
+        List<AiDraftStop> picks = pickStops(conditions, messages, candidates, reasons, days, response);
+        progress.accept(makeProgress("ai", "done", 80, aiText, picks.size() + "칸 고름"));
+
+        List<String> warnings = new ArrayList<>();
+        List<AiDraftStop> filled = planRuleMaker.fillSlots(conditions, candidates, scores, days, response.getStartDate(), picks, warnings);
+        for (String warning : warnings) {
+            response.getNotes().add(makeNote(warning, null));
+        }
+        String detail = warnings.isEmpty() ? "모두 통과" : String.join(" · ", warnings);
+        progress.accept(makeProgress("rules", "done", 90, "영업시간·종류·겹침 검사", detail));
+        return filled;
+    }
+
+    /** 시간 고정 일정이 있으면 "18:30 광명역 시간에 맞추기" (고정 칸은 그 시각에 넣고 겹치는 칸은 비움) */
+    private void reportFixed(PlanConditions conditions, Consumer<PlanProgress> progress) {
+        if (conditions.getFixed() == null || conditions.getFixed().isEmpty()) {
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        for (FixedVisit fixed : conditions.getFixed()) {
+            names.add(fixed.getTime() + " " + fixed.getName());
+        }
+        progress.accept(makeProgress("fixed", "done", 95, String.join(", ", names) + " 시간에 맞추기", null));
+    }
+
+    private PlanProgress makeProgress(String step, String state, int percent, String text, String detail) {
+        PlanProgress item = new PlanProgress();
+        item.setStep(step);
+        item.setState(state);
+        item.setPercent(percent);
+        item.setText(text);
+        item.setDetail(detail);
+        return item;
     }
 
     // ---------------------------------------------------------------- 대화 → 조건
@@ -139,10 +207,11 @@ public class PlanServiceImpl implements PlanService {
              + "{\"reply\": \"조건을 정리했다는 한두 문장 + 확인 부탁\", \"title\": \"여행 이름(15자 이내)\", \"region\": \"지역(예: 서울 종로)\", "
              + "\"startDate\": \"YYYY-MM-DD\", \"endDate\": \"YYYY-MM-DD\", \"people\": 정수, \"transports\": [\"bus\"|\"subway\"|\"walk\"|\"taxi\"|\"car\"], "
              + "\"mustVisit\": [\"이번 말에서 새로 나온 꼭 갈 장소\"], \"fixed\": [{\"name\": \"이번 말에서 새로 나온 시간이 정해진 일정\", \"time\": \"HH:mm\"}], "
-             + "\"kinds\": [\"새로 원한 장소 종류 코드\"], \"tags\": [\"새로 원한 분위기 코드\"], \"style\": \"여행 스타일 한 줄\"}\n"
-             + "mustVisit·fixed·kinds·tags는 이번 말에서 새로 나온 것만 적어(이전 것은 서버가 남겨 둬). 상호명은 사용자가 말한 그대로.\n"
+             + "\"kinds\": [\"새로 원한 장소 종류 코드\"], \"tags\": [\"새로 원한 분위기 코드\"], \"needs\": [\"새로 말한 장소 요청\"], \"style\": \"여행 스타일 한 줄\"}\n"
+             + "mustVisit·fixed·kinds·tags·needs는 이번 말에서 새로 나온 것만 적어(이전 것은 서버가 남겨 둬). 상호명은 사용자가 말한 그대로.\n"
              + "kinds 코드: food 밥집, cafe 카페·디저트, bar 술집, tour 관광·산책, culture 전시·문화, shop 쇼핑. 그 종류에 가고 싶다고 했을 때만.\n"
-             + "tags 코드: mood 분위기 좋은, quiet 조용한, value 가성비, no_wait 웨이팅 없는(웨이팅 싫다 포함), solo 혼밥. 그런 곳을 원한다고 했을 때만.";
+             + "tags 코드: mood 분위기 좋은, quiet 조용한, value 가성비, no_wait 웨이팅 없는(웨이팅 싫다 포함), solo 혼밥. 그런 곳을 원한다고 했을 때만.\n"
+             + "needs: kinds·tags 코드로 못 담는 장소 조건을 15자 이내 짧은 말로 (예: 4명이 앉을 자리, 주차되는 곳, 아이랑 가기 좋은). 장소 이름·시각·이동 수단·걷는 시간은 넣지 마.";
     }
 
     /** 조건 → 프롬프트용 글 */
@@ -163,6 +232,7 @@ public class PlanServiceImpl implements PlanService {
         appendLine(text, "style", conditions.getStyle());
         appendLine(text, "kinds(이 종류 위주로, 하루 칸에 이미 반영)", conditions.getKinds() == null ? null : toKindNames(conditions.getKinds()));
         appendLine(text, "tags(이런 곳 우선)", String.join(",", planCandidateFinder.toTagNames(conditions.getTags())));
+        appendLine(text, "needs(장소 요청, 서버가 리뷰로 확인함)", conditions.getNeeds() == null ? null : String.join(",", conditions.getNeeds()));
         appendLine(text, "origin(1일차 출발지)", conditions.getOriginName());
         if (conditions.getStays() != null) {
             for (PlanStay stay : conditions.getStays()) {
@@ -224,6 +294,7 @@ public class PlanServiceImpl implements PlanService {
         conditions.setMustVisit(addNew(conditions.getMustVisit(), answer.getMustVisit(), null));
         conditions.setKinds(addNew(conditions.getKinds(), answer.getKinds(), KIND_CODES));
         conditions.setTags(addNew(conditions.getTags(), answer.getTags(), TAG_CODES));
+        conditions.setNeeds(cutNeeds(addNew(conditions.getNeeds(), answer.getNeeds(), null)));
         if (answer.getFixed() != null) {
             List<FixedVisit> fixedList = conditions.getFixed() == null ? new ArrayList<>() : new ArrayList<>(conditions.getFixed());
             for (FixedVisit fixed : answer.getFixed()) {
@@ -233,6 +304,20 @@ public class PlanServiceImpl implements PlanService {
             }
             conditions.setFixed(fixedList);
         }
+    }
+
+    /** 칩에 없는 요청은 3개·20자까지 (넘는 건 버림) */
+    private List<String> cutNeeds(List<String> needs) {
+        if (needs == null) {
+            return null;
+        }
+        List<String> result = new ArrayList<>();
+        for (String need : needs) {
+            if (result.size() < MAX_NEEDS) {
+                result.add(cut(need, MAX_NEED_LENGTH));
+            }
+        }
+        return result;
     }
 
     /** 같은 지역인지: Gemini가 "성수동"처럼 이전 지역을 줄여 다시 적어도 바뀐 걸로 보지 않음 (한쪽이 다른 쪽을 포함하면 같음) */
@@ -364,6 +449,7 @@ public class PlanServiceImpl implements PlanService {
              + "규칙:\n"
              + "- 칸마다 후보 목록에서 그 칸 종류에 맞는 곳 하나를 골라 id를 그대로 적어. 같은 곳을 두 번 쓰지 마.\n"
              + "- tags(이런 곳 우선)가 있으면 리뷰 근거에 그 태그가 있는 곳을 먼저 골라.\n"
+             + "- needs(장소 요청)가 있으면 리뷰 근거에 그 요청이 적힌 곳을 먼저 골라.\n"
              + "- 앞 칸 장소와 주소(구·동)가 가까운 곳으로 이어서 동선이 짧게.\n"
              + "- 꼭 갈 곳과 시간 고정 일정은 slot을 null로, time은 고정 시각(꼭 갈 곳은 알맞은 시각)으로 넣어. 그 시간과 겹치는 칸은 비워.\n"
              + "- reason은 왜 골랐는지 30자 이내. 후보 목록에 있는 정보(종류·평점·리뷰 근거·위치)만 근거로 써.\n"
