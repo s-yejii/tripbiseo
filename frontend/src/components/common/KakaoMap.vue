@@ -1,7 +1,8 @@
 <script setup>
 // 카카오 지도 (공통): 진짜 위도·경도로 장소 핀, 내 위치, 동선(장소끼리 직선), 길 안내 경로선, 반경 원을 그려요.
 // 키가 없거나 SDK를 못 받으면 fail을 보내요 → 부모 화면이 안내 문구를 보여 줘요.
-// 부모가 ref로 부를 수 있는 것: focusMe() 내 위치로 옮기기, fitAll() 모든 점이 보이게 다시 맞추기, moveTo(lat, lng, level) 가운데 옮기기
+// 부모가 ref로 부를 수 있는 것: focusMe() 내 위치로 옮기기, fitAll() 모든 점이 보이게 다시 맞추기, moveTo(lat, lng, level) 가운데 옮기기,
+//   focusAround(center, points) center를 가운데에 두고 points(앞뒤 경로)가 다 보이게 확대 (11/04)
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { loadKakaoMap } from '@/utils/kakaoMap'
 
@@ -10,6 +11,7 @@ const props = defineProps({
   me: { type: Object, default: null }, // 내 위치 { lat, lng }
   showRoute: { type: Boolean, default: true },
   path: { type: Array, default: () => [] }, // 길 안내 경로선 [[위도, 경도], ...] (도로를 따라가는 진짜 길)
+  paths: { type: Array, default: () => [] }, // 구간별 진짜 길 [{ coords: [[위도, 경도], ...], mode }] (일정 점검, 11/04). 도보는 점선
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
   follow: { type: Boolean, default: false }, // 내 위치가 바뀌면 지도를 따라 옮김 (길 안내)
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
@@ -21,6 +23,7 @@ const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 're
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
+const CLOSEST_LEVEL = 3 // focusAround로 이보다 더 가까이 확대하지 않음 (골목 몇 개만 보이지 않게)
 
 const box = ref(null)
 let kakao = null
@@ -28,6 +31,9 @@ let map = null
 let overlays = [] // 지금 지도에 올린 핀·선 (다시 그릴 때 지움)
 let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 뒤엔 사용자가 옮긴 화면을 유지)
 let isMovingByCode = false // moveTo로 옮기는 중
+const WALK_DOT_GAP_PX = 12 // 걷는 길 동그라미 점 사이 간격 (화면 px, 확대해도 같은 간격)
+let walkLegs = [] // 걷는 구간 좌표 목록 (확대·축소하면 점을 다시 찍음)
+let dotOverlays = [] // 지금 찍힌 동그라미 점
 
 onMounted(async () => {
   try {
@@ -44,6 +50,7 @@ onMounted(async () => {
   // 사용자가 지도를 끌어 옮기고 손을 뗀 뒤 가운데 좌표 (pickCenter일 때만)
   kakao.maps.event.addListener(map, 'dragend', sendCenter)
   kakao.maps.event.addListener(map, 'zoom_changed', sendCenter)
+  kakao.maps.event.addListener(map, 'zoom_changed', drawWalkDots) // 확대·축소하면 걷는 길 점 간격을 다시 맞춤
   draw()
   emit('ready') // 지도가 다 만들어졌어요 (부모가 moveTo 같은 걸 이때 부를 수 있음)
 })
@@ -51,7 +58,7 @@ onMounted(async () => {
 onUnmounted(clear)
 
 // 핀(상태·선택)이나 내 위치가 바뀌면 다시 그림
-watch(() => [props.pins, props.me, props.path, props.ring], draw, { deep: true })
+watch(() => [props.pins, props.me, props.path, props.paths, props.ring], draw, { deep: true })
 watch(() => props.fitKey, () => {
   hasFitted = false
   draw()
@@ -79,6 +86,13 @@ function draw() {
     addPath(pathPoints)
     allPoints.push(...pathPoints)
   }
+  walkLegs = []
+  for (const leg of props.paths) {
+    if (!leg.coords || leg.coords.length < 2) continue
+    const legPoints = leg.coords.map((point) => new kakao.maps.LatLng(point[0], point[1]))
+    if (leg.mode === 'walk') walkLegs.push(legPoints) // 걷는 길은 동그라미 점으로 (화면을 맞춘 뒤 찍음)
+    else addLeg(legPoints)
+  }
   if (props.ring) addRing(props.ring)
 
   if (props.me) {
@@ -87,12 +101,15 @@ function draw() {
     addOverlay(mePosition, makeMe(), 3)
   }
   fitOnce(allPoints)
+  drawWalkDots()
   sendMePoint()
 }
 
 function clear() {
   for (const overlay of overlays) overlay.setMap(null)
   overlays = []
+  for (const dot of dotOverlays) dot.setMap(null)
+  dotOverlays = []
 }
 
 function addOverlay(position, element, zIndex) {
@@ -107,6 +124,52 @@ function addRoute(points) {
   const line = new kakao.maps.Polyline({ path: points, strokeWeight: 5, strokeColor: '#1F3A68', strokeOpacity: 0.7, strokeStyle: 'shortdash' })
   line.setMap(map)
   overlays.push(line)
+}
+
+function addLeg(points) {
+  // 대중교통·차 구간의 진짜 길: 남색 실선. 지도 색에 묻히지 않게 아래에 흰 테두리 선을 먼저 깔아요
+  const under = new kakao.maps.Polyline({ path: points, strokeWeight: 9, strokeColor: '#FFFFFF', strokeOpacity: 0.9, strokeStyle: 'solid' })
+  const line = new kakao.maps.Polyline({ path: points, strokeWeight: 6, strokeColor: '#1F3A68', strokeOpacity: 1, strokeStyle: 'solid' })
+  under.setMap(map)
+  line.setMap(map)
+  overlays.push(under, line)
+}
+
+// 걷는 길: 선 대신 동그라미 점을 화면에서 12px마다 찍어요 (지도 점선은 길쭉하게 나와서)
+function drawWalkDots() {
+  for (const dot of dotOverlays) dot.setMap(null)
+  dotOverlays = []
+  if (!map || walkLegs.length === 0) return
+  const projection = map.getProjection() // 위도·경도 ↔ 지도 화면 위치(px) 바꾸는 도구
+  for (const points of walkLegs) {
+    for (const position of dotPositions(projection, points)) {
+      const dot = document.createElement('span')
+      dot.className = 'walk-dot'
+      const overlay = new kakao.maps.CustomOverlay({ position, content: dot, zIndex: 1 }) // 가운데가 그 좌표에 오게 (기본값)
+      overlay.setMap(map)
+      dotOverlays.push(overlay)
+    }
+  }
+}
+
+// 선을 따라 화면 거리 12px마다 점 자리 (위도·경도). carry: 앞 조각에서 남은 거리를 다음 조각으로 넘김
+function dotPositions(projection, points) {
+  const result = []
+  let carry = 0
+  for (let i = 1; i < points.length; i++) {
+    const from = projection.containerPointFromCoords(points[i - 1])
+    const to = projection.containerPointFromCoords(points[i])
+    const length = Math.hypot(to.x - from.x, to.y - from.y)
+    let distance = carry
+    while (distance < length) {
+      const ratio = distance / length
+      const point = new kakao.maps.Point(from.x + (to.x - from.x) * ratio, from.y + (to.y - from.y) * ratio)
+      result.push(projection.coordsFromContainerPoint(point))
+      distance += WALK_DOT_GAP_PX
+    }
+    carry = distance - length
+  }
+  return result
 }
 
 function addPath(points) {
@@ -198,7 +261,26 @@ function pointOf(lat, lng) {
   return map ? toScreenPoint(lat, lng) : null
 }
 
-defineExpose({ focusMe, fitAll, pointOf, moveTo })
+// center([위도, 경도])를 가운데에 두고 points([[위도, 경도], ...])가 다 보이게 화면을 맞춤
+// 가운데를 지키려고 각 점을 center 반대쪽으로 뒤집은 점도 같이 넣어요 (영역이 center를 중심으로 대칭)
+function focusAround(center, points) {
+  if (!map) return
+  hasFitted = true // 맞춘 화면을 핀 다시 그리기가 덮어쓰지 않게
+  isMovingByCode = true
+  const bounds = new kakao.maps.LatLngBounds()
+  bounds.extend(new kakao.maps.LatLng(center[0], center[1]))
+  for (const point of points) {
+    bounds.extend(new kakao.maps.LatLng(point[0], point[1]))
+    bounds.extend(new kakao.maps.LatLng(2 * center[0] - point[0], 2 * center[1] - point[1]))
+  }
+  const pad = props.padding
+  map.setBounds(bounds, pad.top, pad.right, pad.bottom, pad.left)
+  if (map.getLevel() < CLOSEST_LEVEL) map.setLevel(CLOSEST_LEVEL)
+  map.setCenter(new kakao.maps.LatLng(center[0], center[1]))
+  isMovingByCode = false
+}
+
+defineExpose({ focusMe, fitAll, pointOf, moveTo, focusAround })
 
 // 내 위치가 지도 칸의 어디(px)인지 알려 줌 → 화장실 칩·AI 패널이 내 위치 옆에 붙어요
 function sendMePoint() {
@@ -220,4 +302,6 @@ function toScreenPoint(lat, lng) {
 <style>
 /* z-index 0: 지도 안쪽 층이 위의 알림·일정 시트를 덮지 않게 지도끼리만 겹치게 함 */
 .kmap{z-index:0}
+/* 걷는 길 동그라미 점 (남색 + 흰 테두리, 11/04) */
+.walk-dot{display:block;width:7px;height:7px;border-radius:50%;background:#1F3A68;box-shadow:0 0 0 2px #fff}
 </style>

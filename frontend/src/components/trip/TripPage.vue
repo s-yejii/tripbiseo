@@ -4,6 +4,9 @@
 //   slot right : 지도 위 오른쪽 버튼 (선택한 칸 번호를 받아요)
 //   slot below : 일정 목록 아래 (예: 챙길 것)
 //   slot cta   : 맨 아래 버튼
+//   slot head  : 제목 아래 (예: 일차 고르기)
+//   reorderable: 목록 칸을 끌어 순서 바꾸기 → reorder 이벤트(원래 번호를 새 순서로 담은 목록) (11/04)
+//   지도: 점검 결과에 구간별 경로(trip.legs)가 있으면 진짜 길로, 없으면 장소끼리 점선
 import { computed, nextTick, ref } from 'vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
@@ -17,13 +20,18 @@ const props = defineProps({
   sub: { type: String, default: '' }, // 제목 아래 줄을 바꾸고 싶을 때
   back: { type: String, default: '/trips' },
   rainSwap: { type: Boolean, default: false },
+  reorderable: { type: Boolean, default: false },
 })
+const emit = defineEmits(['reorder'])
+const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
 
 const selected = ref(null)
 const scrollBox = ref(null)
+const mapRef = ref(null) // 카카오 지도 (칸을 고르면 그 칸 쪽으로 확대)
 const useRealMap = ref(true) // 카카오 지도를 못 쓰면(키 없음·불러오기 실패) false → 예전 지도 그림
 const pickedPoint = ref(null) // 카카오 지도에서 누른 핀의 화면 위치 { x, y } (말풍선 위치)
 const TRIP_MAP_PADDING = { top: 110, right: 40, bottom: 40, left: 40 } // 핀이 위 버튼에 가리지 않게
+const FOCUS_RADIUS_M = 400 // 칸을 고르면 핀에서 이만큼(m)까지의 앞뒤 경로만 보이게 확대 (지하철처럼 긴 길도 좁게)
 
 // 모든 칸에 좌표가 있으면 카카오 지도 (좌표 없는 가짜 테마 코스는 그림 지도)
 const hasCoords = computed(() => props.trip.stops.length > 0 && props.trip.stops.every((stop) => stop.lat != null && stop.lng != null))
@@ -49,10 +57,64 @@ function pinClass(stop, i) {
   return cls
 }
 
-// 카카오 지도 핀을 누름: 누른 위치에 말풍선
+// 카카오 지도 핀을 누름: 그 칸 쪽으로 옮긴 뒤, 옮긴 자리의 핀 위에 말풍선
 function pickPin(pin) {
-  pickedPoint.value = { x: pin.x, y: pin.y }
   select(pin.index)
+  const stop = props.trip.stops[pin.index]
+  const point = mapRef.value && selected.value !== null ? mapRef.value.pointOf(stop.lat, stop.lng) : null
+  pickedPoint.value = point || { x: pin.x, y: pin.y }
+}
+
+// 고른 칸 쪽으로 지도 맞추기: 들어오는 길(legs[i-1])·나가는 길(legs[i]) 중 핀에서 FOCUS_RADIUS_M 안쪽만
+// 길 좌표가 없으면 앞뒤 칸 쪽으로 그은 직선을 같은 거리만큼 잘라 씀
+function focusMap(i) {
+  if (!isKakao.value || !mapRef.value) return
+  if (i === null) {
+    mapRef.value.fitAll()
+    return
+  }
+  const stops = props.trip.stops
+  const legs = props.trip.legs || []
+  const center = [stops[i].lat, stops[i].lng]
+  const lines = []
+  const comeIn = legs[i - 1] && legs[i - 1].coords && legs[i - 1].coords.length ? [...legs[i - 1].coords].reverse() : null
+  const goOut = legs[i] && legs[i].coords && legs[i].coords.length ? legs[i].coords : null
+  const prev = stops[i - 1]
+  const next = stops[i + 1]
+  if (comeIn) lines.push(comeIn)
+  else if (prev && prev.lat != null) lines.push([[prev.lat, prev.lng]])
+  if (goOut) lines.push(goOut)
+  else if (next && next.lat != null) lines.push([[next.lat, next.lng]])
+  const points = []
+  for (const line of lines) points.push(...nearPart(center, line, FOCUS_RADIUS_M))
+  mapRef.value.focusAround(center, points)
+}
+
+// line(핀 쪽에서 시작하는 [위도, 경도] 목록)에서 center로부터 radius(m) 안쪽 점만, 넘어가는 곳은 radius 지점으로 잘라 돌려줌
+function nearPart(center, line, radius) {
+  const result = []
+  let before = center
+  let beforeDist = 0
+  for (const point of line) {
+    const dist = metersBetween(center, point)
+    if (dist <= radius) {
+      result.push(point)
+      before = point
+      beforeDist = dist
+      continue
+    }
+    const ratio = (radius - beforeDist) / (dist - beforeDist) // 앞 점과 이 점 사이에서 radius가 되는 비율 (대략)
+    result.push([before[0] + (point[0] - before[0]) * ratio, before[1] + (point[1] - before[1]) * ratio])
+    break
+  }
+  return result
+}
+
+// 두 [위도, 경도] 사이 거리(m) — 짧은 거리라 평면으로 계산
+function metersBetween(a, b) {
+  const dy = (b[0] - a[0]) * 111000
+  const dx = (b[1] - a[1]) * 111000 * Math.cos((a[0] * Math.PI) / 180)
+  return Math.hypot(dx, dy)
 }
 
 // 목록을 누름: 카카오 지도에서는 핀 화면 위치를 몰라 말풍선 없이 핀만 강조
@@ -78,8 +140,10 @@ const tooltip = computed(() => {
 })
 
 // 핀이나 목록을 누르면 같이 강조하고, 목록은 그 칸이 보이게 스크롤
+// 카카오 지도면 그 칸 핀을 가운데에 두고 앞뒤 경로가 보이게 확대, 고르기를 풀면 전체 보기로 (11/04)
 async function select(i) {
   selected.value = selected.value === i ? null : i
+  focusMap(selected.value)
   if (selected.value === null) return
   await nextTick()
   const el = scrollBox.value.querySelector(`[data-stop="${i}"]`)
@@ -89,7 +153,7 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" :pins="mapPins" :padding="TRIP_MAP_PADDING" style="bottom: 404px" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" style="bottom: 404px" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true" style="bottom: 404px"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -129,9 +193,10 @@ async function select(i) {
         </div>
         <span v-if="trip.slack !== undefined" class="badge badge--success tn"><i class="ic ic--s i-check" aria-hidden="true"></i>예약 여유 {{ trip.slack }}분</span>
       </div>
+      <slot name="head"></slot>
       <div ref="scrollBox" class="trip-scroll">
         <CheckList :items="trip.checks" :rain-swap="rainSwap" />
-        <TripTimeline :stops="trip.stops" :selected="selected" @select="pickRow" />
+        <TripTimeline :stops="trip.stops" :selected="selected" :reorderable="reorderable" @select="pickRow" @reorder="emit('reorder', $event)" />
         <p v-if="!trip.stops.length" class="t-cap" style="margin: 0; padding: 16px 0">아직 넣은 일정이 없어요. 일정 편집에서 장소를 넣어 주세요.</p>
         <slot name="below"></slot>
       </div>

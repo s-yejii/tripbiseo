@@ -82,6 +82,8 @@ export function toViewTrip(trip, check = null, day = 1) {
     pack: [],
   }
   if (check && check.slackMin != null) view.slack = check.slackMin
+  // 구간별 실제 경로선 (점검 결과의 legs: 길찾기 API 좌표, 실패하면 두 점) → 지도에 구불구불한 길 (11/04)
+  view.legs = check && check.legs ? check.legs.map((leg) => ({ coords: leg.coords || [], mode: leg.mode })) : []
   return view
 }
 
@@ -107,6 +109,7 @@ function toViewStop(stop, position, memo = null) {
     metaIcon: isStayStop(stop) ? 'i-home' : stop.fixed ? 'i-lock' : stop.issue ? 'i-warning' : null,
     metaCls: isStayStop(stop) || stop.fixed ? 'c-navy' : stop.issue ? 'c-warning' : null,
     isStay: isStayStop(stop), // 숙소 칸 → 지도에 숙소 핀 (11/04)
+    movable: !stop.fixed && !isStayStop(stop), // 목록에서 끌어 순서를 바꿀 수 있는 칸 (고정·숙소는 그대로)
     memo,
     imp: null, // 중요도·날씨는 서버에 아직 없어서 비워 둠 (화면에서 안 보임)
     wx: null,
