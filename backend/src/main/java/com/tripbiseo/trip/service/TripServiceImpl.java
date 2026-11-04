@@ -5,6 +5,7 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -179,6 +180,27 @@ public class TripServiceImpl implements TripService {
         return getTrip(memberId, tripId);
     }
 
+    /**
+     * 일정 칸 전부를 한 번에 저장 (11/04, 편집 화면 "완료")
+     * 1) 보낸 칸이 모두 이 여행 칸인지 확인 2) 목록에 없는 칸은 지움 (skipped 칸은 여행 중 기록이라 남김)
+     * 3) 보낸 칸마다 updateStop으로 고침 (날짜·시각 검사도 같이 됨)
+     * 쓰기를 여러 번 하니까 @Transactional: 중간에 하나라도 실패하면 지운 것까지 전부 되돌려요
+     */
+    @Override
+    @Transactional
+    public Trip updateStops(long memberId, long tripId, List<Stop> stops) {
+        Trip trip = getTrip(memberId, tripId);
+        if (stops == null) {
+            throw fail(400, "저장할 일정이 없어요.");
+        }
+        List<Long> keepIds = collectStopIds(trip, stops);
+        deleteMissingStops(trip, keepIds);
+        for (Stop stop : stops) {
+            updateStop(memberId, tripId, stop.getId(), stop);
+        }
+        return getTrip(memberId, tripId);
+    }
+
     /** 여러 일정 칸을 skipped로 (④ 대안 적용이 부름) */
     @Override
     @Transactional
@@ -317,6 +339,32 @@ public class TripServiceImpl implements TripService {
             return placeService.getPlace(placeId) != null;
         } catch (ApiException e) {
             return false;
+        }
+    }
+
+    /** 보낸 칸 번호 목록 (번호가 없거나 이 여행 칸이 아니면 400) */
+    private List<Long> collectStopIds(Trip trip, List<Stop> stops) {
+        List<Long> tripStopIds = new ArrayList<>();
+        for (Stop stop : trip.getStops()) {
+            tripStopIds.add(stop.getId());
+        }
+        List<Long> keepIds = new ArrayList<>();
+        for (Stop stop : stops) {
+            if (stop.getId() == null || !tripStopIds.contains(stop.getId())) {
+                throw fail(400, "이 여행의 일정만 보낼 수 있어요.");
+            }
+            keepIds.add(stop.getId());
+        }
+        return keepIds;
+    }
+
+    /** 이 여행 칸 중 keepIds에 없는 칸 지우기 (skipped 칸은 남김) */
+    private void deleteMissingStops(Trip trip, List<Long> keepIds) {
+        for (Stop stop : trip.getStops()) {
+            boolean isSkipped = "skipped".equals(stop.getState());
+            if (!isSkipped && !keepIds.contains(stop.getId())) {
+                tripMapper.deleteStop(trip.getId(), stop.getId());
+            }
         }
     }
 

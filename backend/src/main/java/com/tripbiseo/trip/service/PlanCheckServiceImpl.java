@@ -60,7 +60,8 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         Stop previous = null;
         int clock = 0; // 앞 칸을 떠나는 시각(분)
         for (Stop stop : trip.getStops()) {
-            if (stop.getDay() == null || stop.getDay() != day) {
+            boolean isSkipped = "skipped".equals(stop.getState()); // 여행 중 뺀 칸은 점검에서 빼요 (11/04)
+            if (stop.getDay() == null || stop.getDay() != day || isSkipped) {
                 continue;
             }
             Leg leg = previous == null ? null : findLeg(previous, stop, transports);
