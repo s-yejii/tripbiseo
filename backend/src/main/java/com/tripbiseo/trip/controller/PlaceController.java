@@ -31,6 +31,7 @@ public class PlaceController {
 
     private final PlaceService placeService;
     private final PopularPlaceService popularPlaceService;
+    private final com.tripbiseo.trip.service.PlacePhotoService placePhotoService;
     private final LoginUser loginUser;
 
     /** 이름·분류로 장소 검색. q가 없으면 400 "q 값이 필요해요." */
@@ -55,6 +56,18 @@ public class PlaceController {
         return popularPlaceService.getPopularPlaceList(loginUser.id(), lat, lng, radius, limit);
     }
 
+    /** 장소들의 사진 (?ids=a,b,c). 찾은 곳만 돌려줌 */
+    @GetMapping("/photos")
+    public List<com.tripbiseo.trip.dto.PlacePhoto> getPlacePhotoList(@RequestParam List<String> ids) {
+        return placePhotoService.getPlacePhotoList(ids);
+    }
+
+    /** 한 일정의 장소들 사진 (같은 일정 안에서 같은 사진은 안 씀) */
+    @org.springframework.web.bind.annotation.PostMapping("/photos/trip")
+    public List<com.tripbiseo.trip.dto.PlacePhoto> getTripPhotoList(@org.springframework.web.bind.annotation.RequestBody List<com.tripbiseo.trip.dto.TripPhotoRequest> stops) {
+        return placePhotoService.getTripPhotoList(stops);
+    }
+
     /** 어디로 가요? 서울 구·동 찾기 (카카오) */
     @GetMapping("/areas")
     public List<FoundArea> getAreaList(@RequestParam String q) {
@@ -66,6 +79,12 @@ public class PlaceController {
     public List<FoundLocation> getLocationList(@RequestParam String q, @RequestParam(required = false) Double lat,
                                                @RequestParam(required = false) Double lng) {
         return placeService.getLocationList(q, lat, lng);
+    }
+
+    /** 출발지 추천: 좌표 근처 지하철역·구청·시청 */
+    @GetMapping("/locations/hubs")
+    public List<FoundLocation> getLocationHubList(@RequestParam double lat, @RequestParam double lng) {
+        return placeService.getLocationHubList(lat, lng);
     }
 
     /** 현재 위치로 출발: 내 좌표의 건물 이름·주소 */

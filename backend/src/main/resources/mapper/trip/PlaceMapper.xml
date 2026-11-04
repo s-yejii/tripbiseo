@@ -109,13 +109,14 @@
              COUNT(DISTINCT t.member_id) FILTER (WHERE s.state = 'done') AS visitors
       FROM trip_stop s JOIN trip t ON t.trip_id = s.trip_id
       WHERE s.place_id IS NOT NULL
+        AND t.deleted_at IS NULL
         AND t.member_id &lt;&gt; #{memberId}
         AND t.start_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE + 30
       GROUP BY s.place_id
     ), mine AS (
       SELECT DISTINCT s.place_id
       FROM trip_stop s JOIN trip t ON t.trip_id = s.trip_id
-      WHERE t.member_id = #{memberId} AND s.state = 'done' AND s.place_id IS NOT NULL
+      WHERE t.member_id = #{memberId} AND s.state = 'done' AND s.place_id IS NOT NULL AND t.deleted_at IS NULL
         AND t.start_date &gt;= CURRENT_DATE - 30
     )
     SELECT <include refid="placeColumns"/>,
