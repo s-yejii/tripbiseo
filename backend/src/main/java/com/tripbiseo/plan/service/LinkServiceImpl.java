@@ -38,7 +38,7 @@ public class LinkServiceImpl implements LinkService {
     private static final Logger log = LoggerFactory.getLogger(LinkServiceImpl.class);
     private static final int MAX_CAPTION_LENGTH = 2200; // 인스타 글 길이 제한과 같음
     private static final int MAX_TEXT_LENGTH = 4400;    // 페이지 글 + 붙여 넣은 글
-    private static final int MAX_NAMES = 5;
+    private static final int MAX_NAMES = 10; // "맛집 BEST 8"처럼 여러 곳을 소개하는 게시물도 다 찾게
     private static final int MIN_NAME_LENGTH = 2;
     private static final int MAX_NAME_LENGTH = 40;
     private static final int MIN_PARTIAL_MATCH_LENGTH = 3; // 이보다 짧은 이름은 전체가 같아야 인정
