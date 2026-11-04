@@ -4,8 +4,10 @@
 //   고르면 점검 화면이 그 칸 수단을 바꾸고 다시 점검해서 시간·경로가 진짜로 바뀌어요. 아니면 글자만 보여 줘요
 // 메모가 있으면 카드 아래 한 줄 (AI 일정: 고른 이유 · 리뷰 근거 "조용해요 · 리뷰 10개 중 4개")
 // reorderable이면 카드 오른쪽 손잡이를 끌어 다른 칸에 놓으면 두 칸 자리가 바뀌어요 (고정·숙소 칸은 손잡이 없음) → reorder(새 순서의 원래 번호 목록) (11/04)
+//   고정 칸(예약) 위에 놓으면 그 앞(위로 끌 때)·뒤(아래로 끌 때)에 끼워 넣어요 → 예약 전에 다른 곳을 먼저 갈 수 있게
 import { onUnmounted, ref, watch } from 'vue'
 import { importance, modes } from '@/data/places'
+import { dropPlaceOf, orderAfterDrop } from '@/utils/draftEdit'
 
 const props = defineProps({
   stops: { type: Array, required: true },
@@ -18,7 +20,8 @@ const MODE_CHOICES = ['walk', 'transit', 'taxi'] // 고를 수 있는 수단 (�
 
 // 끌기: 다른 칸은 그대로 두고, 끄는 칸만 손가락을 따라 움직여요. 놓은 자리의 칸과 둘이 자리를 바꿔요 (11/04)
 const dragFrom = ref(null) // 끄는 칸 번호 (안 끌면 null)
-const dropTo = ref(null) // 놓으면 자리를 바꿀 칸 번호 (없으면 null)
+const dropTo = ref(null) // 놓을 칸 번호 (없으면 null)
+const dropPlace = ref(null) // 놓는 방법: 'swap' 자리 바꾸기 / 'before'·'after' 고정 칸 앞·뒤에 끼우기
 const dragY = ref(0) // 끄는 칸이 손가락을 따라 움직인 거리(px)
 let startY = 0
 let scale = 1 // 폰 화면을 줄여 보여 줄 때 손가락 거리 → 화면 거리 비율
@@ -50,6 +53,7 @@ function cancelDrag() {
   stopListening()
   dragFrom.value = null
   dropTo.value = null
+  dropPlace.value = null
   dragY.value = 0
 }
 // 손가락 아래 칸이 자리를 바꿀 수 있는 칸이면 표시 (끄는 칸은 pointer-events: none이라 아래 칸이 잡힘)
@@ -58,27 +62,24 @@ function onDrag(e) {
   dragY.value = (e.clientY - startY) / scale
   const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-row]')
   const target = row ? Number(row.dataset.row) : null
-  const isOk = target !== null && target !== dragFrom.value && props.stops[target].movable
-  dropTo.value = isOk ? target : null
+  dropPlace.value = dropPlaceOf(props.stops, dragFrom.value, target)
+  dropTo.value = dropPlace.value ? target : null
 }
-// 놓으면 두 칸 자리만 바꿔서 알림 (점검 화면이 초안 순서를 바꾸고 시간을 다시 계산)
+// 놓으면 새 순서를 알림 (점검 화면이 초안 순서를 바꾸고 시간을 다시 계산)
 function endDrag() {
   const from = dragFrom.value
   const to = dropTo.value
+  const place = dropPlace.value
   cancelDrag()
   if (from === null || to === null) return
-  const result = props.stops.map((stop, k) => k)
-  result[from] = to
-  result[to] = from
-  emit('reorder', result)
+  emit('reorder', orderAfterDrop(props.stops.length, from, to, place))
 }
-// 키보드 위아래 화살표로도 한 칸씩
+// 키보드 위아래 화살표로도 한 칸씩 (고정 칸이면 그 너머로)
 function moveBy(i, step) {
-  const target = i + step
-  if (target < 0 || target >= props.stops.length || !props.stops[target].movable) return
-  const result = props.stops.map((stop, k) => k)
-  result.splice(target, 0, result.splice(i, 1)[0])
-  emit('reorder', result)
+  const to = i + step
+  if (to < 0 || to >= props.stops.length) return
+  const place = dropPlaceOf(props.stops, i, to)
+  if (place) emit('reorder', orderAfterDrop(props.stops.length, i, to, place))
 }
 
 const openLeg = ref(null) // 이동 수단 고르기를 연 줄 번호
@@ -131,7 +132,7 @@ function pickMode(i, mode) {
       <!-- 장소 카드 -->
       <li
         :data-row="i"
-        :class="{ 'tl-row': reorderable, 'is-drag': dragFrom === i, 'is-target': dropTo === i }"
+        :class="{ 'tl-row': reorderable, 'is-drag': dragFrom === i, 'is-target': dropTo === i && dropPlace === 'swap', 'is-before': dropTo === i && dropPlace === 'before', 'is-after': dropTo === i && dropPlace === 'after' }"
         :style="dragFrom === i ? { transform: 'translateY(' + dragY + 'px)' } : null"
       >
         <button type="button" class="stop" :class="{ 'is-fixed': stop.fixed, 'is-sel': selected === i }" :data-stop="i" @click="emit('select', i)">
@@ -175,6 +176,9 @@ function pickMode(i, mode) {
 .tl .tl-row.is-drag{position:relative;z-index:5;pointer-events:none}
 .tl .tl-row.is-drag .stop__card{border-color:var(--navy);background:#fff;box-shadow:0 8px 20px rgba(24,33,58,.22)}
 .tl .tl-row.is-target .stop__card{border:2px dashed var(--navy);background:var(--navy-soft)}
+/* 고정 칸 앞·뒤에 끼울 때: 카드 위(앞)·아래(뒤) 테두리를 굵게 → "여기 앞/뒤에 들어가요" */
+.tl .tl-row.is-before .stop__card{background:var(--navy-soft);box-shadow:inset 0 4px 0 var(--navy)}
+.tl .tl-row.is-after .stop__card{background:var(--navy-soft);box-shadow:inset 0 -4px 0 var(--navy)}
 .tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>

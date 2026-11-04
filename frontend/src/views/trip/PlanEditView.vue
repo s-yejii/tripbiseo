@@ -6,13 +6,14 @@
 //   - 저장된 여행 상세에서(?id=12): 서버에서 읽은 복사본(store.editTrip)을 고치고, "완료"면 서버에 한 번에 저장
 //     (빈 시각은 점검으로 채운 뒤 PUT /api/trips/{id}/stops)
 // 순서를 바꾸면 첫 칸·고정 칸 시각만 두고 나머지는 비워요 (utils/draftEdit). ✕는 들어오기 전으로 되돌려요
+// 고정 칸(예약) 위에 놓으면 그 앞·뒤에 끼워 넣어요 (예약 전에 다른 곳 먼저 가기)
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { importance } from '@/data/places'
 import { useTripStore } from '@/stores/trip'
 import { goBackTo } from '@/utils/back'
 import { addDays } from '@/utils/dates'
-import { cancelEdit, dayStopsOf, editingTripOf, finishEdit, loadEditTrip, retime, saveEditTrip, setDayStops, startEdit, toEditRow } from '@/utils/draftEdit'
+import { cancelEdit, dayStopsOf, dropPlaceOf, editingTripOf, finishEdit, loadEditTrip, orderAfterDrop, retime, saveEditTrip, setDayStops, startEdit, toEditRow } from '@/utils/draftEdit'
 import { toDuration } from '@/utils/time'
 import { toShortDate, tripDetailLink } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
@@ -39,7 +40,8 @@ const dayList = computed(() => {
   return list
 })
 const dragIndex = ref(null) // 끌고 있는 칸 번호
-const dropTo = ref(null) // 놓으면 자리를 바꿀 칸 번호
+const dropTo = ref(null) // 놓을 칸 번호
+const dropPlace = ref(null) // 'swap' 자리 바꾸기 / 'before'·'after' 고정 칸 앞·뒤에 끼우기
 const dragY = ref(0) // 끄는 칸이 손가락을 따라 움직인 거리(px)
 let startY = 0
 let scale = 1 // 폰 화면을 줄여 보여 줄 때 손가락 거리 → 화면 거리 비율
@@ -75,15 +77,13 @@ function pickDay(d) {
   router.replace(hereLink())
 }
 
-// 두 칸 자리 바꾸기 (그날 칸 순서를 바꿔 넣고 시각을 다시 맞춤)
-function swapRows(from, to) {
-  const list = [...dayStopsOf(trip.value, day.value)]
+// 끌어 놓기 결과 반영: 그날 칸을 새 순서로 바꿔 넣고 시각을 다시 맞춤
+function moveRow(from, to, place) {
+  const list = dayStopsOf(trip.value, day.value)
   const startTime = list[0].time
-  const moved = list[from]
-  list[from] = list[to]
-  list[to] = moved
-  retime(list, startTime)
-  setDayStops(trip.value, day.value, list)
+  const moved = orderAfterDrop(list.length, from, to, place).map((i) => list[i])
+  retime(moved, startTime)
+  setDayStops(trip.value, day.value, moved)
 }
 // 끌기: 다른 칸은 그대로, 끄는 칸만 손가락을 따라 움직이고 놓은 자리의 칸과 자리를 바꿔요 (11/04)
 // 움직임·놓기는 화면 전체(window)에서 받아요 (손가락이 손잡이 밖으로 나가도 계속)
@@ -110,24 +110,27 @@ function onDrag(e) {
   dragY.value = (e.clientY - startY) / scale
   const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('.erow')
   const target = row ? Number(row.dataset.idx) : null
-  const isOk = target !== null && target !== dragIndex.value && rows.value[target].movable
-  dropTo.value = isOk ? target : null
+  dropPlace.value = dropPlaceOf(rows.value, dragIndex.value, target)
+  dropTo.value = dropPlace.value ? target : null
 }
 function endDrag() {
   stopListening()
   const from = dragIndex.value
   const to = dropTo.value
+  const place = dropPlace.value
   dragIndex.value = null
   dropTo.value = null
+  dropPlace.value = null
   dragY.value = 0
-  if (from !== null && to !== null) swapRows(from, to)
+  if (from !== null && to !== null) moveRow(from, to, place)
 }
 
-// 키보드 위아래 화살표로도 옆 칸과 바꿔요
+// 키보드 위아래 화살표로도 옆 칸과 바꿔요 (고정 칸이면 그 너머로)
 function moveBy(i, step) {
-  const target = i + step
-  if (target < 0 || target >= rows.value.length || !rows.value[target].movable) return
-  swapRows(i, target)
+  const to = i + step
+  if (to < 0 || to >= rows.value.length) return
+  const place = dropPlaceOf(rows.value, i, to)
+  if (place) moveRow(i, to, place)
 }
 
 // 한 칸 수정·빼기 열기 (몇째 날 몇 번째 칸, 돌아올 곳)
@@ -199,7 +202,7 @@ async function done() {
             v-for="(stop, i) in rows"
             :key="stop.key"
             class="erow"
-            :class="{ 'is-drag': dragIndex === i, 'is-target': dropTo === i }"
+            :class="{ 'is-drag': dragIndex === i, 'is-target': dropTo === i && dropPlace === 'swap', 'is-before': dropTo === i && dropPlace === 'before', 'is-after': dropTo === i && dropPlace === 'after' }"
             :style="dragIndex === i ? { transform: 'translateY(' + dragY + 'px)' } : null"
             :data-idx="i"
           >
@@ -251,4 +254,6 @@ async function done() {
 .scr-PlanEdit .erow.is-drag { position: relative; z-index: 5; pointer-events: none; }
 .scr-PlanEdit .erow.is-drag .stop__card { border-color: var(--navy); background: #fff; box-shadow: 0 8px 20px rgba(24, 33, 58, 0.22); }
 .scr-PlanEdit .erow.is-target .stop__card { border: 2px dashed var(--navy); background: var(--navy-soft); }
+.scr-PlanEdit .erow.is-before .stop__card { background: var(--navy-soft); box-shadow: inset 0 4px 0 var(--navy); }
+.scr-PlanEdit .erow.is-after .stop__card { background: var(--navy-soft); box-shadow: inset 0 -4px 0 var(--navy); }
 </style>
