@@ -1,35 +1,42 @@
 <script setup>
 // S02-b 회원가입 (①): 약관 동의, 아이디·비밀번호 규칙 검사, 이메일 인증, 닉네임
-// 아이디 중복·인증번호는 지금 가짜예요. 백엔드가 붙으면 POST /api/auth/signup
+// 아이디 중복 GET /api/auth/check-id · 이메일 인증 POST /api/auth/email-code(·/verify) · 가입 POST /api/auth/signup
+// 가입은 이메일 인증을 마친 브라우저에서만 돼요 (서버가 세션으로 확인)
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
+import { get, post } from '@/api/http'
+import { useEmailCode } from '@/utils/useEmailCode'
 
 const router = useRouter()
 
-const agreeTerms = ref(true)
-const agreeLocation = ref(true)
+const agreeTerms = ref(false)
+const agreeLocation = ref(false)
 const userId = ref('')
 const password = ref('')
 const password2 = ref('')
 const showPassword = ref(false)
-const email = ref('')
-const codeSent = ref(false)
-const code = ref('')
-const codeWrong = ref(false)
-const verified = ref(false)
+const mail = useEmailCode('signup')
+const email = mail.email
+const verified = mail.isVerified
 const nickname = ref('')
+const isJoining = ref(false)
 
-const takenIds = ['haneul', 'trip', 'admin', 'tripmate', 'yeoheng'] // 가짜: 이미 있는 아이디
+const checkedId = ref('') // 중복 확인을 통과한 아이디
+const takenId = ref('')   // 이미 있다고 나온 아이디
 const agreeAll = computed(() => agreeTerms.value && agreeLocation.value)
 
-// 아이디: 영문·숫자만, 중복 금지
+// 아이디 규칙 (서버와 같게: 영문·숫자·_ 4~30자)
+const idFormatOk = computed(() => /^[A-Za-z0-9_]{4,30}$/.test(userId.value))
+
+// 아이디 칸 아래 안내: 규칙 → 중복 확인 결과
 const idCheck = computed(() => {
-  if (!userId.value) return { cls: '', icon: 'i-info', msg: '영문과 숫자만 쓸 수 있어요', ok: false }
-  if (/[^A-Za-z0-9]/.test(userId.value)) return { cls: 'is-error', icon: 'i-danger', msg: '기호와 한글, 띄어쓰기는 쓸 수 없어요', ok: false }
-  if (takenIds.includes(userId.value.toLowerCase())) return { cls: 'is-error', icon: 'i-danger', msg: '이미 쓰고 있는 아이디예요', ok: false }
-  return { cls: 'is-success', icon: 'i-success', msg: '쓸 수 있는 아이디예요', ok: true }
+  if (!userId.value) return { cls: '', icon: 'i-info', msg: '영문·숫자·_ 4~30자', ok: false }
+  if (!idFormatOk.value) return { cls: 'is-error', icon: 'i-danger', msg: '영문·숫자·_ 4~30자만 쓸 수 있어요', ok: false }
+  if (checkedId.value === userId.value) return { cls: 'is-success', icon: 'i-success', msg: '쓸 수 있는 아이디예요', ok: true }
+  if (takenId.value === userId.value) return { cls: 'is-error', icon: 'i-danger', msg: '이미 쓰고 있는 아이디예요', ok: false }
+  return { cls: '', icon: 'i-info', msg: '중복 확인을 눌러 주세요', ok: false }
 })
 
 // 비밀번호 규칙 4가지
@@ -54,12 +61,18 @@ const password2Check = computed(() => {
 })
 
 // 이메일 인증
-const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value))
 const emailCheck = computed(() => {
   if (verified.value) return { cls: 'is-success', icon: 'i-success', msg: '이메일 인증을 마쳤어요' }
-  if (email.value && !emailValid.value) return { cls: 'is-error', icon: 'i-danger', msg: '이메일 형식이 맞지 않아요' }
-  if (codeSent.value) return { cls: '', icon: 'i-info', msg: email.value + ' 로 인증번호를 보냈어요' }
+  if (email.value && !mail.isEmailValid.value) return { cls: 'is-error', icon: 'i-danger', msg: '이메일 형식이 맞지 않아요' }
+  if (mail.error.value && !mail.isSent.value) return { cls: 'is-error', icon: 'i-danger', msg: mail.error.value }
+  if (mail.isSent.value) return { cls: '', icon: 'i-info', msg: email.value + ' 로 인증번호를 보냈어요 · 메일이 안 보이면 스팸함도 봐 주세요' }
   return { cls: '', icon: '', msg: '' }
+})
+const sendLabel = computed(() => {
+  if (verified.value) return '인증 완료'
+  if (mail.isSending.value) return '보내는 중…'
+  if (mail.resendLeft.value > 0) return mail.resendLeft.value + '초 뒤 다시'
+  return mail.isSent.value ? '다시 받기' : '인증번호 받기'
 })
 
 const canJoin = computed(() => agreeAll.value && idCheck.value.ok && passwordOk.value && password2Check.value.ok && verified.value && nickname.value.trim().length > 0)
@@ -79,25 +92,43 @@ function toggleAll() {
   agreeLocation.value = next
 }
 function changeEmail() {
-  codeSent.value = false
-  code.value = ''
-  codeWrong.value = false
+  mail.reset()
 }
-function sendCode() {
-  codeSent.value = true
-  code.value = ''
-  codeWrong.value = false
-  showToast('인증번호를 보냈어요')
+async function sendCode() {
+  if (await mail.send()) showToast('인증번호를 보냈어요')
 }
-function typeCode(e) {
-  code.value = e.target.value.replace(/\D/g, '').slice(0, 6)
-  codeWrong.value = false
+async function verify() {
+  if (await mail.verify()) showToast('이메일 인증을 마쳤어요')
 }
-// 가짜: 000000 이면 틀린 번호
-function verify() {
-  if (code.value === '000000') codeWrong.value = true
-  else verified.value = true
+
+// 중복 확인: 서버에 물어보고 결과를 기억
+async function checkId() {
+  try {
+    // encodeURIComponent: 아이디를 주소에 안전하게 넣기
+    const result = await get('/auth/check-id?username=' + encodeURIComponent(userId.value))
+    if (result.available) checkedId.value = userId.value
+    else takenId.value = userId.value
+  } catch (e) {
+    showToast(e.message)
+  }
 }
+
+// 가입하기: 서버에 가입 → 같은 아이디로 바로 로그인 → 다음 화면
+async function join() {
+  if (!canJoin.value || isJoining.value) return
+  isJoining.value = true
+  const account = { username: userId.value, password: password.value }
+  try {
+    await post('/auth/signup', { ...account, nickname: nickname.value.trim(), email: email.value.trim() })
+    await post('/auth/login', account)
+    router.replace('/permission')
+  } catch (e) {
+    showToast(e.message) // 예: "이미 쓰는 아이디예요." (서버가 보낸 문장)
+  } finally {
+    isJoining.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -120,7 +151,10 @@ function verify() {
 
         <div class="field" :class="idCheck.cls">
           <label class="field__label" for="su-id">아이디</label>
-          <div class="field__box"><input id="su-id" v-model="userId" type="text" placeholder="영문, 숫자만" autocomplete="username" autocapitalize="off" aria-describedby="su-id-h" /></div>
+          <div class="su-inline">
+          <div class="field__box"><input id="su-id" v-model="userId" type="text" placeholder="영문·숫자·_ 4~30자" autocomplete="username" autocapitalize="off" aria-describedby="su-id-h" /></div>
+          <button type="button" class="btn btn--secondary btn--md" :disabled="!idFormatOk || idCheck.ok" @click="checkId">{{ idCheck.ok ? '확인 완료' : '중복 확인' }}</button>
+          </div>
           <p id="su-id-h" class="field__help"><i class="ic ic--s" :class="idCheck.icon" aria-hidden="true"></i>{{ idCheck.msg }}</p>
         </div>
 
@@ -148,18 +182,18 @@ function verify() {
           <label class="field__label" for="su-mail">이메일</label>
           <div class="su-inline">
             <div class="field__box"><input id="su-mail" v-model="email" type="text" inputmode="email" autocapitalize="off" placeholder="trip@example.com" autocomplete="email" :readonly="verified" @input="changeEmail" /></div>
-            <button type="button" class="btn btn--secondary btn--md" :disabled="!emailValid || verified" @click="sendCode">{{ verified ? '인증 완료' : codeSent ? '다시 받기' : '인증번호 받기' }}</button>
+            <button type="button" class="btn btn--secondary btn--md" :disabled="!mail.canSend.value" @click="sendCode">{{ sendLabel }}</button>
           </div>
           <p v-if="emailCheck.msg" class="field__help"><i class="ic ic--s" :class="emailCheck.icon" aria-hidden="true"></i>{{ emailCheck.msg }}</p>
         </div>
 
-        <div v-if="codeSent && !verified" class="field" :class="{ 'is-error': codeWrong }">
+        <div v-if="mail.isSent.value && !verified" class="field" :class="{ 'is-error': mail.error.value }">
           <label class="field__label" for="su-code">인증번호</label>
           <div class="su-inline">
-            <div class="field__box"><input id="su-code" :value="code" type="text" inputmode="numeric" maxlength="6" placeholder="6자리 숫자" autocomplete="one-time-code" @input="typeCode" /><span class="t-cap tn c-danger" style="margin-right: 12px">4:59</span></div>
-            <button type="button" class="btn btn--primary btn--md" :disabled="code.length !== 6" @click="verify">확인</button>
+            <div class="field__box"><input id="su-code" :value="mail.code.value" type="text" inputmode="numeric" maxlength="6" placeholder="6자리 숫자" autocomplete="one-time-code" @input="mail.typeCode($event.target.value)" @keydown.enter.prevent="verify" /><span class="t-cap tn c-danger" style="margin-right: 12px">{{ mail.timeText.value }}</span></div>
+            <button type="button" class="btn btn--primary btn--md" :disabled="!mail.canVerify.value" @click="verify">{{ mail.isVerifying.value ? '확인 중' : '확인' }}</button>
           </div>
-          <p class="field__help"><i class="ic ic--s" :class="codeWrong ? 'i-danger' : 'i-info'" aria-hidden="true"></i>{{ codeWrong ? '인증번호가 맞지 않아요' : '메일로 받은 6자리를 넣어 주세요' }}</p>
+          <p class="field__help"><i class="ic ic--s" :class="mail.error.value ? 'i-danger' : 'i-info'" aria-hidden="true"></i>{{ mail.error.value || (mail.secondsLeft.value > 0 ? '메일로 받은 6자리를 넣어 주세요' : '시간이 지났어요 · 다시 받아 주세요') }}</p>
         </div>
 
         <div class="field">
@@ -169,7 +203,7 @@ function verify() {
       </form>
 
       <div class="cta cta--white">
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!canJoin" @click="router.push('/permission')">가입하기</button>
+        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!canJoin" @click="join">가입하기</button>
         <p v-if="hint" class="cta__hint">{{ hint }}</p>
       </div>
     </div>

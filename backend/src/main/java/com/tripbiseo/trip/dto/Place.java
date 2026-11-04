@@ -21,4 +21,7 @@ public class Place {
     private String amenities;   // 편의시설 "포장, 예약, …"
     private String mapUrl;      // 네이버 지도 주소
     private Double distance;    // 기준점에서 거리(m). 근처 검색 SQL이 채움
+    private Double score;       // 인기 점수 (인기 장소 SQL만 채움)
+    private Integer visitors;   // 최근 30일 다녀간 다른 회원 수 (인기 장소 SQL만 채움)
+    private String kind;        // 종류 코드 food·cafe·bar·tour·culture·shop·stay·etc (PlaceMapper kindCase, 11/03)
 }

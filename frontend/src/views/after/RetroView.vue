@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { get } from '@/api/http'
 import { toTime, toMinutes } from '@/utils/time'
+import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
 
 // 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
 const visited = ref([
@@ -287,7 +288,7 @@ function toggleMapType() {
       </div>
 
       <header class="topbar topbar--float">
-        <RouterLink to="/trips" class="iconbtn iconbtn--float" aria-label="뒤로가기"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
+        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
                 <button type="button" class="iconbtn iconbtn--float" style="margin-left: auto; width: auto; padding: 0 12px" @click="toggleMapType">
           {{ isHybrid ? '일반 지도' : '하이브리드 지도' }}
         </button>

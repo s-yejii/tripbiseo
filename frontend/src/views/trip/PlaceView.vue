@@ -1,26 +1,51 @@
 <script setup>
 // S12 장소 상세 (②): 사진, 별점, 보여 준 이유, 영업시간·브레이크 타임, 주소, 머무는 시간, 일정에 담기
-// 주소: /place?id=daelim
-import { computed, ref } from 'vue'
+// 주소: /place?id=daelim (시연용 가짜 장소) 또는 /place?id={DB 장소 id} (서버 GET /api/places/{id})
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { places } from '@/data/places'
 import { concertTrip } from '@/data/trips'
+import { getPlaceDetail } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
+import { imageFor } from '@/utils/mapView'
 import { goBack } from '@/utils/back'
 import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 
 const route = useRoute()
+const store = useTripStore()
+const isFake = !!places[route.query.id] || !route.query.id
 const id = places[route.query.id] ? route.query.id : 'daelim'
-const place = places[id]
+const server = ref(null) // 서버 장소 상세 (화면이 쓰는 모양으로 바꾼 것)
+const place = computed(() => server.value || places[id])
 const inPlan = concertTrip.stops.some((stop) => stop.id === id)
 const saved = ref(false)
 
+onMounted(async () => {
+  if (isFake) return
+  try {
+    const detail = await getPlaceDetail(route.query.id)
+    const today = detail.hours.find((hours) => hours.today)
+    server.value = {
+      ...detail,
+      cat: detail.category || '',
+      img: detail.imageUrl || imageFor(detail.category),
+      rate: detail.rating ?? '-',
+      hours: today ? today.text : detail.useTime,
+      dur: /카페|디저트/.test(detail.category || '') ? 40 : 60,
+      outdoor: false,
+    }
+  } catch (e) {
+    showToast(e.message)
+  }
+})
+
 // "이 장소를 보여 준 이유" 꼬리표
 const reasons = computed(() => {
-  const list = ['★' + place.rate + ' (3점 이상만 보여요)']
-  if (place.nopo) list.push('노포 선호')
-  list.push(place.cat.includes('카페') || place.cat.includes('쇼핑') ? '내 취향 카페·쇼핑' : place.cat)
-  list.push(place.outdoor ? '야외 · 비 오면 바꾸기 쉬움' : '실내')
+  const list = ['★' + place.value.rate + ' (3점 이상만 보여요)']
+  if (place.value.nopo) list.push('노포 선호')
+  list.push(place.value.cat.includes('카페') || place.value.cat.includes('쇼핑') ? '내 취향 카페·쇼핑' : place.value.cat)
+  list.push(place.value.outdoor ? '야외 · 비 오면 바꾸기 쉬움' : '실내')
   return list
 })
 
@@ -29,7 +54,8 @@ function toggleSave() {
   showToast(saved.value ? '저장했어요' : '저장을 취소했어요')
 }
 function addToPlan() {
-  showToast(place.name + '을(를) 동선에 맞춰 넣었어요')
+  if (server.value) store.addDraftPlace(server.value)
+  showToast(place.value.name + '을(를) 동선에 맞춰 넣었어요')
   goBack('/plan/check')
 }
 </script>

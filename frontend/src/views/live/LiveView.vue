@@ -1,328 +1,537 @@
 <script setup>
-// S13-a 여행 중 / S13-a2 여행 중 · 지연 배너 (④)
-// 같은 화면을 두 상황으로 써요
-//   /live      : 여행 시작 (첫 장소 가기 전, 테이블링 했는지 묻기)
-//   /live/late : 16:21 아직 성내동 카페 → 공연 입장에 14분 늦음
-// 두 상황 모두 지도 아래 칩 줄에서 "AI에게 묻기"(④ AskPanel)와 화장실·쓰레기통(⑤)을 쓸 수 있어요
-import { computed, ref } from 'vue'
+// S13-a 여행 중 (④) — 프로토타입 S13-a·S13-a2를 진짜 데이터로
+//   진행 중(ongoing)인 여행 + 지금 GPS(또는 ?demo=1 시연 이동)로 POST /live/track·/live/status를 불러 그려요.
+//   지도: 카카오 지도에 다녀온 곳(체크)·지금 있는 곳·남은 곳·고정 일정(자물쇠) 핀, 근처 찾기 결과 핀
+//   시트: 지금 있는 곳을 떠날 시각(도착 기록 + 머무는 시간) 또는 다음 장소까지 남은 시간, 고정 일정 여유
+//   늦으면: 위 알림(접으면 +N분 알약) → 지연 화면, 아래 버튼 "대안 보기"
+//   11/04: 위 알림은 같은 종류면 10분에 한 번만 펼쳐요 (다른 화면 갔다 와도 계속 펼쳐지지 않게, utils/alertMemory).
+//     접혀 있으면 알약(늦으면 +N분, 아니면 "알림")을 눌러 펼쳐요
+//   11/04: 지도에 지금 위치 → 다음 장소 진짜 길(서버 status.next: TMAP·ODsay 길찾기)을 그려요.
+//     대중교통·차는 실선, 걷기는 동그라미 점, 길찾기 실패로 거리 추정이면 점선 직선. 그 뒤 남은 장소끼리는 점선 직선
+// 진행 중인 여행이 없거나 위치를 못 받으면 가짜 화면 대신 안내 문구를 보여 줘요.
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useLiveTrip } from '@/utils/useLiveTrip'
+import { imageFor } from '@/utils/mapView'
+import { toMinutes, toTime } from '@/utils/time'
+import { showToast } from '@/utils/toast'
+import { goBack } from '@/utils/back'
+import { rememberAlert, shouldOpenAlert } from '@/utils/alertMemory'
+import { finishTrip } from '@/api/trips'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
+import PageMessage from '@/components/common/PageMessage.vue'
+import NotiBell from '@/components/member/NotiBell.vue'
+import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
 import SegSheet from '@/components/live/SegSheet.vue'
-import TablingModal from '@/components/live/TablingModal.vue'
-import AmenityChips from '@/components/after/AmenityChips.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
-import VisitedPin from '@/components/after/VisitedPin.vue'
-import { todayStops, legs, planArrive, reserveTime, lateArrive, lateMinutes, visitedInfo } from '@/data/live'
-import { toTime } from '@/utils/time'
-import { showToast } from '@/utils/toast'
+import NearSearch from '@/components/after/NearSearch.vue'
+import { useReplanStore } from '@/stores/replan'
+
+const MUTE_AGAIN_MIN = 10 // "그냥 갈게요" 뒤 이만큼 더 늦어지면 다시 알림
+const LEG_MODE = { walk: 'walk', transit: 'subway', car: 'taxi' } // 서버 이동 수단 → 카드 칩 아이콘
+const MODE_LABEL = { walk: '도보', transit: '대중교통', car: '택시' }
 
 const route = useRoute()
 const router = useRouter()
-const late = route.meta.late === true
+const replan = useReplanStore()
+const live = useLiveTrip()
+const isDemo = ref(route.query.demo === '1') // 시연용 이동 (진짜 GPS 대신 일정 장소를 차례로 지나감)
 
-const me = late ? { x: 215, y: 285 } : { x: 44, y: 352 } // 지금 위치 (지도 그림 위, 아래 칩 줄에 가리지 않게)
-const selected = ref(late ? 4 : 1) // 선택한 카드·핀 번호
-const tablingWait = ref(null) // null: 아직 안 물어봄 / 0: 안 함 / 숫자: 대기 분
-const showTabling = ref(false)
+onMounted(() => live.start(isDemo.value))
+onUnmounted(() => live.stop())
+
+const mapRef = ref(null)
+const status = computed(() => live.status.value)
+const isReady = computed(() => live.phase.value === 'ready' && status.value !== null)
+
+const selected = ref(null) // 고른 카드·핀 (칸 id)
+const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
-const info = ref(null) // 정보창을 연 다녀온 곳 번호 (1, 2, 9)
-const notiOpen = ref(true)
-const asking = ref(false) // AI 채팅을 연 상태 (아래 시트·버튼을 숨겨요)
-const added = ref(null) // AI 추천으로 일정에 넣은 곳
+const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
+const asking = ref(false) // AI 채팅
+const adding = ref(false) // 근처 찾기
+const nearPlaces = ref([]) // 근처 찾기 결과
+const nearRadius = ref(null)
+const nearPickedId = ref(null)
+const mePoint = ref(null) // 지도 위 내 위치 px (AI 패널 위치에 씀)
+const isMapFailed = ref(false)
+const isFinishing = ref(false)
 
-// 대기 시간만큼 남은 일정이 밀려요
-const wait = computed(() => tablingWait.value || 0)
-const slack = computed(() => reserveTime - (planArrive + wait.value)) // 예약 여유(분)
-
-const cards = computed(() => todayStops.map((stop) => (late ? lateCard(stop) : startCard(stop))))
-
-// 여행 시작 때 카드 글자
-function startCard(stop) {
-  const card = baseCard(stop)
-  if (stop.no === 1) {
-    card.state = 'now'
-    card.sub = wait.value ? `대기 ${wait.value}분 · ${toTime(780 + wait.value)}` : '13:00 · 도보 5분'
-    card.subCls = wait.value ? 'c-warning' : 'c-coral'
-  } else if (stop.fixed) {
-    card.sub = slack.value < 0 ? toTime(planArrive + wait.value) + ' 도착 예상' : '18:30 고정'
-    card.subCls = slack.value < 0 ? 'c-danger' : ''
-  } else {
-    card.sub = toTime(stop.start + wait.value) + (wait.value ? ' 도착 예상' : '')
-    card.subCls = wait.value ? 'c-warning' : ''
-  }
-  return card
-}
-
-// 늦은 상황(16:21) 카드 글자
-function lateCard(stop) {
-  const card = baseCard(stop)
-  if (stop.no <= 2) {
-    card.state = 'done'
-    card.sub = toTime(stop.start) + ' 다녀옴'
-    card.legState = 'past'
-  } else if (stop.no === 3) {
-    card.state = 'now'
-    card.sub = '지금 여기 · 14:52 도착'
-    card.subCls = 'c-coral'
-    card.legState = 'past'
-  } else {
-    card.sub = toTime(lateArrive[stop.no]) + ' 도착 예상'
-    card.subCls = stop.fixed ? 'c-danger' : 'c-warning'
-    card.legState = stop.no === 4 ? 'now' : ''
-  }
-  return card
-}
-
-function baseCard(stop) {
-  return {
-    no: stop.no,
-    img: stop.img,
-    title: stop.fixed ? stop.name : stop.no + ' ' + stop.name,
-    fixed: stop.fixed,
-    leg: legs[stop.no] || null,
-    legState: '',
-    state: '',
-    sub: '',
-    subCls: '',
-  }
-}
-
-// AI 추천으로 넣은 곳은 "지금" 카드 바로 뒤에 끼워요
-const shownCards = computed(() => {
-  if (!added.value) return cards.value
-  const list = [...cards.value]
-  const nowIndex = list.findIndex((card) => card.state === 'now')
-  list.splice(nowIndex + 1, 0, { no: 7, img: added.value.img, title: '+ ' + added.value.name, sub: '다음에 들러요 · 방금 추가', subCls: 'c-navy', state: '', leg: null })
-  return list
+// 여행 칸 (id → 칸): state(skipped)·arrivedAt·departedAt을 봐요
+const tripStopMap = computed(() => {
+  const map = {}
+  if (!live.trip.value) return map
+  for (const stop of live.trip.value.stops) map[stop.id] = stop
+  return map
 })
 
-function pickCard(card) {
-  if (card.state === 'done') return toggleInfo(card.no)
-  if (late && card.state === 'now') return locate()
-  if (!late && card.no === 1 && tablingWait.value === null) return (showTabling.value = true)
-  if (selected.value === card.no && !card.fixed && card.no !== 7) return router.push('/live/pin?no=' + card.no)
-  selected.value = card.no
-  info.value = null
+// 오늘 칸 (뺀 칸은 지도·카드에서 숨김)
+const stops = computed(() => {
+  if (!isReady.value) return []
+  // 다녀온 곳·지금 있는 곳은 실제 도착 순서로, 남은 곳은 서버 순서대로 (계획보다 일찍 다녀온 곳이 있어도 순서가 꼬이지 않게)
+  const visited = []
+  const remaining = []
+  for (const stop of status.value.stops) {
+    const tripStop = tripStopMap.value[stop.id]
+    if (tripStop && tripStop.state === 'skipped') continue
+    const item = { ...stop, arrivedAt: tripStop ? tripStop.arrivedAt : null, departedAt: tripStop ? tripStop.departedAt : null }
+    if (stop.reach === 'done' || stop.reach === 'here') visited.push(item)
+    else remaining.push(item)
+  }
+  visited.sort((a, b) => (a.reach === 'here') - (b.reach === 'here') || (toClock(a.arrivedAt) || a.time).localeCompare(toClock(b.arrivedAt) || b.time))
+  const list = [...visited, ...remaining]
+  for (let i = 0; i < list.length; i++) list[i].no = i + 1
+  return list
+})
+const currentStop = computed(() => stops.value.find((stop) => stop.reach === 'here') || null)
+const remainingStops = computed(() => stops.value.filter((stop) => stop.reach !== 'done' && stop.reach !== 'here'))
+const nextStop = computed(() => remainingStops.value[0] || null)
+const doneCount = computed(() => stops.value.filter((stop) => stop.reach === 'done').length)
+const isAllDone = computed(() => isReady.value && !currentStop.value && remainingStops.value.length === 0)
+const fixed = computed(() => (isReady.value ? status.value.fixed : null))
+const lateMin = computed(() => (fixed.value && fixed.value.slackMin < 0 ? -fixed.value.slackMin : 0))
+const isLate = computed(() => isReady.value && status.value.replan && lateMin.value > 0)
+
+// "그냥 갈게요"를 눌렀고 그때보다 10분 넘게 더 늦지 않았으면 지연 알림을 접어 둠
+const isAlertMuted = computed(() => {
+  if (!isLate.value || replan.mutedLate === null) return false
+  return lateMin.value < replan.mutedLate + MUTE_AGAIN_MIN
+})
+const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
+const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
+
+// 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
+watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
+  const alert = currentAlert.value
+  if (!alert) return
+  notiOpen.value = shouldOpenAlert(alert)
+  if (notiOpen.value) rememberAlert(alert)
+}, { immediate: true })
+
+// 첫 칸을 가운데에 고름 (지금 있는 곳 → 다음 곳)
+watch(stops, (list) => {
+  if (selected.value !== null && list.some((stop) => stop.id === selected.value)) return
+  const first = currentStop.value || nextStop.value || list[0]
+  selected.value = first ? first.id : null
+})
+
+// "2026-11-03T14:15:00" → "14:15"
+function toClock(dateTime) {
+  return dateTime ? dateTime.substring(11, 16) : null
+}
+function distText(meters) {
+  if (meters == null) return ''
+  return meters >= 1000 ? (meters / 1000).toFixed(1) + 'km' : meters + 'm'
+}
+function isWarnReach(reach) {
+  return reach === 'tight' || reach === 'no' || reach === 'closed' || reach === 'missed'
+}
+// 받침이 있으면 "을", 없으면 "를"
+function objectMark(name) {
+  const code = name.charCodeAt(name.length - 1) - 0xac00
+  if (code < 0 || code > 11171) return '을(를)'
+  return code % 28 ? '을' : '를'
 }
 
-function pickPin(stop) {
-  if (!late && stop.no === 1 && tablingWait.value === null) return (showTabling.value = true)
-  if (late && !stop.fixed) return router.push('/live/pin?no=' + stop.no)
-  selected.value = stop.no
+// ------------------------------------------------------------ 지도 핀
+const mapPins = computed(() => {
+  const pins = []
+  for (const stop of stops.value) {
+    const isFit = !(adding.value && nearPlaces.value.length) // 근처 찾기 결과가 있으면 결과·내 위치만 보이게 맞춤
+    // 다녀온 곳·지금 있는 곳은 점선 동선에서 빼요 (지금 위치 → 다음 장소는 nextPath 진짜 길로)
+    const isRoute = stop.reach !== 'done' && stop.reach !== 'here'
+    pins.push({ key: stop.id, id: stop.id, lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit, route: isRoute })
+  }
+  for (const place of nearPlaces.value) {
+    const cls = ' pin--res' + (place.id === nearPickedId.value ? ' pin--sel' : '')
+    pins.push({ key: 'near-' + place.id, nearId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), cls, label: place.name + ', ' + distText(place.distance), route: false })
+  }
+  return pins
+})
+
+// 지금 위치 → 다음 장소 진짜 길 (KakaoMap paths 모양). 다음 장소가 없거나 길이 없으면 []
+//   status.next.source가 estimate면 길찾기를 못 해서 직선으로 추정한 것 → isGuess (점선으로)
+//   from(출발 쪽 걷는 점)은 상황을 받은 그때의 내 위치로 고정 → GPS가 바뀔 때마다 길을 다시 그리지 않게 (30초마다 상황이 오면 바뀜)
+const statusFrom = ref(null)
+watch(status, () => {
+  const position = live.position.value
+  statusFrom.value = position ? [position.lat, position.lng] : null
+}, { immediate: true })
+const nextPath = computed(() => {
+  const next = isReady.value ? status.value.next : null
+  if (!next || !statusFrom.value || !next.coords || next.coords.length < 2) return []
+  const stop = stops.value.find((item) => item.id === next.id)
+  if (!stop) return []
+  return [{
+    coords: next.coords,
+    mode: stop.moveMode || 'walk',
+    isGuess: next.source === 'estimate',
+    from: statusFrom.value,
+    to: [stop.lat, stop.lng],
+  }]
+})
+
+function pinIcon(stop) {
+  if (stop.reach === 'done') return 'i-check'
+  if (stop.reach === 'here') return 'i-pin'
+  if (stop.fixed) return 'i-lock'
+  return ''
+}
+function pinClass(stop) {
+  let cls = ''
+  if (stop.reach === 'done') cls += ' pin--done'
+  else if (stop.reach === 'here') cls += ' pin--here'
+  else if (stop.fixed) cls += ' pin--fixed'
+  if (stop.reach !== 'done' && stop.reach !== 'here' && (isWarnReach(stop.reach) || (isLate.value && !stop.fixed))) cls += ' pin--warn'
+  if (selected.value === stop.id && stop.reach !== 'here') cls += ' pin--sel'
+  return cls
+}
+function nearIcon(category) {
+  const text = category || ''
+  if (/카페|커피|디저트/.test(text)) return 'i-cup'
+  if (/술|주점|바|호프|포차/.test(text)) return 'i-flag'
+  return 'i-star'
 }
 
-function toggleInfo(no) {
-  info.value = info.value === no ? null : no
+function onPickPin(pin) {
+  if (pin.nearId) {
+    nearPickedId.value = pin.nearId
+    return
+  }
+  const stop = stops.value.find((item) => item.id === pin.id)
+  if (stop) pickStop(stop, pin)
 }
 
-function saveTabling(minutes) {
-  tablingWait.value = minutes
-  showTabling.value = false
-  if (minutes === 0) {
-    showToast('알겠어요 · 13:00 바로 들어가는 걸로 둘게요')
+// ------------------------------------------------------------ 시트 위 큰 글자
+const head = computed(() => {
+  if (!isReady.value) return null
+  const now = toMinutes(status.value.now)
+  const current = currentStop.value
+  if (current) {
+    const start = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
+    const leaveAt = start + (current.stay || 0)
+    const left = leaveAt - now
+    if (left >= 0) {
+      return { cap: current.name + objectMark(current.name) + ' 떠나면 출발이 자동으로 기록돼요', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
+    }
+    return { cap: '다음 장소 출발 시간이 지났어요', big: '+' + -left + '분', small: toTime(leaveAt) + ' 출발 예정', cls: 'c-warning' }
+  }
+  const next = nextStop.value
+  if (next) {
+    const label = doneCount.value === 0 ? '첫 장소 ' : '다음 '
+    const move = next.moveMin != null ? ' ' + (MODE_LABEL[next.moveMode] || '') + ' ' + next.moveMin + '분' : ''
+    return { cap: label + next.name + '까지' + move, big: next.eta, strong: '도착 예정', cls: isWarnReach(next.reach) ? 'c-warning' : '' }
+  }
+  return { cap: '오늘 일정을 모두 다녀왔어요', big: status.value.now, strong: '지금', cls: '' }
+})
+
+const fixedBadge = computed(() => {
+  if (!fixed.value) return null
+  const slack = fixed.value.slackMin
+  return { cls: slack < 0 ? 'badge--warning' : 'badge--success', text: fixed.value.name + (slack < 0 ? ' ' + -slack + '분 늦음' : ' 여유 ' + slack + '분') }
+})
+
+// ------------------------------------------------------------ 카드
+const cards = computed(() => stops.value.map((stop) => {
+  const card = { no: stop.id, stopId: stop.id, img: imageFor(stop.category), title: stop.fixed ? stop.name : stop.no + ' ' + stop.name, fixed: stop.fixed, leg: null, legState: '', state: '', sub: '', subCls: '' }
+  if (stop.moveMin != null) {
+    card.leg = { mode: LEG_MODE[stop.moveMode] || 'walk', min: stop.moveMin, dist: distText(stop.moveMeters) }
+    card.legState = stop.id === (nextStop.value && nextStop.value.id) ? 'now' : ''
+  }
+  if (stop.reach === 'done') {
+    card.state = 'done'
+    card.sub = (toClock(stop.arrivedAt) || stop.time) + ' 다녀옴'
+  } else if (stop.reach === 'here') {
+    card.state = 'now'
+    card.sub = '지금 여기' + (stop.arrivedAt ? ' · ' + toClock(stop.arrivedAt) + ' 도착' : '')
+    card.subCls = 'c-coral'
+  } else if (stop.reach === 'closed') {
+    card.sub = stop.closedReason || '도착할 때 문을 닫아요'
+    card.subCls = 'c-danger'
+  } else if (stop.reach === 'missed') {
+    card.sub = stop.time + ' 계획 시간이 지났어요'
+    card.subCls = 'c-warning'
+  } else if (stop.fixed && !isLate.value) {
+    card.sub = stop.time + ' 고정 · ' + stop.eta + ' 도착 예상'
   } else {
-    const left = reserveTime - (planArrive + minutes)
-    showToast(`대기 ${minutes}분을 반영했어요 · ` + (left < 0 ? `공연 입장에 ${-left}분 늦을 수 있어요` : `남은 일정을 ${minutes}분씩 미뤘어요`))
+    card.sub = stop.eta + ' 도착 예상'
+    if (isLate.value) card.subCls = stop.fixed ? 'c-danger' : 'c-warning'
+    else if (isWarnReach(stop.reach)) card.subCls = 'c-warning'
+  }
+  return card
+}))
+
+// 카드·핀을 눌렀을 때: 다녀온 곳 → 정보창 / 지금 있는 곳 → 내 위치로 / 남은 곳 → 고르기, 한 번 더 누르면 미리 바꾸기
+function pickStop(stop, point) {
+  if (stop.reach === 'done') return toggleInfo(stop, point)
+  info.value = null
+  if (stop.reach === 'here') return locate()
+  if (selected.value === stop.id && !stop.fixed) return router.push('/live/pin?id=' + live.tripId.value + '&stopId=' + stop.id)
+  selected.value = stop.id
+}
+function pickCard(card) {
+  const stop = stops.value.find((item) => item.id === card.stopId)
+  if (stop) pickStop(stop, null)
+}
+
+function toggleInfo(stop, point) {
+  if (info.value && info.value.id === stop.id) {
+    info.value = null
+    return
+  }
+  const xy = point && point.x != null ? point : mapRef.value && mapRef.value.pointOf(stop.lat, stop.lng)
+  if (!xy) return
+  const arrived = toClock(stop.arrivedAt)
+  const departed = toClock(stop.departedAt)
+  const time = arrived ? arrived + (departed ? '–' + departed : '') + ' 다녀옴' : stop.time + ' 계획 · 도착 기록 없음'
+  info.value = { id: stop.id, name: stop.name, time, x: xy.x, y: xy.y }
+}
+
+// 이동 칩 시트: 앞 칸(첫 남은 칸이면 지금 위치) → 이 칸
+const segFrom = computed(() => {
+  if (!segCard.value) return null
+  const index = stops.value.findIndex((stop) => stop.id === segCard.value.stopId)
+  const before = stops.value[index - 1]
+  const isFromMe = !before || before.reach === 'done'
+  if (isFromMe && live.position.value) return { name: '지금 위치', img: '/img/mapB.svg', lat: live.position.value.lat, lng: live.position.value.lng }
+  return { name: before.name, img: imageFor(before.category), lat: before.lat, lng: before.lng }
+})
+const segTo = computed(() => {
+  if (!segCard.value) return null
+  const stop = stops.value.find((item) => item.id === segCard.value.stopId)
+  return { name: stop.name, img: imageFor(stop.category), lat: stop.lat, lng: stop.lng }
+})
+
+// ------------------------------------------------------------ 오른쪽 버튼·칩
+function locate() {
+  if (mapRef.value && mapRef.value.focusMe()) return
+  showToast('아직 지금 위치를 받지 못했어요')
+}
+
+// 같이 간 사람에게 남은 일정 보내기 (휴대폰 공유 창, 없으면 글자 복사)
+async function share() {
+  const lines = [(live.trip.value ? live.trip.value.title : '여행') + ' · 지금 ' + status.value.now]
+  if (currentStop.value) lines.push('지금 ' + currentStop.value.name)
+  for (const stop of remainingStops.value) lines.push(stop.eta + ' ' + stop.name + (stop.fixed ? ' (고정 ' + stop.time + ')' : ''))
+  if (fixed.value) lines.push(fixed.value.name + (fixed.value.slackMin < 0 ? ' ' + -fixed.value.slackMin + '분 늦을 것 같아요' : ' 여유 ' + fixed.value.slackMin + '분'))
+  const text = lines.join('\n')
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: '남은 일정', text })
+      return
+    }
+    await navigator.clipboard.writeText(text)
+    showToast('남은 일정을 복사했어요 · 메신저에 붙여 넣어 보내세요')
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('공유하지 못했어요')
   }
 }
 
 function openAsk() {
   asking.value = true
+  adding.value = false
   info.value = null
 }
-
-// AI 추천에서 고른 곳을 다음 일정으로 넣어요 (백엔드가 붙으면 POST /api/trips/{id}/live/insert)
-function addPlace(place) {
-  added.value = place
+function openNear() {
+  adding.value = true
   asking.value = false
-  selected.value = 7
-  showToast(place.name + '을(를) 다음 일정으로 넣었어요 · 남은 시간을 다시 계산했어요')
+  info.value = null
+}
+function closeNear() {
+  adding.value = false
+  nearPlaces.value = []
+  nearRadius.value = null
+  nearPickedId.value = null
+}
+function onNearResults(result) {
+  nearPlaces.value = result.places
+  nearRadius.value = result.radius
+}
+const nearRing = computed(() => (adding.value && nearRadius.value && live.position.value ? { ...live.position.value, radius: nearRadius.value } : null))
+const nearFitKey = computed(() => (nearPlaces.value.length ? nearPlaces.value.map((place) => place.id).join(',') + '|' + nearRadius.value : ''))
+const NEAR_MAP_PADDING = { top: 100, right: 40, bottom: 230, left: 40 } // 근처 찾기: 아래 검색 카드만큼 비움
+const LIVE_MAP_PADDING = { top: 150, right: 70, bottom: 444, left: 40 }
+
+// 근처 찾기·AI 채팅에서 일정에 넣으면 지금 상황을 다시 받아요
+async function onAdded(message) {
+  closeNear()
+  asking.value = false
+  showToast(message)
+  await live.refresh()
+}
+async function onAskAdd(place) {
+  await onAdded(place.message || place.name + '을(를) 다음 일정으로 넣었어요')
 }
 
-function locate() {
-  showToast('지금 위치로 지도를 옮겼어요')
-}
-function share() {
-  showToast('링크를 복사했어요 · 같이 간 사람은 앱 없이 남은 일정과 여유 시간을 봐요')
+async function finish() {
+  if (isFinishing.value) return
+  isFinishing.value = true
+  try {
+    await finishTrip(live.tripId.value)
+    router.replace('/retro?id=' + live.tripId.value)
+  } catch (e) {
+    showToast(e.message)
+    isFinishing.value = false
+  }
 }
 
-// 이동 칩 시트에 보여 줄 출발·도착
-const segFrom = computed(() => todayStops.find((s) => s.no === segCard.value.no - 1))
-const segTo = computed(() => todayStops.find((s) => s.no === segCard.value.no))
-
-// 다녀온 곳 정보창 위치·내용
-const infoBox = computed(() => {
-  if (info.value === 9) return { name: '천호 소품 편집숍', time: '14:22–14:30 · 일정 밖에 들른 곳', x: 178, y: 318 }
-  return visitedInfo[info.value]
-})
+function showDemo() {
+  live.stop()
+  isDemo.value = true
+  router.replace('/live?demo=1')
+  live.start(true)
+}
 </script>
 
 <template>
   <div class="scr scr-Live">
     <div class="app">
-      <!-- 지도 + 동선 -->
-      <div class="map" aria-hidden="true">
-        <img class="base live" src="/img/mapB.svg" alt="" style="top: -126px" />
-        <svg class="route live-route" viewBox="0 0 390 514">
-          <template v-if="late">
-            <polyline points="90,330 140,250 215,285" fill="none" stroke="#646D81" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-            <polyline points="215,285 290,200 300,330 220,400" fill="none" stroke="#A65800" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 9" />
-          </template>
-          <template v-else>
-            <polyline points="44,352 90,330" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 9" />
-            <polyline points="90,330 140,250 215,285 290,200 300,330 220,400" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".55" />
-          </template>
-        </svg>
-      </div>
-
-      <!-- 핀: 여행 시작 -->
-      <template v-if="!late">
-        <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-label="지금 위치, 천호역 1번 출구"></span>
-        <span class="maplabel" style="left: 8px; top: 366px">천호역 · 지금</span>
-        <button
-          v-for="stop in todayStops"
-          :key="stop.no"
-          type="button"
-          class="pin"
-          :class="{ 'pin--fixed': stop.fixed, 'pin--sel': selected === stop.no, 'pin--tbl': stop.no === 1 && tablingWait === null }"
-          :style="{ left: stop.x + 'px', top: stop.y + 'px' }"
-          :aria-label="stop.no + ' ' + stop.name"
-          @click="pickPin(stop)"
-        >
-          <i v-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
-          <template v-else>{{ stop.no }}</template>
-          <span v-if="stop.no === 1 && wait" class="tbl-badge tn">대기 {{ wait }}분</span>
-        </button>
-        <button v-if="tablingWait === null" type="button" class="tbl-bubble" style="left: 90px; top: 330px" @click="showTabling = true">
-          <i class="ic ic--s i-clock" aria-hidden="true"></i>테이블링 하셨나요?
-        </button>
+      <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
+      <template v-if="!isReady">
+        <header class="topbar">
+          <button type="button" class="iconbtn" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+          <h1 class="topbar__title">여행 중</h1>
+          <span style="width: 44px"></span>
+        </header>
+        <div class="live-msg">
+        <PageMessage v-if="live.phase.value === 'loading'" is-loading title="진행 중인 여행을 찾는 중이에요" />
+        <PageMessage v-else-if="live.phase.value === 'none'" icon="i-route" title="진행 중인 여행이 없어요" text="여행 상세에서 '여행 시작'을 누르면 지금 위치로 남은 일정을 계산해 드려요" to="/trips" button="내 여행 보기" />
+        <section v-else-if="live.phase.value === 'gps-error'" class="page-msg">
+          <span class="ico-tile ico-tile--warn" style="width: 56px; height: 56px"><i class="ic ic--xl i-locate" aria-hidden="true"></i></span>
+          <h2 class="h-title">지금 위치를 받을 수 없어요</h2>
+          <p class="t-cap">{{ live.gpsError.value }}</p>
+          <button type="button" class="btn btn--primary btn--lg" @click="live.retryGps()">다시 시도</button>
+          <button type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
+        </section>
+        <PageMessage v-else is-loading title="지금 위치를 찾는 중이에요" text="위치를 받으면 남은 일정과 도착 예상 시간을 계산해요" />
+        </div>
       </template>
 
-      <!-- 핀: 늦은 상황 -->
       <template v-else>
-        <button
-          v-for="stop in todayStops.slice(0, 2)"
-          :key="stop.no"
-          type="button"
-          class="pin pin--done"
-          :class="{ 'pin--sel': info === stop.no }"
-          :style="{ left: stop.x + 'px', top: stop.y + 'px' }"
-          :aria-label="stop.no + ' ' + stop.name + ', 다녀옴'"
-          @click="toggleInfo(stop.no)"
-        >
-          <i class="ic ic--s i-check" aria-hidden="true" style="width: 13px; height: 13px"></i>
-          <span v-if="stop.no === 1" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
-        </button>
-        <VisitedPin :selected="info === 9" @info="toggleInfo(9)" />
-        <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-label="지금 위치, 성내동 카페"></span>
-        <span class="maplabel" style="left: 150px; top: 240px">성내동 카페 · 지금</span>
-        <button
-          v-for="stop in todayStops.slice(3)"
-          :key="stop.no"
-          type="button"
-          class="pin"
-          :class="{ 'pin--fixed': stop.fixed, 'pin--warn': !stop.fixed, 'pin--sel': selected === stop.no }"
-          :style="{ left: stop.x + 'px', top: stop.y + 'px' }"
-          :aria-label="stop.no + ' ' + stop.name"
-          @click="pickPin(stop)"
-        >
-          <i v-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
-          <template v-else>{{ stop.no }}</template>
-        </button>
-      </template>
+        <KakaoMap
+          v-if="!isMapFailed"
+          ref="mapRef"
+          :pins="mapPins"
+          :me="live.position.value"
+          :paths="nextPath"
+          :ring="nearRing"
+          :fit-key="adding ? nearFitKey : ''"
+          :padding="adding && nearPlaces.length ? NEAR_MAP_PADDING : LIVE_MAP_PADDING"
+          @pick="onPickPin"
+          @me-point="mePoint = $event"
+          @fail="isMapFailed = true"
+        />
+        <p v-else class="t-cap" style="position: absolute; top: 200px; left: 24px; right: 80px; text-align: center">지도를 불러오지 못했어요 · 카카오 지도 키를 확인해 주세요</p>
 
-      <span v-if="added && !asking" class="pin pin--added" :style="{ left: added.x + 'px', top: added.y + 'px' }" :aria-label="'추가한 곳 ' + added.name">
-        <i class="ic ic--s i-plus" aria-hidden="true" style="width: 13px; height: 13px"></i>
-      </span>
-
-      <!-- 다녀온 곳 정보창 -->
-      <div v-if="infoBox" class="payinfo" :style="{ left: Math.max(12, infoBox.x - 30) + 'px', bottom: 844 - infoBox.y + 24 + 'px' }" role="dialog" aria-label="다녀온 곳 정보">
-        <b>{{ infoBox.name }}</b>
-        <span class="t-cap tn">{{ infoBox.time }}</span>
-        <span v-if="info === 9" class="t-cap tn live-pay"><i class="ic ic--s i-won" aria-hidden="true"></i> 6,500원 결제</span>
-        <RouterLink v-else-if="infoBox.pay" to="/live/pay" class="btn btn--primary btn--sm" style="margin-top: 4px">
-          <i class="ic ic--s i-won" aria-hidden="true"></i>32,000원 누가 냈는지 적기
-        </RouterLink>
-        <span v-else class="t-cap">결제 내역 없음</span>
-      </div>
-
-      <header class="topbar topbar--float">
-        <RouterLink to="/" class="iconbtn iconbtn--float" aria-label="홈으로"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
-        <span style="flex: 1"></span>
-        <RouterLink to="/notifications" class="iconbtn iconbtn--float" aria-label="알림 2개" style="position: relative">
-          <i class="ic ic--l i-bell" aria-hidden="true"></i><span class="dotbadge"></span>
-        </RouterLink>
-      </header>
-
-      <!-- 지연 알림 (늦은 상황) -->
-      <template v-if="late">
-        <AppNoti v-if="notiOpen" warn icon="i-warning" :title="`공연 입장에 ${lateMinutes}분 늦을 것 같아요`" body="눌러서 대안 보기 · 10분 더 늦으면 다시 알려요" to="/live/delay" @close="notiOpen = false" />
-        <button v-else type="button" class="pill-alert live-pill" aria-label="지연 배너 펼치기" @click="notiOpen = true">
-          <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">+{{ lateMinutes }}분</span><i class="ic ic--s i-down" aria-hidden="true"></i>
-        </button>
-      </template>
-
-      <!-- 오른쪽 떠 있는 버튼 -->
-      <div class="live-side">
-        <RouterLink to="/trips/today" class="iconbtn iconbtn--float" :aria-label="`내 일정 보기 · 잔나비 공연 데이트 ${late ? 3 : 0}/6곳`" title="내 일정" style="color: var(--navy)">
-          <i class="ic i-receipt" aria-hidden="true"></i>
-        </RouterLink>
-        <button type="button" class="iconbtn iconbtn--float" aria-label="같이 간 사람에게 공유" title="같이 간 사람에게 공유" style="color: var(--navy)" @click="share">
-          <i class="ic i-share" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="iconbtn iconbtn--float" aria-label="내 위치로" style="color: var(--navy)" @click="locate">
-          <i class="ic i-locate" aria-hidden="true"></i>
-        </button>
-      </div>
-
-      <!-- AI 채팅(④) · 화장실·쓰레기통(⑤) -->
-      <AskPanel v-if="asking" :me="me" :late="late" @close="asking = false" @add="addPlace" />
-      <AmenityChips v-else :me="me" @ask="openAsk" />
-
-      <!-- 아래 시트: 오늘 일정 카드 -->
-      <BottomSheet v-if="!asking" class="sheet--peek live-sheet" :aria-label="late ? '다음 일정' : '오늘 일정'">
-        <div class="live-head">
-          <div v-if="late" style="flex: 1">
-            <p class="t-cap">다음 장소 출발 시간이 지났어요</p>
-            <p class="t-big c-warning" style="margin: 0">+29분 <span class="t-cap tn">15:52 출발 예정</span></p>
-          </div>
-          <div v-else style="flex: 1">
-            <p class="t-cap">{{ wait ? `테이블링 대기 ${wait}분을 반영했어요` : '첫 장소 천호 쭈꾸미골목까지 도보 5분' }}</p>
-            <p class="t-big" style="margin: 0">{{ toTime(780 + wait) }} <span class="t-strong c-navy">{{ wait ? '입장 예상' : '도착 예정' }}</span></p>
-          </div>
-          <span v-if="late" class="badge badge--warning"><i class="ic ic--s i-lock" aria-hidden="true"></i>예약 {{ lateMinutes }}분 늦음</span>
-          <span v-else-if="slack < 0" class="badge badge--warning"><i class="ic ic--s i-lock" aria-hidden="true"></i>예약 {{ -slack }}분 늦음</span>
-          <span v-else class="badge badge--success"><i class="ic ic--s i-lock" aria-hidden="true"></i>예약 여유 {{ slack }}분</span>
+        <!-- 다녀온 곳 정보창 -->
+        <div v-if="info" class="payinfo" :style="{ left: Math.max(12, info.x - 30) + 'px', top: info.y - 24 + 'px', transform: 'translateY(-100%)' }" role="dialog" aria-label="다녀온 곳 정보">
+          <b>{{ info.name }}</b>
+          <span class="t-cap tn">{{ info.time }}</span>
         </div>
 
-        <LiveCards :cards="shownCards" :selected="selected" @pick="pickCard" @seg="segCard = $event" @scrolled="selected = $event" />
+        <header class="topbar topbar--float">
+          <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+          <span style="flex: 1"></span>
+          <span v-if="isDemo" class="badge badge--neutral" style="align-self: center">시연용 이동</span>
+          <NotiBell float />
+        </header>
 
-        <p v-if="late" class="t-cap live-event"><i class="ic ic--s i-users" aria-hidden="true"></i>18시부터 공연 입장 · 종합운동장역이 붐벼요. 출발 알림을 5분 일찍 드려요</p>
-        <p v-else-if="slack < 0" class="t-cap live-event c-warning"><i class="ic ic--s i-warning" aria-hidden="true"></i>이대로면 공연 18:30 입장에 {{ -slack }}분 늦어요 · 일정 변경에서 한 곳을 빼거나 줄여 보세요</p>
-        <p v-else class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>14–16시 비 60% · 강풀만화거리는 우산을 챙겨요</p>
-      </BottomSheet>
+        <!-- 위쪽 알림: 늦으면 접어서 +N분 알약으로 -->
+        <template v-if="status.alert && !isAlertMuted && !adding">
+          <AppNoti
+            v-if="notiOpen"
+            :warn="status.alert.level === 'danger' || isLate"
+            icon="i-warning"
+            :title="status.alert.title"
+            :body="status.alert.text"
+            :to="alertLink"
+            @close="notiOpen = false"
+          />
+          <button v-else type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="notiOpen = true">
+            <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + lateMin + '분' : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
+          </button>
+        </template>
 
-      <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
-        <div class="cta__row">
-          <RouterLink v-if="late" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
-          <RouterLink v-else to="/plan/edit" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>일정 변경</RouterLink>
-          <RouterLink to="/live/route" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
+        <!-- 오른쪽 떠 있는 버튼 -->
+        <div v-if="!adding" class="live-side" data-sheet-follow>
+          <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent(isDemo ? '/live?demo=1' : '/live')" class="iconbtn iconbtn--float" :aria-label="`내 일정 보기 · ${doneCount}/${stops.length}곳`" title="내 일정" style="color: var(--navy)">
+            <i class="ic i-receipt" aria-hidden="true"></i>
+          </RouterLink>
+          <button type="button" class="iconbtn iconbtn--float" aria-label="같이 간 사람에게 공유" title="같이 간 사람에게 공유" style="color: var(--navy)" @click="share">
+            <i class="ic i-share" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="iconbtn iconbtn--float" aria-label="내 위치로" style="color: var(--navy)" @click="locate">
+            <i class="ic i-locate" aria-hidden="true"></i>
+          </button>
         </div>
-      </div>
 
-      <TablingModal v-if="showTabling" @close="showTabling = false" @save="saveTabling" />
-      <SegSheet v-if="segCard" :from="segFrom" :to="segTo" :leg="segCard.leg" @close="segCard = null" />
+        <!-- 근처 찾기 (⑤) -->
+        <NearSearch
+          v-if="adding"
+          v-model:picked-id="nearPickedId"
+          :trip-id="live.tripId.value"
+          :position="live.position.value"
+          @results="onNearResults"
+          @added="onAdded"
+          @close="closeNear"
+        />
+
+        <template v-else>
+          <!-- AI 채팅(④) -->
+          <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" />
+          <div v-else class="quick live-quick" data-sheet-follow role="group" aria-label="AI 채팅과 근처 찾기">
+            <button type="button" class="chip chip--sm chip--add" @click="openAsk"><i class="ic ic--s i-sparkle" aria-hidden="true"></i>AI에게 묻기</button>
+            <button type="button" class="chip chip--sm chip--add" @click="openNear"><i class="ic ic--s i-search" aria-hidden="true"></i>근처 찾기</button>
+          </div>
+
+          <!-- 아래 시트: 오늘 일정 카드 -->
+          <BottomSheet v-if="!asking" class="sheet--peek live-sheet" :aria-label="doneCount ? '다음 일정' : '오늘 일정'">
+            <div class="live-head" data-drag>
+              <div style="flex: 1; min-width: 0">
+                <p class="t-cap">{{ head.cap }}</p>
+                <p class="t-big tn" :class="head.cls" style="margin: 0">
+                  {{ head.big }}
+                  <span v-if="head.strong" class="t-strong c-navy">{{ head.strong }}</span>
+                  <span v-if="head.small" class="t-cap tn">{{ head.small }}</span>
+                </p>
+              </div>
+              <span v-if="fixedBadge" class="badge" :class="fixedBadge.cls"><i class="ic ic--s i-lock" aria-hidden="true"></i>{{ fixedBadge.text }}</span>
+            </div>
+
+            <LiveCards :cards="cards" :selected="selected" @pick="pickCard" @seg="segCard = $event" @scrolled="selected = $event" />
+
+            <p v-if="status.hint" class="t-cap live-event c-warning"><i class="ic ic--s i-warning" aria-hidden="true"></i>{{ status.hint }}</p>
+            <p v-else-if="status.weather" class="t-cap live-event">
+              <i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비 소식{{ status.weather.outdoor.length ? ' · ' + status.weather.outdoor.join(', ') + '에서 우산을 챙겨요' : '' }}
+            </p>
+          </BottomSheet>
+
+          <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
+            <div v-if="isAllDone" class="cta__row">
+              <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=/live'" class="btn btn--secondary btn--lg">일정 보기</RouterLink>
+              <button type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="finish"><i class="ic i-flag" aria-hidden="true"></i>여행 마치기</button>
+            </div>
+            <div v-else class="cta__row">
+              <RouterLink v-if="isLate" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
+              <RouterLink v-else :to="'/plan/edit?id=' + live.tripId.value" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>일정 변경</RouterLink>
+              <RouterLink :to="'/live/route' + (isDemo ? '?demo=1' : '')" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
+            </div>
+          </div>
+
+          <SegSheet v-if="segCard && segFrom && segTo" :from="segFrom" :to="segTo" :leg="segCard.leg" @close="segCard = null" />
+        </template>
+      </template>
     </div>
   </div>
 </template>
 
 <style>
-.scr-Live .live-route { position: absolute; left: 0; top: 0; width: 390px; height: 514px; }
+.scr-Live .live-msg { padding-top: 96px; }
 .scr-Live .live-side { position: absolute; right: 16px; top: 228px; display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+.scr-Live .live-quick { position: absolute; top: 392px; left: 0; right: 70px; z-index: 2; }
 .scr-Live .live-sheet { top: 440px; padding: 8px 0 0; gap: 12px; }
 .scr-Live .live-head { display: flex; align-items: flex-end; gap: 12px; padding: 0 16px; }
 .scr-Live .live-pill { position: absolute; top: 112px; left: 16px; z-index: 3; }
-.scr-Live .live-pay { color: var(--coral-ink); font-weight: 600; }
 </style>

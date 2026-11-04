@@ -1,16 +1,65 @@
 <script setup>
 // S09-a 지도에서 직접 고르기 (②): 검색·걸러 보기로 장소를 찾고, 골라서 일정 동선에 맞게 담아요
-import { computed, ref } from 'vue'
+// 검색어를 쓰면 서버(GET /api/places/search)에서 우리 DB 장소를 찾고, 고른 곳은 여행 초안(store)에 담아요.
+// 검색어가 없을 때는 시연용 가짜 장소를 그대로 보여 줘요.
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import { places } from '@/data/places'
 import { concertTrip } from '@/data/trips'
+import { searchPlaces } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
+import { imageFor } from '@/utils/mapView'
 import { goBack } from '@/utils/back'
 import { showToast } from '@/utils/toast'
 
 const router = useRouter()
-
+const store = useTripStore()
 const keyword = ref('')
+
+// ---------------------------------------------------------------- 서버 검색
+const serverResults = ref([]) // 검색 결과 (장소 카드)
+const pickedServer = ref([]) // 고른 서버 장소 [{ place, fixedTime }]
+const searchError = ref('')
+let searchTimer = null
+const SEARCH_DELAY_MS = 300 // 글자를 칠 때마다 부르지 않고, 멈추면 한 번
+
+watch(() => keyword.value, (word) => {
+  clearTimeout(searchTimer)
+  if (!word.trim()) {
+    serverResults.value = []
+    return
+  }
+  searchTimer = setTimeout(() => runSearch(word.trim()), SEARCH_DELAY_MS)
+})
+
+async function runSearch(word) {
+  try {
+    serverResults.value = await searchPlaces(word)
+    searchError.value = ''
+  } catch (e) {
+    serverResults.value = []
+    searchError.value = e.message
+  }
+}
+
+function isServerPicked(place) {
+  return pickedServer.value.some((item) => item.place.id === place.id && item.place.name === place.name)
+}
+function toggleServerPick(place) {
+  const i = pickedServer.value.findIndex((item) => item.place.id === place.id && item.place.name === place.name)
+  if (i > -1) pickedServer.value.splice(i, 1)
+  else pickedServer.value.push({ place, fixedTime: null })
+}
+// 공연·예약처럼 시간이 정해진 곳: 시각을 받아 고정 일정으로
+function pickAsFixed(place) {
+  const time = window.prompt(place.name + '의 정해진 시각 (예: 18:30)', '18:30')
+  if (!time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return
+  const found = pickedServer.value.find((item) => item.place.id === place.id && item.place.name === place.name)
+  if (found) found.fixedTime = time
+  else pickedServer.value.push({ place, fixedTime: time })
+}
+
 const filters = ref({ star: true }) // 켜진 거르기
 const picked = ref([]) // 고른 장소 id들
 
@@ -60,15 +109,19 @@ function togglePick(id) {
   else picked.value.push(id)
 }
 function addToPlan() {
-  showToast(picked.value.length + '곳을 동선에 맞춰 넣었어요')
+  for (const item of pickedServer.value) store.addDraftPlace(item.place, !!item.fixedTime, item.fixedTime)
+  const count = picked.value.length + pickedServer.value.length
+  pickedServer.value = []
+  showToast(count + '곳을 동선에 맞춰 넣었어요')
   router.push('/plan/check')
 }
+const pickCount = computed(() => picked.value.length + pickedServer.value.length)
 </script>
 
 <template>
   <div class="scr scr-PlanManual">
     <div class="app">
-      <div class="map" aria-hidden="true" style="bottom: 380px"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
+      <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
 
       <!-- 이미 일정에 있는 곳: 작은 회색 핀 -->
       <span v-for="(stop, i) in concertTrip.stops" :key="stop.id" class="pin pin--done pm-small" :style="{ left: stop.x + 'px', top: stop.y + 'px' }" aria-hidden="true">
@@ -107,6 +160,25 @@ function addToPlan() {
           <span>내 일정 동선에서 가까운 순</span><span v-if="hiddenCount" class="tn">평점 3점 미만 {{ hiddenCount }}곳 숨김</span>
         </p>
         <div class="pm-list">
+          <!-- 서버 검색 결과 (검색어가 있을 때) -->
+          <template v-if="keyword.trim()">
+            <div v-for="place in serverResults" :key="(place.id || '') + place.name" class="row">
+              <span class="pm-hit">
+                <img class="thumb thumb--lg" :src="imageFor(place.category)" alt="" />
+                <span class="row__body">
+                  <span class="row__title">{{ place.name }}</span>
+                  <span class="row__meta tn"><template v-if="place.rating"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ place.rating }} · </template>{{ place.category }}</span>
+                </span>
+              </span>
+              <button type="button" class="btn btn--sm btn--secondary" @click="pickAsFixed(place)"><i class="ic ic--s i-lock" aria-hidden="true"></i>시간 고정</button>
+              <button type="button" class="btn btn--sm" :class="isServerPicked(place) ? 'btn--primary' : 'btn--secondary'" :aria-pressed="isServerPicked(place)" @click="toggleServerPick(place)">
+                {{ isServerPicked(place) ? '선택됨' : '선택' }}
+              </button>
+            </div>
+            <p v-if="searchError" class="t-cap c-danger" style="padding: 24px 16px; text-align: center">{{ searchError }}</p>
+            <p v-else-if="!serverResults.length" class="t-cap" style="padding: 24px 16px; text-align: center">검색 결과가 없어요. 다른 이름으로 찾아보세요.</p>
+          </template>
+          <template v-else>
           <div v-for="id in candidates" :key="id" class="row">
             <RouterLink to="/place" class="pm-hit">
               <img class="thumb thumb--lg" :src="places[id].img" alt="" />
@@ -121,18 +193,23 @@ function addToPlan() {
             </button>
           </div>
           <p v-if="!candidates.length" class="t-cap" style="padding: 24px 16px; text-align: center">조건에 맞는 곳이 없어요. 거르기를 풀어 보세요.</p>
+          </template>
         </div>
       </BottomSheet>
 
       <div class="cta cta--white" style="gap: 12px">
-        <div v-if="picked.length" class="pm-picks" aria-label="담은 장소">
+        <div v-if="pickCount" class="pm-picks" aria-label="담은 장소">
+          <span v-for="item in pickedServer" :key="'s' + item.place.name" class="pickchip">
+            <img :src="imageFor(item.place.category)" alt="" /><b>{{ item.place.name }}{{ item.fixedTime ? ' ' + item.fixedTime : '' }}</b>
+            <button type="button" class="iconbtn" :aria-label="item.place.name + ' 빼기'" style="width: 32px; height: 32px" @click="toggleServerPick(item.place)"><i class="ic ic--s i-close subtle" aria-hidden="true"></i></button>
+          </span>
           <span v-for="id in picked" :key="id" class="pickchip">
             <img :src="places[id].img" alt="" /><b>{{ places[id].name }}</b>
             <button type="button" class="iconbtn" :aria-label="places[id].name + ' 빼기'" style="width: 32px; height: 32px" @click="togglePick(id)"><i class="ic ic--s i-close subtle" aria-hidden="true"></i></button>
           </span>
         </div>
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!picked.length" @click="addToPlan">
-          {{ picked.length ? picked.length + '곳 일정에 담기' : '담을 곳을 골라 주세요' }}
+        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!pickCount" @click="addToPlan">
+          {{ pickCount ? pickCount + '곳 일정에 담기' : '담을 곳을 골라 주세요' }}
         </button>
       </div>
     </div>

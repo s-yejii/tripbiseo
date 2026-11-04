@@ -25,12 +25,17 @@ import com.tripbiseo.member.dto.LoginRequest;
 import com.tripbiseo.member.dto.LoginResponse;
 import com.tripbiseo.member.dto.Member;
 import com.tripbiseo.member.dto.SignupRequest;
+import com.tripbiseo.member.service.EmailCodeService;
+import com.tripbiseo.member.service.EmailCodeServiceImpl;
 import com.tripbiseo.member.service.MemberService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.web.bind.annotation.RequestParam;
+import com.tripbiseo.member.dto.CheckIdResponse;
 
 /**
  * ① 로그인·회원가입 (Spring Security). member 테이블 + BCrypt.
@@ -43,6 +48,7 @@ public class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final MemberService memberService;
+    private final EmailCodeService emailCodeService;
     private final LoginUser loginUser;
     // 로그인 정보를 세션에 저장하는 Spring Security 도구
     private final SecurityContextRepository contextRepository = new HttpSessionSecurityContextRepository();
@@ -96,11 +102,24 @@ public class AuthController {
         return new OkResponse();
     }
 
-    /** 회원가입 (자동 로그인은 안 함, 화면이 이어서 login을 부름) */
+    /** 회원가입 (이메일 인증을 마친 브라우저만. 자동 로그인은 안 함, 화면이 이어서 login을 부름) */
     @PostMapping("/signup")
-    public OkResponse signup(@RequestBody SignupRequest body) {
+    public OkResponse signup(@RequestBody SignupRequest body, HttpServletRequest request) {
+        String clientId = request.getSession(true).getId(); // 인증번호를 확인한 그 브라우저인지
+        if (!emailCodeService.isVerified(body.getEmail(), EmailCodeServiceImpl.PURPOSE_SIGNUP, clientId)) {
+            throw fail(400, "이메일 인증을 먼저 해 주세요.");
+        }
         memberService.createMember(body);
+        emailCodeService.clearVerified(body.getEmail(), EmailCodeServiceImpl.PURPOSE_SIGNUP);
         return new OkResponse();
+    }
+
+    /** 아이디 중복 확인 (가입 전, 로그인 불필요) */
+    @GetMapping("/check-id")
+    public CheckIdResponse checkId(@RequestParam(defaultValue = "") String username) {
+        CheckIdResponse response = new CheckIdResponse();
+        response.setAvailable(memberService.isUsernameAvailable(username));
+        return response;
     }
 
     private Member findMember(String username) {

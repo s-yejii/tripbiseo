@@ -3,6 +3,8 @@ package com.tripbiseo.trip.service;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.tripbiseo.common.external.FoundArea;
+import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.PlaceCard;
@@ -32,6 +34,9 @@ public interface PlaceService {
     /** 주소·이름에 지역 이름이 들어간 장소, 평점 순 (③ 일정 만들기 후보) */
     List<Place> getAreaPlaceList(String region);
 
+    /** 반경 안 한 종류(food·cafe·bar·tour) 장소 limit개, 보정 평점 순 (③ 일정 만들기 후보, 11/03) */
+    List<Place> getKindPlaceList(double lat, double lng, int radius, String kind, int limit);
+
     /** 이름으로 장소 찾기: 우리 DB → TourAPI → 카카오. 외부에서 찾으면 id가 null. 못 찾으면 null (③) */
     Place getPlaceByName(String name, Double lat, Double lng);
 
@@ -46,4 +51,13 @@ public interface PlaceService {
 
     /** DB에 없는 장소용 네이버 지도 검색 링크 */
     String getNaverUrl(String name, String address);
+
+    /** GET /api/places/areas: 어디로 가요? 서울 구·동(적으면 동네·역) 최대 10개 (카카오) */
+    List<FoundArea> getAreaList(String query);
+
+    /** GET /api/places/locations: 어디서 출발해요? 역·건물·주소 최대 15개 (카카오). lat·lng가 있으면 거리도 */
+    List<FoundLocation> getLocationList(String query, Double lat, Double lng);
+
+    /** GET /api/places/locations/here: 내 좌표의 건물 이름·주소 (현재 위치로 출발) */
+    FoundLocation getLocationHere(double lat, double lng);
 }

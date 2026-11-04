@@ -1,5 +1,7 @@
 package com.tripbiseo.live.dto;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import lombok.Data;
@@ -13,6 +15,7 @@ import lombok.Data;
 public class AssistResponse {
     private String kind;                 // ask-radius / alternatives / text
     private String category;             // ask-radius일 때 (기본 "카페")
+    private List<String> tags;           // ask-radius일 때 원하는 분위기 (예: ["혼밥"]). 화면이 /live/recommend에 그대로 넘김
     private AlternativesResponse data;   // alternatives일 때 (reason "request")
     private String text;                 // text일 때
 }

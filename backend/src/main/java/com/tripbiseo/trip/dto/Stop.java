@@ -20,6 +20,7 @@ public class Stop {
     private String mode;        // 앞 장소에서 오는 수단 walk / transit / taxi, null이면 거리로 자동
     private String memo;        // 200자까지
     private String state;       // todo / done / skipped
+    private String importance;  // 중요도 must(꼭) / maybe(가능하면) / drop(빼도 됨), 기본 maybe
     private String arrivedAt;   // GPS 150m 안 도착 시각 yyyy-MM-ddTHH:mm:ss
     private String departedAt;  // 200m 밖으로 두 번 연속 나간 시각
 }

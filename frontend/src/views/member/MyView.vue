@@ -1,12 +1,28 @@
 <script setup>
 // S19 마이 (①): 내 정보 · 여행 스타일 · 친구 · 결제 카드 · 알림 설정 · 권한
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { get, post } from '@/api/http'
 import TabBar from '@/components/common/TabBar.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
 
 // 가짜 데이터: 내 정보 (백엔드가 붙으면 member · member_style · friend · card 테이블)
-const me = { name: '하늘', id: 'haneul_trip', area: '서울' }
+const router = useRouter()
+
+// 내 정보: 화면이 열리면 서버(GET /api/auth/me)에서 받아 와요
+const me = ref({ name: '', id: '', area: '서울' }) // 지역은 아직 DB에 없어서 그대로
+
+// onMounted: 화면이 처음 뜰 때 한 번 실행
+onMounted(async () => {
+  try {
+    const user = await get('/auth/me')
+    me.value.name = user.nickname || user.username // 닉네임이 없으면 아이디
+    me.value.id = user.username
+  } catch (e) {
+    router.replace('/login') // 로그인 안 했으면(401) 로그인 화면으로
+  }
+})
 const styleChips = ['보통 여행', '카페', '맛집', '쇼핑']
 const friends = ['엄마', '민지', '준호']
 const cards = ref([
@@ -25,6 +41,13 @@ function setMainCard(index) {
   cards.value.forEach((card, i) => (card.main = i === index))
   showToast('기본 결제 카드를 바꿨어요')
 }
+
+// 로그아웃: 서버 세션을 지우고 첫 화면으로
+async function logout() {
+  await post('/auth/logout')
+  router.replace('/login')
+}
+
 </script>
 
 <template>
@@ -106,7 +129,7 @@ function setMainCard(index) {
         </section>
 
         <div style="display: flex; justify-content: space-between; align-items: center">
-          <RouterLink to="/onboarding" class="textlink" style="padding-left: 0"><i class="ic ic--s i-logout" aria-hidden="true"></i>로그아웃</RouterLink>
+          <button type="button" class="textlink" style="padding-left: 0; border: 0; background: none; cursor: pointer" @click="logout"><i class="ic ic--s i-logout" aria-hidden="true"></i>로그아웃</button>
           <span class="t-cap subtle tn">버전 1.0.0</span>
         </div>
       </div>

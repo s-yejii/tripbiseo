@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  ③ 칩에 없는 요청("4명이 앉을 자리")을 리뷰로 확인할 때 쓰는 리뷰 꺼내기 (retrip_review 읽기만, 11/04).
+  후보 장소(20곳 정도)로 먼저 거른 뒤 단어를 찾아서 빨라요 (idx_retrip_review_place 인덱스).
+  ROW_NUMBER() OVER (PARTITION BY place_id …): 장소마다 1, 2, 3… 번호를 매기는 PostgreSQL 문법 → 장소마다 perPlace개까지만
+-->
+<mapper namespace="com.tripbiseo.plan.mapper.ReviewNeedMapper">
+
+  <select id="selectReviewSnippetList" resultType="com.tripbiseo.plan.dto.ReviewSnippet">
+    SELECT place_id, content
+    FROM (
+      SELECT place_id, content, ROW_NUMBER() OVER (PARTITION BY place_id ORDER BY created_at DESC) AS row_no
+      FROM retrip_review
+      WHERE place_id IN
+      <foreach collection="placeIds" item="placeId" open="(" separator="," close=")">#{placeId}</foreach>
+        AND
+      <foreach collection="patterns" item="pattern" open="(" separator=" OR " close=")">content LIKE #{pattern}</foreach>
+    ) found
+    WHERE row_no &lt;= #{perPlace}
+  </select>
+
+</mapper>

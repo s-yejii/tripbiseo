@@ -1,39 +1,110 @@
 <script setup>
 // S15 지연 감지 (④): 왜 늦는지 보여 주고, 그냥 갈지 대안을 볼지 고르게 해요
+// 지금 있는 곳의 실제 도착(GPS 기록 arrivedAt)·계획보다 더 머문 시간·고정 일정 예상 도착(서버 계산)으로 줄을 만들어요.
+// "그냥 갈게요"를 누르면 여행 중 화면의 지연 알림을 접고, 10분 더 늦어지면 다시 띄워요.
+// 11/04: 시트 어디를 잡고 끌어도(버튼 빼고), 시트 위에서 휠을 굴려도 내려가요 (data-drag).
+//   전에는 위 손잡이(작은 막대)만 잡혀서, 내용을 끌거나 스크롤하면 아무 반응이 없어 멈춘 것처럼 보였어요
+import { computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
+import PageMessage from '@/components/common/PageMessage.vue'
+import KakaoMap from '@/components/common/KakaoMap.vue'
 import EventTimeline from '@/components/live/EventTimeline.vue'
+import { useReplanStore } from '@/stores/replan'
+import { toMinutes } from '@/utils/time'
 
-// 가짜 데이터: 지연 판단 결과 (백엔드가 붙으면 서버 계산값)
-const lateMinutes = 14
-const reasons = [
-  { time: '14:52', color: 'var(--success)', text: '성내동 카페 도착', badgeCls: 'badge--success', badgeIcon: 'i-check', badge: '제시간' },
-  { time: '16:21', color: 'var(--warning)', text: '아직 성내동 카페', badgeCls: 'badge--warning', badgeIcon: 'i-clock', badge: '+29분' },
-  { time: '18:44', color: 'var(--danger)', icon: 'i-lock', text: '예약 도착', badgeCls: 'badge--danger', badgeIcon: 'i-danger', badge: '+14분' },
-]
+const DELAY_MAP_PADDING = { top: 60, right: 40, bottom: 470, left: 40 } // 아래 시트에 핀이 가리지 않게
+
+const router = useRouter()
+const replan = useReplanStore()
+
+onMounted(() => replan.load(true))
+
+const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '마지막 일정'))
+const mapPins = computed(() => replan.stops.map((stop, i) => ({
+  key: stop.id,
+  lat: stop.lat,
+  lng: stop.lng,
+  text: i + 1,
+  icon: stop.fixed ? 'i-lock' : '',
+  cls: stop.fixed ? ' pin--fixed' : '',
+  label: stop.name,
+})))
+
+// "2026-11-03T14:15:00" → "14:15"
+function toClock(dateTime) {
+  return dateTime ? dateTime.substring(11, 16) : null
+}
+
+// 왜 늦는지 (실제 기록과 서버 계산만으로)
+const reasons = computed(() => {
+  const items = []
+  const current = replan.currentStop
+  const now = replan.status.now
+  if (current && current.arrivedAt) {
+    const arrived = toClock(current.arrivedAt)
+    const lateArrive = toMinutes(arrived) - toMinutes(current.time)
+    items.push({
+      time: arrived, color: 'var(--success)', text: current.name + ' 도착',
+      badgeCls: lateArrive > 0 ? 'badge--warning' : 'badge--success', badgeIcon: lateArrive > 0 ? 'i-clock' : 'i-check',
+      badge: lateArrive > 0 ? '+' + lateArrive + '분' : '제시간',
+    })
+  }
+  if (current) {
+    const start = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
+    const overStay = toMinutes(now) - (start + current.stay)
+    items.push({
+      time: now, color: overStay > 0 ? 'var(--warning)' : 'var(--success)', text: '아직 ' + current.name,
+      badgeCls: overStay > 0 ? 'badge--warning' : 'badge--neutral', badgeIcon: 'i-clock',
+      badge: overStay > 0 ? '+' + overStay + '분' : '계획 안',
+    })
+  } else {
+    items.push({ time: now, color: 'var(--ink-subtle)', text: '이동 중', badgeCls: 'badge--neutral', badge: '지금' })
+  }
+  const slack = replan.base.slackMin
+  items.push({
+    time: replan.base.finalArrive, color: slack < 0 ? 'var(--danger)' : 'var(--success)', icon: replan.basisStop && replan.basisStop.fixed ? 'i-lock' : '',
+    text: basisName.value + ' 도착 예상', badgeCls: slack < 0 ? 'badge--danger' : 'badge--success', badgeIcon: slack < 0 ? 'i-danger' : 'i-check',
+    badge: slack < 0 ? '+' + -slack + '분' : '여유 ' + slack + '분',
+  })
+  return items
+})
+
+const optionCount = computed(() => (replan.options ? replan.options.alternatives.length : 0))
+
+function goAnyway() {
+  replan.mutedLate = replan.lateMin
+  router.replace('/live')
+}
 </script>
 
 <template>
   <div class="scr scr-LiveDelay">
     <div class="app">
-      <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -126px" /></div>
-      <span class="me" style="left: 215px; top: 285px"></span>
+      <KakaoMap v-if="replan.base" :pins="mapPins" :me="replan.position" :padding="DELAY_MAP_PADDING" />
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="alertdialog" aria-modal="true" style="gap: 16px">
+      <BottomSheet role="alertdialog" aria-modal="true" data-drag style="gap: 16px">
+        <PageMessage v-if="replan.error" icon="i-warning" title="지금 상황을 계산할 수 없어요" :text="replan.error" to="/live" button="여행 중 화면으로" />
+        <PageMessage v-else-if="!replan.base" is-loading title="지금 위치에서 다시 계산하는 중이에요" />
+
+        <template v-else>
         <div style="display: flex; align-items: center; gap: 12px">
-          <span class="ico-tile ico-tile--warn" style="width: 48px; height: 48px"><i class="ic ic--l i-warning" aria-hidden="true"></i></span>
-          <h1 class="h-title" style="font-size: 20px; line-height: 28px">공연 입장에<br /><span class="c-warning">{{ lateMinutes }}분</span> 늦을 것 같아요</h1>
+          <span class="ico-tile" :class="replan.lateMin ? 'ico-tile--warn' : ''" style="width: 48px; height: 48px"><i class="ic ic--l" :class="replan.lateMin ? 'i-warning' : 'i-success'" aria-hidden="true"></i></span>
+          <h1 v-if="replan.lateMin" class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }} {{ replan.basisStop.eta }}에 맞추려면<br /><span class="c-warning">{{ replan.lateMin }}분</span> 늦어요</h1>
+          <h1 v-else class="h-title" style="font-size: 20px; line-height: 28px">지금 일정이면<br />{{ basisName }}에 늦지 않아요</h1>
         </div>
 
         <EventTimeline :items="reasons" label="왜 늦는지" />
 
         <div style="display: flex; flex-direction: column; gap: 4px">
           <div class="cta__row">
-            <RouterLink to="/live/late" class="btn btn--secondary btn--lg">그냥 갈게요</RouterLink>
-            <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 3개 보기</RouterLink>
+            <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">{{ replan.lateMin ? '그냥 갈게요' : '그대로 갈게요' }}</button>
+            <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
           </div>
-          <p class="t-cap" style="text-align: center; margin: 4px 0 0">그냥 가도 10분 더 늦어지면 다시 알려 드려요</p>
+          <p v-if="replan.lateMin" class="t-cap" style="text-align: center; margin: 4px 0 0">그냥 가도 10분 더 늦어지면 다시 알려 드려요</p>
         </div>
+        </template>
       </BottomSheet>
     </div>
   </div>

@@ -18,8 +18,17 @@ public interface AiService {
     <T> T askJson(String prompt, Class<T> type);
 
     /**
+     * askJson과 같고, Gemini가 생각을 적게 하고 빨리 답하게 함 (11/04).
+     * 말 → 조건 나누기처럼 쉬운 분류에 씀. 생각 단계가 기본(MEDIUM)이면 긴 규칙 프롬프트에서 25초를 넘기는 일이 있어서
+     */
+    <T> T askJsonQuick(String prompt, Class<T> type);
+
+    /**
      * 날씨 도구(get_weather)를 쓸 수 있게 묻기 → JSON 답을 type에 담아 줌.
      * lat·lng는 서버 안에서 기상청을 부를 때만 쓰고 Gemini에는 보내지 않습니다.
      */
     <T> T askJsonWithWeather(String prompt, double lat, double lng, Class<T> type);
+
+    /** 사진 + 질문 → JSON 답 (OCR: 예약 캡처 읽기). imageType 예: "image/png". 사진은 저장하지 않음 */
+    <T> T askJsonWithImage(String prompt, byte[] image, String imageType, Class<T> type);
 }

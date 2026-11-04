@@ -1,19 +1,61 @@
 <script setup>
-// S11-b 여행 상세 · 여행 날 (②): 오늘 여행의 일정, 미리 확인할 것, 챙길 것
+// S11-b 여행 상세 · 여행 날 (②): 오늘 여행의 일정, 미리 확인할 것(일정 점검), 챙길 것
+// 주소의 ?id= 여행, 없으면 진행 중·오늘 여행을 서버에서 읽어요. 둘 다 없으면 안내.
+import { onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import TripPage from '@/components/trip/TripPage.vue'
 import PackList from '@/components/trip/PackList.vue'
-import { concertTrip } from '@/data/trips'
+import PageMessage from '@/components/common/PageMessage.vue'
+import TopBar from '@/components/common/TopBar.vue'
+import { useTripStore } from '@/stores/trip'
+import { useTripDetail } from '@/utils/useTripDetail'
+import { tripBadge } from '@/utils/tripView'
+import { startTrip } from '@/api/trips'
+import { showToast } from '@/utils/toast'
+
+const route = useRoute()
+const router = useRouter()
+const store = useTripStore()
+const { saved, view, isLoading, error, load } = useTripDetail()
+
+onMounted(async () => {
+  const tripId = route.query.id || store.tripId || (await store.findOngoingTripId())
+  await load(tripId)
+})
+
+// 여행 시작(POST /api/trips/{id}/start) → 여행 중 화면
+async function start() {
+  try {
+    await startTrip(saved.value.id)
+    router.replace('/live')
+  } catch (e) {
+    showToast(e.message)
+  }
+}
 </script>
 
 <template>
   <div class="scr scr-TripDetailToday">
-    <TripPage :trip="concertTrip" :badge="{ text: '오늘', cls: 'badge--coral' }" back="/" rain-swap>
+    <TripPage v-if="view" :trip="view" :badge="tripBadge(saved)" back="/">
       <template #below>
-        <PackList :items="concertTrip.pack" />
+        <!-- 챙길 것: API가 아직 "확인 필요"라 이 화면에서만 적어 둬요 (새로고침하면 사라짐) -->
+        <PackList :items="[]" />
       </template>
       <template #cta>
-        <RouterLink to="/plan/edit" class="btn btn--primary btn--lg btn--block"><i class="ic i-edit" aria-hidden="true"></i>일정 편집하기</RouterLink>
+        <RouterLink v-if="saved.status === 'ongoing'" to="/live" class="btn btn--primary btn--lg btn--block">여행 이어가기</RouterLink>
+        <div v-else class="cta__row">
+          <RouterLink :to="'/plan/edit?id=' + view.id" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>편집</RouterLink>
+          <button type="button" class="btn btn--primary btn--lg" :disabled="!view.stops.length" @click="start">여행 시작</button>
+        </div>
       </template>
     </TripPage>
+    <div v-else class="app">
+      <TopBar title="오늘 여행" back="/" />
+      <div class="scroll">
+        <PageMessage v-if="isLoading" is-loading title="여행을 불러오는 중이에요" />
+        <PageMessage v-else-if="error" icon="i-warning" title="여행을 불러오지 못했어요" :text="error" button="다시 시도" @retry="load(route.query.id || store.tripId)" />
+        <PageMessage v-else title="오늘 여행이 없어요" text="새 여행을 만들거나 내 여행에서 골라 주세요" to="/trips" button="내 여행 보기" />
+      </div>
+    </div>
   </div>
 </template>

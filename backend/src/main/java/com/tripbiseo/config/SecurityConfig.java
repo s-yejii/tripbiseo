@@ -41,7 +41,7 @@ public class SecurityConfig {
             .formLogin(AbstractHttpConfigurer::disable)   // 로그인은 /api/auth/login (JSON)
             .logout(AbstractHttpConfigurer::disable)      // 로그아웃은 /api/auth/logout
             .authorizeHttpRequests(auth -> auth
-                .dispatcherTypeMatchers(DispatcherType.FORWARD, DispatcherType.ERROR).permitAll()
+                .dispatcherTypeMatchers(DispatcherType.FORWARD, DispatcherType.ERROR, DispatcherType.ASYNC).permitAll() // ASYNC: 진행 알림(SSE)이 끝날 때 서버 안에서 한 번 더 도는 요청 (첫 요청에서 이미 로그인 확인함, 11/04)
                 .requestMatchers(PUBLIC_URLS).permitAll()
                 .anyRequest().authenticated()
             )

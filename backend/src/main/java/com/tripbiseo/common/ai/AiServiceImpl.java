@@ -5,11 +5,18 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.MimeTypeUtils;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
+import org.springframework.ai.google.genai.common.GoogleGenAiThinkingLevel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +38,8 @@ public class AiServiceImpl implements AiService {
     private static final List<String> FALLBACK_MODELS = List.of("gemini-3.6-flash", "gemini-3.5-flash-lite");
     private static final List<Integer> RETRY_STATUS = List.of(429, 500, 503, 504);
     private static final long RETRY_WAIT_MS = 1500;
+    // 11/03: 응답이 없으면 끝없이 기다리던 문제 → 한 번 묻는 데 최대 25초 (사진 읽기도 보통 10초 안)
+    private static final long CALL_TIMEOUT_SECONDS = 25;
 
     private static final String NO_KEY = "Gemini 키가 없어요. 환경변수 GEMINI_API_KEY를 확인해 주세요.";
     private static final String BUSY = "Gemini 사용량이 몰려 잠시 응답하지 않아요. 1~2분 뒤 다시 시도해 주세요.";
@@ -63,13 +72,25 @@ public class AiServiceImpl implements AiService {
     /** 질문 → 글 답 */
     @Override
     public String askText(String prompt) {
-        return ask(prompt, null, false);
+        return ask(prompt, null, false, null, null, false);
     }
 
     /** 질문 → JSON 답을 type에 담아 줌 */
     @Override
     public <T> T askJson(String prompt, Class<T> type) {
-        return readJson(ask(prompt, null, true), type);
+        return readJson(ask(prompt, null, true, null, null, false), type);
+    }
+
+    /** 질문 → JSON 답, 생각 단계 LOW로 빨리 (쉬운 분류용) */
+    @Override
+    public <T> T askJsonQuick(String prompt, Class<T> type) {
+        return readJson(ask(prompt, null, true, null, null, true), type);
+    }
+
+    /** 사진 + 질문 → JSON 답 (예약 캡처·영수증 읽기). 사진은 저장하지 않고 이번 질문에만 씀 */
+    @Override
+    public <T> T askJsonWithImage(String prompt, byte[] image, String imageType, Class<T> type) {
+        return readJson(ask(prompt, null, true, image, imageType, false), type);
     }
 
     /** 날씨 도구를 쓸 수 있게 묻기 (좌표는 도구 안에서만 씀) */
@@ -77,11 +98,11 @@ public class AiServiceImpl implements AiService {
     public <T> T askJsonWithWeather(String prompt, double lat, double lng, Class<T> type) {
         WeatherTool tool = new WeatherTool(weatherClient, lat, lng);
         String jsonRule = "\n답은 JSON만 보내. 다른 말이나 ```는 붙이지 마.";
-        return readJson(ask(prompt + jsonRule, tool, false), type);
+        return readJson(ask(prompt + jsonRule, tool, false, null, null, false), type);
     }
 
-    // 모델을 차례로 바꿔 가며 묻기: 기본 모델 → (1.5초 뒤) 기본 모델 → 예비 모델들
-    private String ask(String prompt, Object tool, boolean isJson) {
+    // 모델을 차례로 바꿔 가며 묻기: 기본 모델 → (1.5초 뒤) 기본 모델 → 예비 모델들. isQuick: 생각 단계 LOW (11/04)
+    private String ask(String prompt, Object tool, boolean isJson, byte[] image, String imageType, boolean isQuick) {
         if (!isReady()) {
             throw fail(503, NO_KEY);
         }
@@ -92,7 +113,7 @@ public class AiServiceImpl implements AiService {
                 pause(RETRY_WAIT_MS);
             }
             try {
-                return callOnce(prompt, tool, isJson, attempts.get(i));
+                return callOnce(prompt, tool, isJson, attempts.get(i), image, imageType, isQuick);
             } catch (RuntimeException e) {
                 lastError = toApiException(e);
                 log.info("Gemini {} 실패 ({}): {}", attempts.get(i), lastError.getStatus(), lastError.getMessage());
@@ -105,20 +126,51 @@ public class AiServiceImpl implements AiService {
     }
 
     // 한 모델로 한 번 묻기. 도구를 쓸 때는 Gemini가 JSON 모드와 도구를 같이 못 써서 JSON 모드를 끔
-    private String callOnce(String prompt, Object tool, boolean isJson, String modelName) {
+    private String callOnce(String prompt, Object tool, boolean isJson, String modelName, byte[] image, String imageType,
+                            boolean isQuick) {
         GoogleGenAiChatOptions.Builder options = GoogleGenAiChatOptions.builder().model(modelName);
         if (isJson) {
             options.responseMimeType("application/json");
         }
-        ChatClient.ChatClientRequestSpec request = chatClient.prompt().user(prompt).options(options);
+        if (isQuick) {
+            // 생각 단계(thinking level): 3.x Flash 기본은 MEDIUM. 분류는 LOW로 충분하고 더 빠름
+            // (MINIMAL은 gemini-3.8·3.7-flash가 400 오류를 내서 안 씀)
+            options.thinkingLevel(GoogleGenAiThinkingLevel.LOW);
+        }
+        ChatClient.ChatClientRequestSpec request;
+        if (image == null) {
+            request = chatClient.prompt().user(prompt).options(options);
+        } else {
+            // media: 질문에 사진을 같이 붙임 (ByteArrayResource: 메모리에 있는 바이트를 파일처럼 넘기는 도구)
+            ByteArrayResource resource = new ByteArrayResource(image);
+            request = chatClient.prompt().user(user -> user.text(prompt).media(MimeTypeUtils.parseMimeType(imageType), resource)).options(options);
+        }
         if (tool != null) {
             request = request.tools(tool);
         }
-        String answer = request.call().content();
+        String answer = callWithTimeout(request);
         if (answer == null || answer.isBlank()) {
             throw fail(502, EMPTY);
         }
         return answer;
+    }
+
+    // 정해진 시간 안에 답이 없으면 기다리지 않고 504 (시간 초과)
+    // CompletableFuture: 호출을 다른 일꾼(스레드)에게 맡기고, 여기서는 정해진 시간만큼만 기다리는 도구
+    private String callWithTimeout(ChatClient.ChatClientRequestSpec request) {
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> request.call().content());
+        try {
+            return future.get(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            throw fail(504, TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw fail(504, TIMEOUT);
+        } catch (ExecutionException e) {
+            // 일꾼 안에서 난 오류를 그대로 다시 던져서 toApiException이 원래 오류로 바꾸게 함
+            throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
+        }
     }
 
     private List<String> modelOrder() {
@@ -162,8 +214,9 @@ public class AiServiceImpl implements AiService {
     }
 
     // 붐빔(503)·시간 초과(504)만 다시 시도
+    // 사용량 몰림(503)만 다른 모델로 다시. 시간 초과(504)는 다시 해도 또 기다리게 돼서 바로 실패로 (11/03)
     private static boolean isRetryable(ApiException e) {
-        return e.getStatus() == 503 || e.getStatus() == 504;
+        return e.getStatus() == 503;
     }
 
     // ```json 감싸기나 앞뒤 말이 붙어 와도 { … } 부분만 읽기

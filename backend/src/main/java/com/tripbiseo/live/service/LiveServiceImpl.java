@@ -1,287 +1,307 @@
 package com.tripbiseo.live.service;
 
+import static com.tripbiseo.common.exception.ApiException.fail;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.tripbiseo.common.ai.AiService;
-import com.tripbiseo.common.external.RouteClient;
-import com.tripbiseo.common.external.WeatherClient;
-import com.tripbiseo.live.dto.AltStop;
+import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.Alternative;
 import com.tripbiseo.live.dto.AlternativesRequest;
-import com.tripbiseo.live.dto.AlternativesResponse;
-import com.tripbiseo.live.dto.AppliedStop;
 import com.tripbiseo.live.dto.ApplyRequest;
-import com.tripbiseo.live.dto.ApplyResponse;
-import com.tripbiseo.live.dto.AreaInfo;
 import com.tripbiseo.live.dto.AssistRequest;
 import com.tripbiseo.live.dto.AssistResponse;
-import com.tripbiseo.live.dto.FixedStatus;
+import com.tripbiseo.live.dto.ChatIntent;
 import com.tripbiseo.live.dto.InsertRequest;
 import com.tripbiseo.live.dto.InsertResponse;
-import com.tripbiseo.live.dto.LeaveInfo;
-import com.tripbiseo.live.dto.LiveAlert;
 import com.tripbiseo.live.dto.LocationRequest;
-import com.tripbiseo.live.dto.NextRoute;
+import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.live.dto.RecommendPlace;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
-import com.tripbiseo.live.dto.StatusResponse;
-import com.tripbiseo.live.dto.StatusStop;
-import com.tripbiseo.member.service.NotificationService;
+import com.tripbiseo.trip.dto.OpenInfo;
+import com.tripbiseo.trip.dto.Place;
+import com.tripbiseo.trip.dto.Stop;
+import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.PlaceService;
 import com.tripbiseo.trip.service.TripService;
 
 import lombok.RequiredArgsConstructor;
 
 /**
- * ④ 여행 중 판별. 지금은 docs/API.md 예시 같은 가짜 값이에요.
- * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/LiveService.java (679줄 → 여기와 TrackService로 나눔)
- * 공통 주의
- *  - 오늘 칸은 tripService.getTrip으로 읽고, 고칠 때도 TripService(createStop·updateStop·skipStops)로. 예전처럼 TripMapper를 직접 쓰지 않기
- *  - 장소 판단은 placeService 메서드로 (예전 PlaceService.openInfo·isIndoor static 호출 대신)
- *  - Gemini 프롬프트에 좌표(위도·경도)를 넣지 않기. 날씨는 aiService.askJsonWithWeather(인자 없는 도구, 위치는 서버만 앎)
+ * ④ 여행 중 AI 채팅 → 근처 추천 → 일정에 넣기. 대안은 AlternativeServiceImpl, 지금 상황은 StatusServiceImpl.
+ * AI 원칙: 규칙 먼저, 애매할 때만 Gemini(분류·답 문장만). 추천·시각 계산은 코드로. 좌표는 프롬프트에 넣지 않음.
  */
 @Service
 @RequiredArgsConstructor
 public class LiveServiceImpl implements LiveService {
 
-    private final TripService tripService;                 // TODO: ④ 오늘 칸 읽기·고치기
-    private final PlaceService placeService;               // TODO: ④ 영업 정보·근처 장소·실내 판단
-    private final RouteClient routeClient;                 // TODO: ④ 이동 시간 (후보 비교는 isPrecise=false)
-    private final WeatherClient weatherClient;             // TODO: ④ status의 weather
-    private final AiService aiService;                     // TODO: ④ assist 분류, alternatives
-    private final NotificationService notificationService; // TODO: ④ 지연·출발 알림을 ①의 알림함에도 남길 때
+    private static final int MAX_MESSAGE_LENGTH = 300;
+    private static final int MIN_RADIUS_M = 100;
+    private static final int MAX_RADIUS_M = 3000;
+    private static final int RECOMMEND_COUNT = 3;
+    private static final int CAFE_STAY_MIN = 40;          // 일정에 넣기: 카페·디저트면 40분, 아니면 60분 (API.md)
+    private static final int OTHER_STAY_MIN = 60;
+    private static final double WALK_METERS_PER_MIN = 75; // 도착 예상: 걸어서 분당 75m, 길 돌아감 1.3배
+    private static final double ROAD_FACTOR = 1.3;
+    private static final String FOOD_WORDS = ".*(식당|맛집|음식|밥|한식|중식|일식|양식|고기|분식).*";
+    private static final String NOT_FOOD_WORDS = ".*(카페|디저트|베이커리|숙박|관광|문화|공원|쇼핑).*";
+    private static final String DRINK_WORDS = ".*(주점|이자카야|호프|맥주|와인|포차|칵테일).*";
 
-    /** 지금 상황 다시 계산 */
-    // TODO: ④ 지금 상황. 공통 오류 → 오늘(day)·남은 일정 → 칸마다 eta·reach·영업 정보 → alert 하나(우선순위) → leave·fixed·hint·replan·area·next.
-    //       참고: 예전 LiveService.status/today/start/alert/rain.
-    //       주의: 날씨는 weatherClient.getForecast(서버가 위치로 직접), 실패하면 weather = null. 구글 검색 대체는 쓰지 않기
-    @Override
-    public StatusResponse getStatus(long memberId, long tripId, LocationRequest request) {
-        StatusResponse response = new StatusResponse();
-        response.setNow("14:20");
-        response.setCurrentStopId(102L);
-        response.setAlert(sampleAlert());
-        response.setLeave(sampleLeave());
-        response.setFixed(sampleFixed());
-        response.setReplan(false);
-        response.setArea(sampleArea(request));
-        response.getStops().add(statusStop(101L, "e70caff5-27cf-5c76-a1f3-201b7032d672", "경복궁", "관광지", 37.5796, 126.977, "10:00", 90, false, "done"));
-        response.getStops().add(statusStop(102L, null, "카페OO", "카페", 37.5745, 126.9849, "13:30", 55, false, "here"));
-        response.getStops().add(statusStop(103L, null, "세종문화회관", "문화시설", 37.5725, 126.9759, "19:00", 120, true, "fixed"));
-        response.setNext(sampleNext());
-        return response;
-    }
+    private final TripService tripService;
+    private final PlaceService placeService;
+    private final StatusService statusService;             // 질문 답할 때 오늘 상황 (RAG의 근거)
+    private final AlternativeService alternativeService;   // "일정 바꿔줘" → 대안, 일정에 넣기 → 대안 적용 재사용
+    private final LiveTripReader liveTripReader;           // 공통 오류 검사 + 진행 중인 여행
+    private final LiveStopFinder liveStopFinder;
+    private final AlternativeCalculator alternativeCalculator;
+    private final LiveChatClassifier liveChatClassifier;   // 말 분류 (규칙 → Gemini)
+    private final LiveChatAnswerer liveChatAnswerer;       // 질문 답 (템플릿 → Gemini RAG)
+    private final PlaceTagReader placeTagReader;           // 리뷰 태그 점수·이유 칩
 
-    /** 여행 중 채팅: 말 분류 */
-    // TODO: ④ 채팅. message 1~300자 → aiService.askJson(분류 프롬프트, 분류 DTO) → recommend면 ask-radius, change면 makeAlternatives(reason "request"), 그 밖은 text.
-    //       참고: 예전 LiveService.assist. 주의: Gemini 실패(ApiException)는 catch해서 낱말 규칙으로 (오류 내지 않기). 프롬프트에 좌표 넣지 않기.
-    //       확인 필요(④): 비 요청일 때도 대안 A·B·C를 계산할지 (API.md)
+    /** 여행 중 채팅: 말 분류 → 추천이면 반경 묻기, 바꾸기면 대안, 질문이면 오늘 상황으로 답 */
     @Override
     public AssistResponse assist(long memberId, long tripId, AssistRequest request) {
-        String message = request.getMessage() == null ? "" : request.getMessage();
+        String message = request.getMessage() == null ? "" : request.getMessage().trim();
+        if (message.isEmpty() || message.length() > MAX_MESSAGE_LENGTH) {
+            throw fail(400, "메시지를 1~300자로 입력해 주세요.");
+        }
+        liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
+        ChatIntent intent = liveChatClassifier.classify(message);
         AssistResponse response = new AssistResponse();
-        if (message.contains("추천") || message.contains("카페") || message.contains("맛집")) {
+        if ("recommend".equals(intent.getKind())) {
             response.setKind("ask-radius");
-            response.setCategory("카페");
-        } else if (message.contains("바꿔") || message.contains("늦")) {
+            response.setCategory(intent.getCategory());
+            response.setTags(intent.getTags());
+        } else if ("change".equals(intent.getKind())) {
             response.setKind("alternatives");
-            response.setData(sampleAlternatives());
+            response.setData(alternativeService.makeAlternatives(memberId, tripId, toAlternativesRequest(request, message)));
         } else {
             response.setKind("text");
-            response.setText("다음 일정은 19:00 세종문화회관이에요. 지금 20분 여유가 있어요.");
+            response.setText(liveChatAnswerer.answer(message, statusService.getStatus(memberId, tripId, toLocation(request))));
         }
         return response;
     }
 
-    /** 반경 안 평점 상위 3곳 */
-    // TODO: ④ 추천. radius 없으면 400 "radius 값이 필요해요.", 100~3000 밖이면 400 → placeService.getNearbyPlaceList(PostGIS) →
-    //       평점 없는 곳·도착 때 닫힌 곳 빼고(closedSkipped) 보정 평점 순 3개 + 영업 정보. 참고: 예전 LiveService.recommend, PlaceService.recommend
+    /**
+     * 반경 안 추천 3곳: PostGIS 반경 검색 → 평점 없는 곳 빼기 → 점수(보정 평점 + 원하는 리뷰 태그) 순
+     * → 도착할 때 닫힌 곳 빼기(closedSkipped) → 영업 정보 + 이유 칩
+     */
     @Override
     public RecommendResponse recommend(long memberId, long tripId, RecommendRequest request) {
-        RecommendPlace place = new RecommendPlace();
-        place.setId("naver-2093701183");
-        place.setName("카페OO");
-        place.setCategory("카페,디저트");
-        place.setAddress("서울 종로구 인사동길 12");
-        place.setLat(37.5745);
-        place.setLng(126.9849);
-        place.setRating(4.7);
-        place.setReviewCount(320);
-        place.setNaverUrl("https://map.naver.com/p/entry/place/2093701183");
-        place.setDistance(180);
-        place.setOpen(true);
-        place.setCloseAt("22:00");
-        place.setMinutesLeft(455);
-        place.setClosingSoon(false);
-        RecommendResponse response = new RecommendResponse();
-        response.getPlaces().add(place);
-        response.setClosedSkipped(1);
-        return response;
+        if (request.getRadius() == null) {
+            throw fail(400, "radius 값이 필요해요.");
+        }
+        liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
+        if (request.getRadius() < MIN_RADIUS_M || request.getRadius() > MAX_RADIUS_M) {
+            throw fail(400, "반경은 100m~3km예요.");
+        }
+        List<Place> candidates = findCandidates(request);
+        Map<String, PlaceTagCount> tagMap = placeTagReader.countTags(candidates);
+        List<String> wantedTags = request.getTags() == null ? new ArrayList<>() : request.getTags();
+        sortByScore(candidates, tagMap, wantedTags);
+        return pickOpenPlaces(candidates, tagMap, wantedTags, getStay(request.getCategory()));
     }
 
-    /** 추천 장소를 다음 일정으로 */
-    // TODO: ④ 일정에 넣기. placeService.getPlace(없으면 404) → 새 칸(카페 40분, 아니면 60분) tripService.createStop →
-    //       남은 칸 시각 다시 계산해 tripService.updateStop, 고정 일정에 늦으면 앞 칸 머무는 시간을 최대 절반까지. 참고: 예전 LiveService.insert.
-    //       주의: 다른 번호(②)의 쓰기 메서드를 여러 번 부르니 @Transactional 유지
+    /**
+     * 추천 장소를 바로 다음 일정으로. 새 칸을 맨 앞에 둔 "대안"을 계산해서 대안 적용(applyAlternative)으로 저장해요.
+     * 고정 일정에 늦으면 고정 일정 바로 앞 칸 머무는 시간을 최대 절반까지 줄임 (API.md)
+     */
     @Override
     @Transactional
     public InsertResponse addRecommendedPlace(long memberId, long tripId, InsertRequest request) {
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
+        Place place = placeService.getPlace(request.getPlaceId()); // 없으면 404 "장소를 찾을 수 없어요."
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
+
+        List<Stop> plan = new ArrayList<>();
+        plan.add(toNewStop(place, liveStopFinder.getToday(trip)));
+        for (Stop stop : todayStops) {
+            if (liveStopFinder.isRemaining(stop, current)) {
+                plan.add(stop);
+            }
+        }
+        plan = alternativeCalculator.copyStops(plan); // 원본을 고치지 않게 복사본으로 계산
+        Alternative result = alternativeCalculator.calculate(trip, current, plan, request.getLat(), request.getLng());
+        String shortened = shortenBeforeFixed(plan, result);
+        if (shortened != null) {
+            result = alternativeCalculator.calculate(trip, current, plan, request.getLat(), request.getLng());
+        }
+        alternativeService.applyAlternative(memberId, tripId, toApplyRequest(result, request));
+
         InsertResponse response = new InsertResponse();
         response.setTrip(tripService.getTrip(memberId, tripId));
-        response.setMessage("카페OO을(를) 다음 일정으로 넣었어요. 세종문화회관에는 12분 여유가 있어요.");
+        response.setMessage(getInsertMessage(place, plan, result, shortened));
         return response;
     }
 
-    /** 대안 A·B·C */
-    // TODO: ④ 대안. 남은 일정 없으면 400 "오늘 남은 일정이 없어요." → 규칙 대안(A 시간 단축 / B 한 곳 빼기 / C 장소 변경) →
-    //       aiService.isReady()면 askJsonWithWeather로 Gemini 대안, 실패하면 규칙만. 3개 채우고 key A·B·C, recommended 하나.
-    //       참고: 예전 LiveService.alternatives/fit/chain/shape/substitute/recommendBest.
-    //       주의: 예전 프롬프트의 "위치 (위도, 경도)"는 빼기. 날씨 도구는 인자 없음. 예전 askWithSearch(구글 검색 대체)는 쓰지 않기.
-    //             근처 후보는 placeService.getNearbyPlaceList(PostGIS)로
-    @Override
-    public AlternativesResponse makeAlternatives(long memberId, long tripId, AlternativesRequest request) {
-        return sampleAlternatives();
+    // ---------------------------------------------------------------- 채팅 도우미
+
+    private AlternativesRequest toAlternativesRequest(AssistRequest request, String message) {
+        AlternativesRequest alternativesRequest = new AlternativesRequest();
+        alternativesRequest.setLat(request.getLat());
+        alternativesRequest.setLng(request.getLng());
+        alternativesRequest.setReason("request");
+        alternativesRequest.setRequest(message);
+        return alternativesRequest;
     }
 
-    /** 고른 대안을 일정에 반영 */
-    // TODO: ④ 대안 적용. stops 없으면 400 "적용할 대안이 없어요." → id가 남은 칸이면 eta·stay로 updateStop(고정 일정 시각은 그대로),
-    //       id가 없으면 createStop, 대안에 없는 남은 칸은 skipStops → 오늘 칸 tag(done/kept/changed/added). 참고: 예전 LiveService.apply/nextAlert.
-    //       주의: ②의 쓰기 메서드를 여러 번 부르니 @Transactional 유지
-    @Override
-    @Transactional
-    public ApplyResponse applyAlternative(long memberId, long tripId, ApplyRequest request) {
-        ApplyResponse response = new ApplyResponse();
-        response.setKey(request.getKey() == null ? "A" : request.getKey());
-        response.setMessage("세종문화회관에 늦지 않게 일정을 바꿨어요!");
-        response.setNextAlert("청계천에서 출발할 시각(15:07) 10분 전부터 1분마다 알려드릴게요. 늦게 도착하면 도착한 시각 기준으로 다시 맞춰요.");
-        response.getStops().add(appliedStop(102L, "13:30", "카페OO", "카페", 55, "done", null));
-        response.getStops().add(appliedStop(103L, "14:37", "청계천", "관광지", 30, "changed", "60분 → 30분"));
-        response.getStops().add(appliedStop(105L, "19:00", "세종문화회관", "문화시설", 120, "kept", null));
+    private LocationRequest toLocation(AssistRequest request) {
+        LocationRequest location = new LocationRequest();
+        location.setLat(request.getLat());
+        location.setLng(request.getLng());
+        return location;
+    }
+
+    // ---------------------------------------------------------------- 추천 도우미
+
+    /** 반경 안 후보 (평점 있는 곳만). 식당·술집은 분류 말이 여러 가지라 SQL은 전체로 찾고 여기서 거름 */
+    private List<Place> findCandidates(RecommendRequest request) {
+        String category = request.getCategory() == null ? "" : request.getCategory().trim();
+        boolean isFood = category.matches(FOOD_WORDS);
+        boolean isDrink = category.contains("술");
+        String sqlCategory = isFood || isDrink || category.isEmpty() ? null : category;
+        List<Place> candidates = new ArrayList<>();
+        for (Place place : placeService.getNearbyPlaceList(request.getLat(), request.getLng(), request.getRadius(), sqlCategory)) {
+            if (place.getRating() == null) {
+                continue;
+            }
+            String placeCategory = place.getCategory() == null ? "" : place.getCategory();
+            if (isFood && placeCategory.matches(NOT_FOOD_WORDS)) {
+                continue;
+            }
+            if (isDrink && !placeCategory.matches(DRINK_WORDS)) {
+                continue;
+            }
+            candidates.add(place);
+        }
+        return candidates;
+    }
+
+    /** 점수 높은 순 정렬 (sort에 넘기는 규칙: 두 장소의 점수를 거꾸로 비교해서 큰 게 앞) */
+    private void sortByScore(List<Place> places, Map<String, PlaceTagCount> tagMap, List<String> wantedTags) {
+        Map<String, Double> scoreMap = new HashMap<>();
+        for (Place place : places) {
+            scoreMap.put(place.getId(), placeTagReader.getScore(place, tagMap.get(place.getId()), wantedTags));
+        }
+        places.sort((first, second) -> Double.compare(scoreMap.get(second.getId()), scoreMap.get(first.getId())));
+    }
+
+    /** 점수 순으로 보면서 도착할 때 열려 있는 곳 3개. 닫힌 곳은 세서 closedSkipped */
+    private RecommendResponse pickOpenPlaces(List<Place> places, Map<String, PlaceTagCount> tagMap, List<String> wantedTags, int stay) {
+        RecommendResponse response = new RecommendResponse();
+        LocalDate today = Geo.now().toLocalDate();
+        int closedSkipped = 0;
+        for (Place place : places) {
+            int walkMinutes = (int) Math.ceil(place.getDistance() * ROAD_FACTOR / WALK_METERS_PER_MIN);
+            OpenInfo open = placeService.getOpenInfo(place, today, Geo.nowMinutes() + walkMinutes, stay);
+            if (Boolean.FALSE.equals(open.getOpen())) {
+                closedSkipped++;
+                continue;
+            }
+            response.getPlaces().add(toRecommendPlace(place, open, placeTagReader.getReasons(tagMap.get(place.getId()), wantedTags)));
+            if (response.getPlaces().size() == RECOMMEND_COUNT) {
+                break;
+            }
+        }
+        response.setClosedSkipped(closedSkipped);
         return response;
     }
 
-    // ---------------------------------------------------------------- 가짜 값 (진짜 로직을 만들면 지우기)
-    private static LiveAlert sampleAlert() {
-        LiveAlert alert = new LiveAlert();
-        alert.setKey("leave-102-5");
-        alert.setLevel("warn");
-        alert.setTitle("5분 뒤 출발해야 해요");
-        alert.setText("카페OO 출발 14:25 → 청계천");
-        alert.setRepeat(true);
-        return alert;
+    /** 장소 카드 + 영업 정보 + 이유 칩 */
+    private RecommendPlace toRecommendPlace(Place place, OpenInfo open, List<String> reasons) {
+        RecommendPlace recommend = new RecommendPlace();
+        recommend.setId(place.getId());
+        recommend.setName(place.getName());
+        recommend.setCategory(place.getCategory());
+        recommend.setAddress(place.getAddress());
+        recommend.setLat(place.getLat());
+        recommend.setLng(place.getLng());
+        recommend.setRating(place.getRating());
+        recommend.setReviewCount(place.getReviewCount());
+        recommend.setNaverUrl(placeService.getPlaceCard(place, null, null).getNaverUrl());
+        recommend.setDistance((int) Math.round(place.getDistance()));
+        recommend.setOpen(open.getOpen());
+        recommend.setCloseAt(open.getCloseAt());
+        recommend.setMinutesLeft(open.getMinutesLeft());
+        recommend.setClosingSoon(Boolean.TRUE.equals(open.getClosingSoon()));
+        recommend.setReasons(reasons);
+        return recommend;
     }
 
-    private static LeaveInfo sampleLeave() {
-        LeaveInfo leave = new LeaveInfo();
-        leave.setStopId(102L);
-        leave.setName("카페OO");
-        leave.setLeaveAt("14:25");
-        leave.setMinutesLeft(5);
-        leave.setTo("청계천");
-        leave.setAtStop(true);
-        return leave;
+    /** 카페·디저트면 40분, 아니면 60분 */
+    private int getStay(String category) {
+        boolean isCafe = category != null && (category.contains("카페") || category.contains("디저트") || category.contains("베이커리"));
+        return isCafe ? CAFE_STAY_MIN : OTHER_STAY_MIN;
     }
 
-    private static FixedStatus sampleFixed() {
-        FixedStatus fixed = new FixedStatus();
-        fixed.setId(103L);
-        fixed.setName("세종문화회관");
-        fixed.setTime("19:00");
-        fixed.setEta("18:40");
-        fixed.setSlackMin(20);
-        fixed.setLat(37.5725);
-        fixed.setLng(126.9759);
-        return fixed;
-    }
+    // ---------------------------------------------------------------- 일정에 넣기 도우미
 
-    private static AreaInfo sampleArea(LocationRequest request) {
-        AreaInfo area = new AreaInfo();
-        area.setSlackMin(20);
-        area.setBasis("세종문화회관");
-        area.setBasisTime("19:00");
-        area.setLat(request.getLat());
-        area.setLng(request.getLng());
-        return area;
-    }
-
-    private static NextRoute sampleNext() {
-        NextRoute next = new NextRoute();
-        next.setId(103L);
-        next.setMinutes(12);
-        next.getCoords().add(new double[] {37.5745, 126.9849});
-        next.getCoords().add(new double[] {37.5725, 126.9759});
-        next.setSource("estimate");
-        return next;
-    }
-
-    private static StatusStop statusStop(long id, String placeId, String name, String category, double lat, double lng,
-                                         String time, int stay, boolean isFixed, String reach) {
-        StatusStop stop = new StatusStop();
-        stop.setId(id);
-        stop.setPlaceId(placeId);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setTime(time);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setEta(time);
-        stop.setReach(reach);
-        stop.setClosingSoon(false);
+    /** 추천 장소로 만든 새 칸 (id 없음 → 대안 적용이 createStop으로 저장) */
+    private Stop toNewStop(Place place, int today) {
+        Stop stop = new Stop();
+        stop.setDay(today);
+        stop.setPlaceId(place.getId());
+        stop.setName(place.getName());
+        stop.setCategory(place.getCategory());
+        stop.setAddress(place.getAddress());
+        stop.setLat(place.getLat());
+        stop.setLng(place.getLng());
+        stop.setStay(getStay(place.getCategory()));
+        stop.setFixed(false);
+        stop.setState("todo");
         return stop;
     }
 
-    private static AlternativesResponse sampleAlternatives() {
-        Alternative alternative = new Alternative();
-        alternative.setKey("A");
-        alternative.setShortName("시간 단축");
-        alternative.setTitle("머무는 시간 줄이기");
-        alternative.setReason("가는 곳은 그대로, 머무는 시간만 줄여요.");
-        alternative.setRecommended(true);
-        alternative.setFinalArrive("18:55");
-        alternative.setSlackMin(5);
-        alternative.setChanges(1);
-        alternative.getCoords().add(new double[] {37.5745, 126.9849});
-        alternative.getCoords().add(new double[] {37.5725, 126.9759});
-        alternative.getStops().add(altStop(103L, "청계천", "관광지", 37.569, 126.978, 30, false, "14:37", 12, "60분 → 30분"));
-        alternative.getStops().add(altStop(105L, "세종문화회관", "문화시설", 37.5725, 126.9759, 120, true, "19:00", 15, null));
-        AlternativesResponse response = new AlternativesResponse();
-        response.setTitle("세종문화회관에 늦지 않는 대안");
-        response.setSubtitle("지금 위치·시각에서 다시 계산했어요");
-        response.setSource("rule");
-        response.getAlternatives().add(alternative);
-        return response;
+    /** 고정 일정에 늦으면 그 바로 앞 칸(고정 아님)의 머묾을 최대 절반까지 줄임. 줄였으면 그 칸 이름, 아니면 null */
+    private String shortenBeforeFixed(List<Stop> plan, Alternative result) {
+        Stop fixedStop = liveStopFinder.findFixedStop(plan, null);
+        if (fixedStop == null || result.getSlackMin() >= 0) {
+            return null;
+        }
+        int fixedIndex = plan.indexOf(fixedStop);
+        if (fixedIndex < 1 || Boolean.TRUE.equals(plan.get(fixedIndex - 1).getFixed())) {
+            return null;
+        }
+        Stop before = plan.get(fixedIndex - 1);
+        int stay = liveStopFinder.getStay(before);
+        int cut = Math.min(-result.getSlackMin(), stay / 2);
+        if (cut <= 0) {
+            return null;
+        }
+        before.setStay(stay - cut);
+        return before.getName();
     }
 
-    private static AltStop altStop(long id, String name, String category, double lat, double lng, int stay, boolean isFixed,
-                                   String eta, int moveMin, String change) {
-        AltStop stop = new AltStop();
-        stop.setId(id);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setLat(lat);
-        stop.setLng(lng);
-        stop.setStay(stay);
-        stop.setFixed(isFixed);
-        stop.setEta(eta);
-        stop.setMoveMin(moveMin);
-        stop.setChange(change);
-        stop.setClosingSoon(false);
-        return stop;
+    private ApplyRequest toApplyRequest(Alternative result, InsertRequest request) {
+        ApplyRequest apply = new ApplyRequest();
+        apply.setKey("insert");
+        apply.setStops(result.getStops());
+        apply.setLat(request.getLat());
+        apply.setLng(request.getLng());
+        return apply;
     }
 
-    private static AppliedStop appliedStop(long id, String time, String name, String category, int stay, String tag, String note) {
-        AppliedStop stop = new AppliedStop();
-        stop.setId(id);
-        stop.setTime(time);
-        stop.setName(name);
-        stop.setCategory(category);
-        stop.setStay(stay);
-        stop.setTag(tag);
-        stop.setNote(note);
-        return stop;
+    /** "카페OO을(를) 다음 일정으로 넣었어요. (청계천 시간을 줄여) 세종문화회관에는 12분 여유가 있어요." */
+    private String getInsertMessage(Place place, List<Stop> plan, Alternative result, String shortened) {
+        String message = place.getName() + "을(를) 다음 일정으로 넣었어요. ";
+        if (shortened != null) {
+            message += shortened + " 시간을 줄여 ";
+        }
+        Stop fixedStop = liveStopFinder.findFixedStop(plan, null);
+        if (fixedStop == null) {
+            return message + "이후 일정 시각을 다시 계산했어요.";
+        }
+        if (result.getSlackMin() >= 0) {
+            return message + fixedStop.getName() + "에는 " + result.getSlackMin() + "분 여유가 있어요.";
+        }
+        return message + "그래도 " + fixedStop.getName() + "에 " + (-result.getSlackMin()) + "분 늦어요. '대안 보기'를 확인하세요.";
     }
 }

@@ -93,6 +93,12 @@ public class TripController {
         return tripService.deleteStop(loginUser.id(), id, stopId);
     }
 
+    /** 일정 칸 전부 한 번에 저장 (본문은 칸 배열, 편집 화면 "완료") */
+    @PutMapping("/{id}/stops")
+    public Trip updateStops(@PathVariable long id, @RequestBody List<Stop> stops) {
+        return tripService.updateStops(loginUser.id(), id, stops);
+    }
+
     /** 이 여행의 대화 기록 */
     @GetMapping("/{id}/chats")
     public List<ChatMessage> getChatList(@PathVariable long id) {

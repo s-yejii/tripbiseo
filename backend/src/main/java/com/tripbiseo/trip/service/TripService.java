@@ -8,7 +8,7 @@ import com.tripbiseo.trip.dto.Trip;
 
 /**
  * ② 여행·일정. 모든 메서드는 로그인한 회원(memberId)의 여행만 찾고, 남의 여행이면 404 "여행을 찾을 수 없어요."
- * ③④⑤가 부르는 공유 메서드: getTrip, createTrip, createStop, updateStop, skipStops, createChats (docs/ROLES.md)
+ * ③④⑤가 부르는 공유 메서드: getTrip, createTrip, createStop, updateStop, skipStops, arriveStop, departStop, createChats (docs/ROLES.md)
  */
 public interface TripService {
 
@@ -42,8 +42,17 @@ public interface TripService {
     /** 일정 칸 삭제 → 여행 전체 */
     Trip deleteStop(long memberId, long tripId, long stopId);
 
+    /** 일정 칸 전부를 한 번에 저장 → 여행 전체. 목록에 없는 칸은 지우고, 있는 칸은 고침 (편집 화면 "완료") */
+    Trip updateStops(long memberId, long tripId, List<Stop> stops);
+
     /** 여러 일정 칸을 state = skipped로 (④ 대안 적용에서 빠지는 칸) */
     void skipStops(long memberId, long tripId, List<Long> stopIds);
+
+    /** GPS 도착 기록: arrived_at = 지금 (④ GPS 판정이 부름). 이미 기록돼 있으면 그대로 */
+    void arriveStop(long memberId, long tripId, long stopId);
+
+    /** GPS 출발 기록: departed_at = 지금, state = done (④ GPS 판정이 부름). 이미 기록돼 있으면 그대로 */
+    void departStop(long memberId, long tripId, long stopId);
 
     /** 이 여행의 대화 기록 (시간순) */
     List<ChatMessage> getChatList(long memberId, long tripId);

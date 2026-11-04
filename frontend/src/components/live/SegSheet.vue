@@ -1,17 +1,25 @@
 <script setup>
 // 카드 사이 이동 칩을 눌렀을 때 뜨는 시트: 어디서 어디까지, 무엇으로 몇 분
-// 길 안내는 네이버 지도가 하고, 우리 앱은 도착만 확인해요
+// "네이버 지도로 길찾기"는 출발·도착 좌표로 네이버 지도 길찾기 웹 페이지를 새 창으로 열어요 (앱이 깔려 있으면 앱으로 넘어가요)
 import { modes } from '@/data/places'
 import { showToast } from '@/utils/toast'
 
-defineProps({
-  from: { type: Object, required: true }, // { name, img }
+const props = defineProps({
+  from: { type: Object, required: true }, // { name, img, lat, lng }
   to: { type: Object, required: true },
-  leg: { type: Object, required: true }, // { mode, min, dist }
+  leg: { type: Object, required: true }, // { mode: walk|subway|bus|taxi, min, dist }
 })
 const emit = defineEmits(['close'])
 
+// 네이버 지도 길찾기 주소: /p/directions/{경도},{위도},{이름},,/{경도},{위도},{이름},,/{walk|transit|car}
+function toNaverUrl() {
+  const mode = props.leg.mode === 'walk' ? 'walk' : props.leg.mode === 'taxi' ? 'car' : 'transit'
+  const point = (place) => place.lng + ',' + place.lat + ',' + encodeURIComponent(place.name) + ',,'
+  return 'https://map.naver.com/p/directions/' + point(props.from) + '/' + point(props.to) + '/' + mode
+}
+
 function openNaverMap() {
+  window.open(toNaverUrl(), '_blank', 'noopener')
   emit('close')
   showToast('네이버 지도가 열려요 · 여행어때는 도착만 확인해요')
 }

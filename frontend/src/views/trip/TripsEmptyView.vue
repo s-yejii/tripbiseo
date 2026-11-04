@@ -1,9 +1,8 @@
 <script setup>
-// S04-c 내 여행 · 빈 상태 (②): 여행이 하나도 없을 때 만들기 버튼과 테마 코스를 보여 줘요
+// S04-c 내 여행 · 빈 상태 (②): 여행이 하나도 없을 때 만들기 버튼
+// (테마 코스는 GET /api/themes가 아직 "확인 필요"라서 API가 생기면 다시 붙여요)
 import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
-import PhotoCard from '@/components/common/PhotoCard.vue'
 import TabBar from '@/components/common/TabBar.vue'
-import { themes } from '@/data/themes'
 </script>
 
 <template>
@@ -15,13 +14,6 @@ import { themes } from '@/data/themes'
 
       <div class="scroll" style="bottom: 84px; gap: 24px; padding-top: 4px">
         <EmptyTripCard to="/new" />
-
-        <section aria-labelledby="te-theme" style="display: flex; flex-direction: column; gap: 12px">
-          <h2 id="te-theme" class="h-title">이런 코스로 시작해 보세요</h2>
-          <div class="theme-grid">
-            <PhotoCard v-for="theme in themes" :key="theme.id" :to="'/theme?id=' + theme.id" :img="theme.img" :title="theme.title" :sub="theme.count" :badge="theme.who" :height="168" />
-          </div>
-        </section>
       </div>
 
       <TabBar active="trips" />

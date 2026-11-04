@@ -12,6 +12,7 @@
 | `db/01_common.sql` | PostGIS + 공통 테이블 5개 (member, trip, trip_stop, retrip_place, retrip_review) | DB 총괄 |
 | `db/02_retrip_schema.sql` | 예전 결제·테마 `retrip_expense`, `retrip_theme` (+ FK 때문에 `retrip_trip`) | DB 총괄 |
 | `db/03~05_…` | 장소·리뷰 데이터 넣기 (04·05는 고치지 않음) | DB 총괄 |
+| `db/06_retrip_seed_tour_seoul.sql` | 서울 관광지·문화시설·쇼핑 (TourAPI, `source='tour'`). `db/tour/make_tour_seed.mjs`로 만들어요 (11/03) | DB 총괄 |
 | `db/11_member.sql` | ① 테이블 | ① |
 | `db/12_trip.sql` | ② 테이블 (`trip_chat`) | ② |
 | `db/13_plan.sql` | ③ 테이블 | ③ |
@@ -19,8 +20,9 @@
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
+| `db/95_demo_seed.sql` | 시연용 가상 사용자 데이터 (회원 `demo_001`~`demo_300` · 여행 · 일정 칸, 비밀번호 demo1234!). `db/demo/make_demo_seed.py`로 만듦. 지우기: `DELETE FROM member WHERE username LIKE 'demo\_%';` | DB 총괄 |
 
-파일 번호 순서대로(01 → 02 → 03~05 → 11~15 → 90) 실행하면 내 PC DB에 모든 테이블이 생겨요. 모든 SQL은 다시 실행해도 오류가 나지 않게 써요 (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+파일 번호 순서대로(01 → 02 → 03~06 → 11~15 → 90 → 95) 실행하면 내 PC DB에 모든 테이블이 생겨요. 모든 SQL은 다시 실행해도 오류가 나지 않게 써요 (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
 ## 테이블 목록 (이름표)
 
@@ -39,7 +41,7 @@
 | 공통 | `retrip_place` | 장소 (네이버 카페·음식점 11,496곳 + 종로 TourAPI 225곳) | ②③④⑤ | 있음 |
 | 공통 | `retrip_review` | 장소 리뷰 | ② | 있음 |
 | ① | `member_style` | 여행 스타일 | ③ 읽기 | 만들 예정 |
-| ① | `notification` | 알림함 | ④⑤는 `NotificationService.send`로 | 만들 예정 |
+| ① | `notification` | 알림함 | ④⑤는 `NotificationService.send`로 | 있음 (11/03) |
 | ① | `friend` | 친구 | | 만들 예정 (여유) |
 | ② | `trip_chat` | 대화 기록 | ③④는 ② 메서드로 저장 | 있음 |
 | ② | `pack_item` | 챙길 것 | | 만들 예정 (여유) |
@@ -72,6 +74,7 @@
 | username | VARCHAR(50) NOT NULL UNIQUE | 아이디 |
 | password | VARCHAR(100) NOT NULL | BCrypt 암호문 |
 | nickname | VARCHAR(50) | 닉네임 |
+| email | VARCHAR(100) UNIQUE | 가입할 때 인증한 이메일 (11/03 추가, 예전 회원은 NULL) |
 | role | VARCHAR(20) NOT NULL DEFAULT 'ROLE_USER' | 역할 |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 가입 시각 |
 
@@ -107,6 +110,7 @@
 | move_mode | VARCHAR(10) | 앞 장소에서 오는 수단 walk / transit / taxi, NULL이면 자동 |
 | memo | VARCHAR(200) | 메모 |
 | state | VARCHAR(10) NOT NULL DEFAULT 'todo' | todo / done / skipped |
+| importance | VARCHAR(10) NOT NULL DEFAULT 'maybe' | 중요도 must(꼭) / maybe(가능하면) / drop(빼도 됨). 11/03 추가 |
 | arrived_at, departed_at | TIMESTAMP | GPS 도착(150m 안)·출발(200m 밖) 시각 |
 
 > API의 Stop 필드 이름과 컬럼 이름이 조금 달라요: `day` ↔ `day_no`, `time` ↔ `start_time`, `stay` ↔ `stay_min`, `mode` ↔ `move_mode`. Mapper XML에서 맞춰요.
@@ -164,6 +168,23 @@
 | lat, lng | DOUBLE PRECISION NOT NULL | 좌표 |
 | accuracy | DOUBLE PRECISION | GPS 정확도(m) |
 | recorded_at | TIMESTAMP NOT NULL DEFAULT NOW() | 기록 시각 |
+
+### notification · 알림함 (①, `11_member.sql`, 11/03)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| notification_id | BIGSERIAL PK | |
+| member_id | BIGINT NOT NULL → member (ON DELETE CASCADE) | 받는 사람 |
+| kind | VARCHAR(10) NOT NULL | trip(여행 중) / plan(일정) / info(날씨·안내) |
+| level | VARCHAR(10) NOT NULL DEFAULT 'info' | ok / info / warn / danger (아이콘 색) |
+| title | VARCHAR(100) NOT NULL | 제목 |
+| text | VARCHAR(300) | 설명 |
+| link | VARCHAR(200) | 누르면 갈 화면 주소 |
+| notice_key | VARCHAR(100) | 같은 알림 한 번만 쌓기. `(member_id, notice_key)` UNIQUE, NULL이면 매번 쌓임 |
+| read_at | TIMESTAMP | 읽은 시각 (NULL이면 안 읽음) |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+인덱스 `idx_notification_member (member_id, created_at DESC)`
 
 ---
 
