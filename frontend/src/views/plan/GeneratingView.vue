@@ -5,8 +5,10 @@
 //   %는 서버가 단계마다 보낸 값이에요. AI가 고르는 동안처럼 오래 걸리는 단계는 그 단계 범위 안에서만 천천히 올라가요
 //   끝나면 초안(store.draft)에 넣고 지도에 실제 일정 핀을 그려요 → "완성본 보기"로 일정 점검
 //   다른 화면으로 가도 만들기는 계속되고, 끝나면 토스트로 알려요
+//   11/04: 서버가 못 만들면(장소를 못 찾음·위치 없음·서버 오류) 그 이유를 들고 실패 화면(/plan/fail?why=…&code=…)으로 가요
+//     (예전엔 실패하면 "7곳이 하루에 다 안 들어가요" 가짜 화면으로 갔어요)
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import { generatePlanStream } from '@/api/trips'
@@ -23,7 +25,6 @@ const DONE_PERCENT = { candidates: 20, reviews: 40, ai: 80, rules: 90, finish: 9
 const STEP_ICONS = { candidates: 'i-pin', reviews: 'i-search', ai: 'i-sparkle', rules: 'i-clock', finish: 'i-flag', walk: 'i-walk', fixed: 'i-lock' }
 const MAP_PADDING = { top: 40, right: 30, bottom: 30, left: 30 }
 
-const route = useRoute()
 const router = useRouter()
 const store = useTripStore()
 const conditions = store.planConditions // 대화로 모은 조건 (없으면 원하는 것 말하기로 돌려보냄)
@@ -32,13 +33,14 @@ const steps = ref([]) // 서버가 보낸 단계 [{ step, state(now·done), perc
 const percent = ref(0)
 const draft = ref(null) // 다 만든 초안
 const failed = ref(false) // 서버가 초안을 못 만듦 (422 등)
+const failReason = ref('') // 못 만든 이유 (서버 오류 문구)
+const failCode = ref(null) // 오류 번호 (422 장소·위치 없음, 5xx 서버 오류, null 연결 끊김)
 const isMapOk = ref(true)
 let creepTo = FIRST_CREEP_TO
 let timer = null
 let isLeft = false // 화면을 떠났는지 (떠난 뒤 끝나면 토스트로 알림)
 
 const done = computed(() => draft.value !== null || failed.value)
-const tooMany = computed(() => route.query.extra === '1' || failed.value) // 하루에 다 안 들어감 / 장소를 못 찾음
 const placeName = computed(() => store.planArea?.name || conditions?.region || '여행')
 const dayCount = computed(() => {
   const start = conditions?.startDate || store.planStartDate
@@ -92,7 +94,9 @@ async function makeDraft() {
     if (isLeft) showToast('일정이 완성됐어요')
   } catch (e) {
     failed.value = true
-    showToast(e.message)
+    failReason.value = e.message
+    failCode.value = e.status ?? null
+    if (isLeft) showToast('일정을 만들지 못했어요')
   }
   clearInterval(timer)
   percent.value = 100
@@ -112,8 +116,15 @@ function creep() {
   if (percent.value < creepTo) percent.value++
 }
 
+// 다 만들었으면 일정 점검, 못 만들었으면 이유를 들고 실패 화면으로
 function openResult() {
-  router.replace(tooMany.value ? '/plan/fail' : '/plan/check')
+  if (!failed.value) {
+    router.replace('/plan/check')
+    return
+  }
+  const query = { why: failReason.value }
+  if (failCode.value != null) query.code = failCode.value
+  router.replace({ path: '/plan/fail', query })
 }
 function waitAtHome() {
   showToast('계속 만들고 있어요. 끝나면 알려 드릴게요')
@@ -135,7 +146,7 @@ function waitAtHome() {
 
       <div class="gen-body">
         <div style="display: flex; align-items: flex-end; justify-content: space-between">
-          <h2 v-if="done && tooMany" class="h-display">일정을 다<br />못 만들었어요</h2>
+          <h2 v-if="done && failed" class="h-display">일정을<br />만들지 못했어요</h2>
           <h2 v-else-if="done" class="h-display">일정이<br />완성됐어요</h2>
           <h2 v-else class="h-display">{{ placeName }} {{ dayCount > 1 ? dayCount + '일 일정을' : '하루를' }}<br />짜고 있어요</h2>
           <span class="t-big c-navy">{{ percent }}%</span>
@@ -158,7 +169,7 @@ function waitAtHome() {
       <div class="cta">
         <div class="cta__row">
           <button type="button" class="btn btn--secondary btn--lg" @click="waitAtHome">홈에서 기다리기</button>
-          <button type="button" class="btn btn--primary btn--lg" style="flex: 1" :disabled="!done" @click="openResult">완성본 보기</button>
+          <button type="button" class="btn btn--primary btn--lg" style="flex: 1" :disabled="!done" @click="openResult">{{ failed ? '이유 보기' : '완성본 보기' }}</button>
         </div>
         <p class="cta__hint">다른 화면으로 가도 계속 만들고, 끝나면 알려 드려요</p>
       </div>
