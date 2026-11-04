@@ -40,14 +40,25 @@ onMounted(async () => {
   }
 })
 
-// "이 장소를 보여 준 이유" 꼬리표
-const reasons = computed(() => {
-  const list = ['★' + place.value.rate + ' (3점 이상만 보여요)']
-  if (place.value.nopo) list.push('노포 선호')
-  list.push(place.value.cat.includes('카페') || place.value.cat.includes('쇼핑') ? '내 취향 카페·쇼핑' : place.value.cat)
-  list.push(place.value.outdoor ? '야외 · 비 오면 바꾸기 쉬움' : '실내')
-  return list
-})
+// 네이버 지도 주소: 서버 값(DB 네이버 주소, 없으면 네이버 검색 링크), 시연용 가짜 장소는 이름으로 검색
+const naverLink = computed(() => place.value.naverUrl || 'https://map.naver.com/p/search/' + encodeURIComponent(place.value.name))
+const addressText = computed(() => place.value.address || '성내동 322-32')
+
+// 글자를 클립보드에 복사. http 주소나 권한 없는 브라우저에서는 navigator.clipboard가 없어서 옛날 방식으로
+async function copyText(text, doneMessage) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const box = document.createElement('textarea')
+    box.value = text
+    document.body.appendChild(box)
+    box.select()
+    const isCopied = document.execCommand('copy')
+    box.remove()
+    if (!isCopied) return showToast('복사하지 못했어요: ' + text)
+  }
+  showToast(doneMessage)
+}
 
 function toggleSave() {
   saved.value = !saved.value
@@ -69,45 +80,43 @@ function addToPlan() {
         <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/plan/check')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <span style="flex: 1"></span>
         <button type="button" class="iconbtn iconbtn--float" :class="{ 'is-bm': saved }" :aria-label="saved ? '저장 취소' : '저장'" :aria-pressed="saved" @click="toggleSave"><i class="ic i-bookmark" aria-hidden="true"></i></button>
-        <button type="button" class="iconbtn iconbtn--float" aria-label="공유" @click="showToast('링크를 복사했어요')"><i class="ic i-share" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn iconbtn--float" aria-label="가게 링크 복사" title="가게 링크 복사" @click="copyText(naverLink, '가게 링크를 복사했어요')"><i class="ic i-link" aria-hidden="true"></i></button>
       </header>
 
       <div class="scroll" style="top: 300px; padding-top: 16px; gap: 16px; bottom: 102px">
         <div style="display: flex; flex-direction: column; gap: 4px">
-          <p class="t-cap">{{ place.cat }} · 천호동</p>
+          <p class="t-cap">{{ place.cat }}{{ isFake ? ' · 천호동' : '' }}</p>
           <h1 class="h-display">{{ place.name }}</h1>
           <p style="margin: 0; display: flex; align-items: center; gap: 8px">
             <span class="t-strong tn" style="display: inline-flex; align-items: center; gap: 2px"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i>{{ place.rate }}</span>
-            <span class="badge badge--success"><i class="ic ic--s i-check" aria-hidden="true"></i>10/24 영업</span>
+            <span v-if="isFake" class="badge badge--success"><i class="ic ic--s i-check" aria-hidden="true"></i>10/24 영업</span>
+            <span v-else-if="place.openNow === true" class="badge badge--success"><i class="ic ic--s i-check" aria-hidden="true"></i>지금 영업 중</span>
+            <span v-else-if="place.openNow === false" class="badge badge--neutral">지금 영업 전·후</span>
             <span v-if="place.nopo" class="badge badge--navy">노포 · 40년</span>
           </p>
-          <button type="button" class="pl-naver" aria-label="네이버 플레이스에서 리뷰·메뉴 보기 (외부 링크)" @click="showToast('네이버 플레이스로 이동해요 · 실제 앱에선 외부 링크로 열려요')">
-            <span class="pl-naver__mark" aria-hidden="true">N</span>네이버에서 리뷰·메뉴 보기<i class="ic i-next" aria-hidden="true"></i>
-          </button>
-        </div>
-
-        <div class="why">
-          <i class="ic i-info c-navy" aria-hidden="true"></i>
-          <span><b class="t-strong">이 장소를 보여 준 이유</b><span class="why__tags"><span v-for="r in reasons" :key="r" class="badge badge--neutral">{{ r }}</span></span></span>
+          <a class="pl-naver" :href="naverLink" target="_blank" rel="noopener noreferrer" aria-label="네이버에서 리뷰·메뉴 보기 (새 창)">
+            <span class="pl-naver__mark" aria-hidden="true">N</span>리뷰·메뉴 보기<i class="ic i-next" aria-hidden="true"></i>
+          </a>
         </div>
 
         <div class="group">
           <div class="row">
             <i class="ic i-clock muted" aria-hidden="true"></i>
             <span class="row__body">
-              <span class="t-strong tn">10/24(토) {{ place.hours || '언제나 열려 있어요' }}</span>
+              <span class="t-strong tn">{{ isFake ? '10/24(토) ' : '오늘 ' }}{{ place.hours || (isFake ? '언제나 열려 있어요' : '영업시간 정보 없음') }}</span>
               <span v-if="place.brk" class="row__meta c-warning">브레이크 타임 {{ place.brk }} · 이 시간은 피해서 넣어요</span>
-              <span v-else class="row__meta">브레이크 타임 없음 · 휴무 없음</span>
+              <span v-else-if="isFake" class="row__meta">브레이크 타임 없음 · 휴무 없음</span>
+              <span v-else-if="place.restDate" class="row__meta">휴무 {{ place.restDate }}</span>
             </span>
           </div>
           <div class="row">
             <i class="ic i-pin muted" aria-hidden="true"></i>
-            <span class="row__body"><span class="t-strong">성내동 322-32</span><span class="row__meta">천호역 도보 8분</span></span>
-            <button type="button" class="btn btn--ghost btn--sm" @click="showToast('주소를 복사했어요')">복사</button>
+            <span class="row__body"><span class="t-strong">{{ addressText }}</span><span v-if="isFake" class="row__meta">천호역 도보 8분</span></span>
+            <button type="button" class="btn btn--ghost btn--sm" @click="copyText(addressText, '주소를 복사했어요')">복사</button>
           </div>
           <div class="row">
             <i class="ic i-timer muted" aria-hidden="true"></i>
-            <span class="row__body"><span class="t-strong tn">보통 {{ toDuration(place.dur) }} 머물러요</span><span class="row__meta">담으면 이 시간으로 넣어요</span></span>
+            <span class="row__body"><span class="t-strong tn">보통 {{ toDuration(place.dur) }} 머물러요</span></span>
           </div>
         </div>
       </div>

@@ -63,7 +63,7 @@ function save() {
       <span class="pin pin--done pin--sel" style="left: 90px; top: 330px" aria-hidden="true"><i class="ic ic--s i-check" aria-hidden="true"></i></span>
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="dialog" aria-modal="true" style="gap: 14px">
+      <BottomSheet closable role="dialog" aria-modal="true" style="gap: 14px">
         <div class="sheet__head" style="gap: 12px">
           <img class="thumb" src="/img/gamjatang.jpg" alt="" />
           <div style="flex: 1; min-width: 0"><h1 class="h-title">천호 쭈꾸미골목 · 32,000원</h1><p class="t-cap tn">13:55 카드 결제 · 카드 내역에서 가져왔어요</p></div>
