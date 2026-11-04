@@ -84,25 +84,30 @@ function goAnyway() {
       <KakaoMap v-if="replan.base" :pins="mapPins" :me="replan.position" :padding="DELAY_MAP_PADDING" />
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="alertdialog" aria-modal="true" data-drag style="gap: 16px">
+      <BottomSheet closable role="alertdialog" aria-modal="true" data-drag style="gap: 16px">
         <PageMessage v-if="replan.error" icon="i-warning" title="지금 상황을 계산할 수 없어요" :text="replan.error" to="/live" button="여행 중 화면으로" />
         <PageMessage v-else-if="!replan.base" is-loading title="지금 위치에서 다시 계산하는 중이에요" />
 
         <template v-else>
         <div style="display: flex; align-items: center; gap: 12px">
           <span class="ico-tile" :class="replan.lateMin ? 'ico-tile--warn' : ''" style="width: 48px; height: 48px"><i class="ic ic--l" :class="replan.lateMin ? 'i-warning' : 'i-success'" aria-hidden="true"></i></span>
-          <h1 v-if="replan.lateMin" class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }} {{ replan.basisStop.eta }}에 맞추려면<br /><span class="c-warning">{{ replan.lateMin }}분</span> 늦어요</h1>
-          <h1 v-else class="h-title" style="font-size: 20px; line-height: 28px">지금 일정이면<br />{{ basisName }}에 늦지 않아요</h1>
+          <h1 v-if="replan.lateMin" class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br /><span class="c-warning">{{ replan.lateMin }}분</span> 늦어요</h1>
+          <h1 v-else class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br />안 늦어요</h1>
         </div>
 
         <EventTimeline :items="reasons" label="왜 늦는지" />
 
         <div style="display: flex; flex-direction: column; gap: 4px">
           <div class="cta__row">
-            <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">{{ replan.lateMin ? '그냥 갈게요' : '그대로 갈게요' }}</button>
-            <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
+            <template v-if="replan.lateMin">
+              <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">그냥 갈게요</button>
+              <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
+            </template>
+            <template v-else>
+              <RouterLink to="/live/alt" class="btn btn--ghost btn--lg" style="padding: 0 12px; font-size: 14px; font-weight: 600">그래도 바꾸기</RouterLink>
+              <button type="button" class="btn btn--primary btn--lg" @click="goAnyway">그대로 가요</button>
+            </template>
           </div>
-          <p v-if="replan.lateMin" class="t-cap" style="text-align: center; margin: 4px 0 0">그냥 가도 10분 더 늦어지면 다시 알려 드려요</p>
         </div>
         </template>
       </BottomSheet>
