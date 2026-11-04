@@ -4,6 +4,8 @@
 //   지도: 카카오 지도에 다녀온 곳(체크)·지금 있는 곳·남은 곳·고정 일정(자물쇠) 핀, 근처 찾기 결과 핀
 //   시트: 지금 있는 곳을 떠날 시각(도착 기록 + 머무는 시간) 또는 다음 장소까지 남은 시간, 고정 일정 여유
 //   늦으면: 위 알림(접으면 +N분 알약) → 지연 화면, 아래 버튼 "대안 보기"
+//   11/04: 위 알림은 같은 종류면 10분에 한 번만 펼쳐요 (다른 화면 갔다 와도 계속 펼쳐지지 않게, utils/alertMemory).
+//     접혀 있으면 알약(늦으면 +N분, 아니면 "알림")을 눌러 펼쳐요
 // 진행 중인 여행이 없거나 위치를 못 받으면 가짜 화면 대신 안내 문구를 보여 줘요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -12,6 +14,7 @@ import { imageFor } from '@/utils/mapView'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 import { goBack } from '@/utils/back'
+import { rememberAlert, shouldOpenAlert } from '@/utils/alertMemory'
 import { finishTrip } from '@/api/trips'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
@@ -44,7 +47,7 @@ const isReady = computed(() => live.phase.value === 'ready' && status.value !== 
 const selected = ref(null) // 고른 카드·핀 (칸 id)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
-const notiOpen = ref(true)
+const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
@@ -95,6 +98,15 @@ const isAlertMuted = computed(() => {
   return lateMin.value < replan.mutedLate + MUTE_AGAIN_MIN
 })
 const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
+const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
+
+// 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
+watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
+  const alert = currentAlert.value
+  if (!alert) return
+  notiOpen.value = shouldOpenAlert(alert)
+  if (notiOpen.value) rememberAlert(alert)
+}, { immediate: true })
 
 // 첫 칸을 가운데에 고름 (지금 있는 곳 → 다음 곳)
 watch(stops, (list) => {
@@ -410,8 +422,8 @@ function showDemo() {
             :to="alertLink"
             @close="notiOpen = false"
           />
-          <button v-else-if="isLate" type="button" class="pill-alert live-pill" aria-label="지연 배너 펼치기" @click="notiOpen = true">
-            <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">+{{ lateMin }}분</span><i class="ic ic--s i-down" aria-hidden="true"></i>
+          <button v-else type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="notiOpen = true">
+            <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + lateMin + '분' : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
         </template>
 
