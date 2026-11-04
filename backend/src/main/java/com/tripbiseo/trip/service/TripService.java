@@ -27,11 +27,26 @@ public interface TripService {
     /** 여행 삭제 (일정·GPS·대화 기록도 DB에서 같이 지워짐) */
     void deleteTrip(long memberId, long tripId);
 
+    /** 휴지통 목록 (최근에 지운 순) */
+    List<Trip> getTrashList(long memberId);
+
+    /** 휴지통에서 꺼내기: 원래 상태로 돌아가요. 진행 중이던 여행인데 지금 다른 여행이 진행 중이면 409 */
+    Trip restoreTrip(long memberId, long tripId);
+
+    /** 휴지통의 여행 영구 삭제 */
+    void deleteTrashTrip(long memberId, long tripId);
+
+    /** 휴지통 비우기 */
+    void deleteAllTrash(long memberId);
+
     /** 여행 시작 (status → ongoing). 여행 기간에만, 진행 중인 다른 여행이 없을 때만 */
     Trip startTrip(long memberId, long tripId);
 
     /** 여행 마치기 (status → done) */
     Trip finishTrip(long memberId, long tripId);
+
+    /** 진행 중인 여행을 보관함으로 (지우지 않고 진행 중에서만 빼기) */
+    Trip archiveTrip(long memberId, long tripId);
 
     /** 일정 칸 하나 추가 → 여행 전체 (④ 추천 장소 넣기도 이것) */
     Trip createStop(long memberId, long tripId, Stop stop);

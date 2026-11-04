@@ -36,8 +36,26 @@ public interface TripMapper {
     /** 여행 상태 바꾸기 (ongoing이면 started_at, done이면 finished_at도 기록) */
     int updateTripStatus(@Param("tripId") long tripId, @Param("status") String status);
 
-    /** 여행 삭제 (일정·GPS·대화는 FK CASCADE로 같이 지워짐). 지운 줄 수 */
+    /** 휴지통으로 옮기기 (지운 시각 기록). 바꾼 줄 수 */
+    int updateTripTrashed(@Param("tripId") long tripId, @Param("memberId") long memberId);
+
+    /** 휴지통에서 꺼내기. 바꾼 줄 수 */
+    int updateTripRestored(@Param("tripId") long tripId, @Param("memberId") long memberId);
+
+    /** 휴지통 목록 (최근에 지운 순) */
+    List<Trip> selectTrashList(long memberId);
+
+    /** 휴지통에 있는 여행 하나 (없으면 null) */
+    Trip selectTrashTrip(@Param("tripId") long tripId, @Param("memberId") long memberId);
+
+    /** 휴지통의 여행 영구 삭제 (일정·GPS·대화는 FK CASCADE로 같이 지워짐). 지운 줄 수 */
     int deleteTrip(@Param("tripId") long tripId, @Param("memberId") long memberId);
+
+    /** 휴지통 비우기. 지운 줄 수 */
+    int deleteAllTrash(long memberId);
+
+    /** 최근에 지운 keep개만 남기고 오래된 것부터 영구 삭제. 지운 줄 수 */
+    int deleteOldTrash(@Param("memberId") long memberId, @Param("keep") int keep);
 
     // ---------------------------------------------------------------- 일정 칸
 
