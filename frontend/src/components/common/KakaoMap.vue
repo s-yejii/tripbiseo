@@ -17,6 +17,7 @@ const props = defineProps({
   path: { type: Array, default: () => [] }, // 길 안내 경로선 [[위도, 경도], ...] (도로를 따라가는 진짜 길)
   paths: { type: Array, default: () => [] }, // 구간별 진짜 길 [{ coords: [[위도, 경도], ...], mode, from, to }] (일정 점검, 11/04). 도보는 동그라미 점
   //   from·to(앞뒤 장소 [위도, 경도])가 있으면, 대중교통 선이 역·정류장에서 끝날 때 장소까지 걷는 점으로 이어요
+  //   isGuess: 길찾기 실패로 직선 추정이면 진짜 길처럼 보이지 않게 점선 직선 (여행 중 화면, 11/04)
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
   follow: { type: Boolean, default: false }, // 길 안내: 처음부터 내 위치를 크게 확대해서 가운데에 두고, 내 위치가 바뀌면 지도가 따라감
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
@@ -101,6 +102,8 @@ function draw() {
     const legPoints = leg.coords.map((point) => new kakao.maps.LatLng(point[0], point[1]))
     if (leg.mode === 'walk') {
       walkLegs.push(legPoints) // 걷는 길은 동그라미 점으로 (화면을 맞춘 뒤 찍음)
+    } else if (leg.isGuess) {
+      addRoute(legPoints) // 추정 직선은 점선
     } else {
       addLeg(legPoints)
       addWalkEnds(leg, legPoints)

@@ -6,6 +6,8 @@
 //   늦으면: 위 알림(접으면 +N분 알약) → 지연 화면, 아래 버튼 "대안 보기"
 //   11/04: 위 알림은 같은 종류면 10분에 한 번만 펼쳐요 (다른 화면 갔다 와도 계속 펼쳐지지 않게, utils/alertMemory).
 //     접혀 있으면 알약(늦으면 +N분, 아니면 "알림")을 눌러 펼쳐요
+//   11/04: 지도에 지금 위치 → 다음 장소 진짜 길(서버 status.next: TMAP·ODsay 길찾기)을 그려요.
+//     대중교통·차는 실선, 걷기는 동그라미 점, 길찾기 실패로 거리 추정이면 점선 직선. 그 뒤 남은 장소끼리는 점선 직선
 // 진행 중인 여행이 없거나 위치를 못 받으면 가짜 화면 대신 안내 문구를 보여 줘요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -138,13 +140,32 @@ const mapPins = computed(() => {
   const pins = []
   for (const stop of stops.value) {
     const isFit = !(adding.value && nearPlaces.value.length) // 근처 찾기 결과가 있으면 결과·내 위치만 보이게 맞춤
-    pins.push({ key: stop.id, id: stop.id, lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit })
+    // 다녀온 곳·지금 있는 곳은 점선 동선에서 빼요 (지금 위치 → 다음 장소는 nextPath 진짜 길로)
+    const isRoute = stop.reach !== 'done' && stop.reach !== 'here'
+    pins.push({ key: stop.id, id: stop.id, lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit, route: isRoute })
   }
   for (const place of nearPlaces.value) {
     const cls = ' pin--res' + (place.id === nearPickedId.value ? ' pin--sel' : '')
     pins.push({ key: 'near-' + place.id, nearId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), cls, label: place.name + ', ' + distText(place.distance), route: false })
   }
   return pins
+})
+
+// 지금 위치 → 다음 장소 진짜 길 (KakaoMap paths 모양). 다음 장소가 없거나 길이 없으면 []
+//   status.next.source가 estimate면 길찾기를 못 해서 직선으로 추정한 것 → isGuess (점선으로)
+const nextPath = computed(() => {
+  const next = isReady.value ? status.value.next : null
+  const position = live.position.value
+  if (!next || !position || !next.coords || next.coords.length < 2) return []
+  const stop = stops.value.find((item) => item.id === next.id)
+  if (!stop) return []
+  return [{
+    coords: next.coords,
+    mode: stop.moveMode || 'walk',
+    isGuess: next.source === 'estimate',
+    from: [position.lat, position.lng],
+    to: [stop.lat, stop.lng],
+  }]
 })
 
 function pinIcon(stop) {
@@ -389,6 +410,7 @@ function showDemo() {
           ref="mapRef"
           :pins="mapPins"
           :me="live.position.value"
+          :paths="nextPath"
           :ring="nearRing"
           :fit-key="adding ? nearFitKey : ''"
           :padding="adding && nearPlaces.length ? NEAR_MAP_PADDING : LIVE_MAP_PADDING"
