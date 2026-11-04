@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,7 @@ import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanNote;
+import com.tripbiseo.plan.dto.PlanProgress;
 import com.tripbiseo.plan.dto.PlanStay;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -91,9 +93,15 @@ public class PlanServiceImpl implements PlanService {
         return response;
     }
 
-    /** 조건 → 일정 초안: 후보 찾기 → Gemini 고르기(실패하면 꼭 갈 곳만) → 실제 장소로 바꾸기 */
+    /** 조건 → 일정 초안 (진행 알림 없이: 예전 주소 /generate) */
     @Override
     public PlanGenerateResponse generatePlan(long memberId, PlanGenerateRequest request) {
+        return generatePlan(memberId, request, step -> { }); // 진행 알림은 받아도 아무것도 안 함
+    }
+
+    /** 조건 → 일정 초안: 후보 찾기 → 리뷰로 요청 확인 → Gemini 고르기(실패하면 규칙) → 검사 → 실제 장소로. 단계가 끝날 때마다 progress로 알림 */
+    @Override
+    public PlanGenerateResponse generatePlan(long memberId, PlanGenerateRequest request, Consumer<PlanProgress> progress) {
         PlanConditions conditions = request.getConditions();
         if (conditions == null) {
             throw fail(400, "여행 조건이 없어요.");
@@ -106,17 +114,14 @@ public class PlanServiceImpl implements PlanService {
         Double baseLng = isNearMe ? request.getLng() : null;
 
         Map<String, Place> found = findCandidates(conditions, region, isNearMe, baseLat, baseLng, response.getNotes());
+        progress.accept(makeProgress("candidates", "done", 20, "장소 후보 " + found.size() + "곳 찾기", null));
         Map<String, PlaceTagCount> tagCounts = planCandidateFinder.countTags(found);
         Map<String, Double> scores = planCandidateFinder.scoreOf(found, tagCounts, conditions.getTags());
         Map<String, List<String>> reasons = planCandidateFinder.reasonsOf(found, tagCounts, conditions.getTags());
-        reviewNeedChecker.check(conditions, found, scores, reasons, response.getNotes()); // 안 맞는 곳은 빼고, 맞는 곳은 점수·리뷰 근거 (11/04)
+        checkNeeds(conditions, found, scores, reasons, response, progress);
         Map<String, Place> candidates = planCandidateFinder.sortByScore(found, scores); // 고른 태그가 많은 곳부터
-        List<AiDraftStop> picks = pickStops(conditions, request.getMessages(), candidates, reasons, days, response);
-        List<String> warnings = new ArrayList<>();
-        List<AiDraftStop> filled = planRuleMaker.fillSlots(conditions, candidates, scores, days, response.getStartDate(), picks, warnings);
-        for (String warning : warnings) {
-            response.getNotes().add(makeNote(warning, null));
-        }
+
+        List<AiDraftStop> filled = chooseStops(conditions, request.getMessages(), candidates, scores, reasons, days, response, progress);
         addPickedStops(response, filled, candidates, reasons, days, baseLat, baseLng);
         planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
@@ -124,10 +129,68 @@ public class PlanServiceImpl implements PlanService {
             throw fail(422, isMissingLocation ? "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요."
                                               : "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요.");
         }
+        reportFixed(conditions, progress);
         // day → time 순 (sort에 넘기는 규칙: day가 같으면 time 글자 순, "09:00" < "10:00")
         response.getStops().sort((first, second) -> first.getDay().equals(second.getDay())
                 ? first.getTime().compareTo(second.getTime()) : first.getDay() - second.getDay());
         return response;
+    }
+
+    // ---------------------------------------------------------------- 진행 단계 (11/04)
+
+    /** 칩에 없는 요청을 리뷰로 확인 (요청이 없으면 이 단계는 건너뜀) */
+    private void checkNeeds(PlanConditions conditions, Map<String, Place> found, Map<String, Double> scores,
+                            Map<String, List<String>> reasons, PlanGenerateResponse response, Consumer<PlanProgress> progress) {
+        if (conditions.getNeeds() == null || conditions.getNeeds().isEmpty()) {
+            return;
+        }
+        String text = "리뷰로 요청 확인 (" + String.join(", ", conditions.getNeeds()) + ")";
+        progress.accept(makeProgress("reviews", "now", 25, text, null));
+        int before = found.size();
+        reviewNeedChecker.check(conditions, found, scores, reasons, response.getNotes()); // 안 맞는 곳은 빼고, 맞는 곳은 점수·리뷰 근거
+        int removed = before - found.size();
+        progress.accept(makeProgress("reviews", "done", 40, text, removed > 0 ? "안 맞는다는 리뷰가 있는 " + removed + "곳 뺌" : "뺀 곳 없음"));
+    }
+
+    /** Gemini 고르기(실패하면 규칙) → 칸 검사·빈 칸 채우기. 두 단계를 알림 */
+    private List<AiDraftStop> chooseStops(PlanConditions conditions, List<String> messages, Map<String, Place> candidates,
+                                          Map<String, Double> scores, Map<String, List<String>> reasons, int days,
+                                          PlanGenerateResponse response, Consumer<PlanProgress> progress) {
+        String aiText = aiService.isReady() ? "AI가 칸마다 장소 고르기" : "평점·거리로 장소 고르기 (AI 연결 안 됨)";
+        progress.accept(makeProgress("ai", "now", 45, aiText, null));
+        List<AiDraftStop> picks = pickStops(conditions, messages, candidates, reasons, days, response);
+        progress.accept(makeProgress("ai", "done", 80, aiText, picks.size() + "칸 고름"));
+
+        List<String> warnings = new ArrayList<>();
+        List<AiDraftStop> filled = planRuleMaker.fillSlots(conditions, candidates, scores, days, response.getStartDate(), picks, warnings);
+        for (String warning : warnings) {
+            response.getNotes().add(makeNote(warning, null));
+        }
+        String detail = warnings.isEmpty() ? "모두 통과" : String.join(" · ", warnings);
+        progress.accept(makeProgress("rules", "done", 90, "영업시간·종류·겹침 검사", detail));
+        return filled;
+    }
+
+    /** 시간 고정 일정이 있으면 "18:30 광명역 시간에 맞추기" (고정 칸은 그 시각에 넣고 겹치는 칸은 비움) */
+    private void reportFixed(PlanConditions conditions, Consumer<PlanProgress> progress) {
+        if (conditions.getFixed() == null || conditions.getFixed().isEmpty()) {
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        for (FixedVisit fixed : conditions.getFixed()) {
+            names.add(fixed.getTime() + " " + fixed.getName());
+        }
+        progress.accept(makeProgress("fixed", "done", 95, String.join(", ", names) + " 시간에 맞추기", null));
+    }
+
+    private PlanProgress makeProgress(String step, String state, int percent, String text, String detail) {
+        PlanProgress item = new PlanProgress();
+        item.setStep(step);
+        item.setState(state);
+        item.setPercent(percent);
+        item.setText(text);
+        item.setDetail(detail);
+        return item;
     }
 
     // ---------------------------------------------------------------- 대화 → 조건

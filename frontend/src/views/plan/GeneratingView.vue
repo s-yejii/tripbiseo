@@ -1,42 +1,90 @@
 <script setup>
-// S08 일정 만드는 중 (③): 진행률이 차오르고, 100%가 되면 "완성본 보기"가 켜져요
-// 대화로 모은 조건(store.planConditions)이 있으면 서버(POST /api/plans/generate)가 초안을 만들어 초안(store.draft)에 넣고
-// 일정 점검 화면으로. 조건이 없으면 시간만 흐르는 시연용 화면이에요.
-// ?extra=1 : 원하는 것에서 장소를 더 넣어 달라고 해서 하루에 안 들어가는 경우 → 생성 실패 화면으로
+// S08 일정 만드는 중 (③): 서버가 일정을 짜는 단계를 실제로 보내 주는 대로(POST /api/plans/generate/stream) 보여 줘요 (11/04)
+//   단계: 장소 후보 찾기 → (요청이 있으면) 리뷰로 확인 → AI가 칸마다 고르기 → 영업시간·종류 검사 → (고정 일정이 있으면) 시간 맞추기
+//   %는 서버가 단계마다 보낸 값이에요. AI가 고르는 동안처럼 오래 걸리는 단계는 그 단계 범위 안에서만 천천히 올라가요
+//   끝나면 초안(store.draft)에 넣고 지도에 실제 일정 핀을 그려요 → "완성본 보기"로 일정 점검
+//   다른 화면으로 가도 만들기는 계속되고, 끝나면 토스트로 알려요
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import KakaoMap from '@/components/common/KakaoMap.vue'
 import TopBar from '@/components/common/TopBar.vue'
-import { generatePlan } from '@/api/trips'
+import { generatePlanStream } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
+import { daysBetween } from '@/utils/dates'
+import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
+
+const CREEP_MS = 400 // 하는 중인 단계에서 %가 1씩 오르는 간격
+const FIRST_CREEP_TO = 15 // 첫 알림(후보 찾기 끝)이 오기 전까지 올라갈 수 있는 %
+// 단계가 끝날 때의 % (서버 PlanServiceImpl이 보내는 값과 같음) → 하는 중이면 이 값 바로 아래까지만 올라감
+const DONE_PERCENT = { candidates: 20, reviews: 40, ai: 80, rules: 90, fixed: 95 }
+const STEP_ICONS = { candidates: 'i-pin', reviews: 'i-search', ai: 'i-sparkle', rules: 'i-clock', fixed: 'i-lock' }
+const MAP_PADDING = { top: 40, right: 30, bottom: 30, left: 30 }
 
 const route = useRoute()
 const router = useRouter()
 const store = useTripStore()
+const conditions = store.planConditions // 대화로 모은 조건 (없으면 원하는 것 말하기로 돌려보냄)
+
+const steps = ref([]) // 서버가 보낸 단계 [{ step, state(now·done), percent, text, detail }] 받은 순서대로
+const percent = ref(0)
+const draft = ref(null) // 다 만든 초안
 const failed = ref(false) // 서버가 초안을 못 만듦 (422 등)
-const tooMany = computed(() => route.query.extra === '1' || failed.value) // 하루에 다 안 들어감 / 장소를 못 찾음
-const percent = ref(68)
+const isMapOk = ref(true)
+let creepTo = FIRST_CREEP_TO
 let timer = null
+let isLeft = false // 화면을 떠났는지 (떠난 뒤 끝나면 토스트로 알림)
 
-const done = computed(() => percent.value >= 100)
-const step3 = computed(() => (percent.value >= 85 ? 'done' : 'now'))
-const step4 = computed(() => (done.value ? 'done' : percent.value >= 85 ? 'now' : 'wait'))
-
-onMounted(() => {
-  timer = setInterval(() => {
-    percent.value = Math.min(store.planConditions ? 95 : 100, percent.value + 4) // 서버 답을 기다리는 동안은 95%에서 멈춤
-    if (percent.value >= 100) clearInterval(timer)
-  }, 160)
-  if (store.planConditions) makeDraft()
+const done = computed(() => draft.value !== null || failed.value)
+const tooMany = computed(() => route.query.extra === '1' || failed.value) // 하루에 다 안 들어감 / 장소를 못 찾음
+const placeName = computed(() => store.planArea?.name || conditions?.region || '여행')
+const dayCount = computed(() => {
+  const start = conditions?.startDate || store.planStartDate
+  return daysBetween(start, conditions?.endDate || start) + 1
+})
+const mapBadge = computed(() => {
+  if (draft.value) return '일정 ' + draft.value.stops.length + '곳 확정'
+  const found = steps.value.find((item) => item.step === 'candidates')
+  return found ? found.text : '후보 찾는 중'
 })
 
-// 위치는 브라우저에 물어보고(거절해도 계속), 조건 + 사용자가 한 말로 초안 만들기
+// 지도 핀: 다 만들기 전에는 고른 지역(또는 출발지), 다 만들면 실제 일정 순서대로 (고정 일정은 자물쇠)
+const mapPins = computed(() => {
+  if (draft.value) {
+    const pins = []
+    for (const stop of draft.value.stops) {
+      if (stop.lat == null || stop.lng == null) continue
+      pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon: stop.fixed ? 'i-lock' : '', cls: stop.fixed ? 'pin--fixed' : '', label: stop.name })
+    }
+    return pins
+  }
+  const center = store.planArea || store.planOrigin
+  return center ? [{ key: 'center', lat: center.lat, lng: center.lng, text: '', icon: 'i-pin', cls: '', label: center.name, route: false }] : []
+})
+
+onMounted(() => {
+  if (!conditions) {
+    showToast('여행 조건이 없어요. 원하는 것부터 말해 주세요')
+    router.replace('/plan/chat')
+    return
+  }
+  timer = setInterval(creep, CREEP_MS)
+  makeDraft()
+})
+onUnmounted(() => {
+  isLeft = true
+  clearInterval(timer)
+})
+
+// 위치는 브라우저에 물어보고(거절해도 계속), 조건 + 사용자가 한 말로 초안 만들기 (단계마다 onProgress)
 async function makeDraft() {
-  const position = await getPosition()
+  const position = await getPositionOnce()
   try {
-    const draft = await generatePlan(store.planConditions, store.planMessages, position?.lat, position?.lng)
-    store.setDraft(draft)
-    for (const note of draft.notes || []) showToast(note.text)
+    const result = await generatePlanStream(conditions, store.planMessages, position?.lat, position?.lng, onProgress)
+    store.setDraft(result)
+    draft.value = result
+    for (const note of result.notes || []) showToast(note.text)
+    if (isLeft) showToast('일정이 완성됐어요')
   } catch (e) {
     failed.value = true
     showToast(e.message)
@@ -45,23 +93,25 @@ async function makeDraft() {
   percent.value = 100
 }
 
-function getPosition() {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) return resolve(null)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
-      { timeout: 5000 },
-    )
-  })
+// 서버가 보낸 단계 하나: 같은 단계면 바꾸고(now → done), 처음이면 더함
+function onProgress(name, item) {
+  const old = steps.value.find((step) => step.step === item.step)
+  if (old) Object.assign(old, item)
+  else steps.value.push({ ...item })
+  percent.value = Math.max(percent.value, item.percent)
+  creepTo = item.state === 'now' ? (DONE_PERCENT[item.step] || item.percent + 1) - 1 : percent.value
 }
-onUnmounted(() => clearInterval(timer))
+
+// 하는 중인 단계 안에서만 1씩 (다음 단계 %는 넘지 않음)
+function creep() {
+  if (percent.value < creepTo) percent.value++
+}
 
 function openResult() {
   router.replace(tooMany.value ? '/plan/fail' : '/plan/check')
 }
 function waitAtHome() {
-  showToast('끝나면 알림을 보낼게요')
+  showToast('계속 만들고 있어요. 끝나면 알려 드릴게요')
   router.replace('/')
 }
 </script>
@@ -71,33 +121,32 @@ function waitAtHome() {
     <div class="app">
       <TopBar title="일정 만들기" back="/plan/chat"><span class="topbar__side">4 / 4</span></TopBar>
 
-      <!-- 후보를 고르는 모습 (그림) -->
-      <div class="gen-map" aria-hidden="true">
-        <img src="/img/mapA.svg" alt="" class="gen-map__img" />
-        <span class="pin pin--ghost gen-ghost" style="left: 60px; top: 60px"></span>
-        <span class="pin pin--ghost gen-ghost" style="left: 120px; top: 140px"></span>
-        <span class="pin pin--ghost gen-ghost" style="left: 290px; top: 50px"></span>
-        <span class="pin pin--ghost gen-ghost" style="left: 310px; top: 150px"></span>
-        <span class="pin" style="left: 140px; top: 90px">1</span>
-        <span class="pin" style="left: 210px; top: 70px">2</span>
-        <span class="pin" style="left: 240px; top: 120px">3</span>
-        <span class="pin pin--fixed" style="left: 300px; top: 100px"><i class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i></span>
-        <span class="badge badge--navy" style="position: absolute; left: 10px; top: 10px; background: #fff">후보 42곳 · 확정 3곳</span>
+      <!-- 지도: 만드는 동안은 고른 지역, 다 만들면 실제 일정 핀 -->
+      <div class="gen-map">
+        <KakaoMap v-if="isMapOk" :pins="mapPins" :show-route="!!draft" :padding="MAP_PADDING" :fit-key="draft ? 'draft' : 'wait'" @fail="isMapOk = false" />
+        <p v-else class="t-cap gen-map__msg">지도를 불러오지 못했어요</p>
+        <span class="badge badge--navy gen-map__badge">{{ mapBadge }}</span>
       </div>
 
       <div class="gen-body">
         <div style="display: flex; align-items: flex-end; justify-content: space-between">
-          <h2 v-if="done && tooMany" class="h-display">하루에 다 안<br />들어가요</h2>
+          <h2 v-if="done && tooMany" class="h-display">일정을 다<br />못 만들었어요</h2>
           <h2 v-else-if="done" class="h-display">일정이<br />완성됐어요</h2>
-          <h2 v-else class="h-display">천호 하루를<br />짜고 있어요</h2>
+          <h2 v-else class="h-display">{{ placeName }} {{ dayCount > 1 ? dayCount + '일 일정을' : '하루를' }}<br />짜고 있어요</h2>
           <span class="t-big c-navy">{{ percent }}%</span>
         </div>
         <div class="bar" role="progressbar" aria-label="일정 만드는 중" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: percent + '%' }"></i></div>
-        <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
-          <li class="step done"><span class="dotc"><i class="ic ic--s i-check" aria-hidden="true"></i></span><span class="t-strong">장소 후보 42곳 찾기</span></li>
-          <li class="step done"><span class="dotc"><i class="ic ic--s i-check" aria-hidden="true"></i></span><span class="t-strong">영업시간·휴무 확인</span><span class="badge badge--neutral" style="margin-left: auto">3곳 제외</span></li>
-          <li class="step" :class="step3"><span class="dotc"><i class="ic ic--s i-walk" aria-hidden="true"></i></span><span class="t-strong">이동 시간 계산</span></li>
-          <li class="step" :class="step4"><span class="dotc"><i class="ic ic--s i-lock" aria-hidden="true"></i></span><span class="t-strong">18:30 예약에 맞춰 순서 정하기</span></li>
+        <ol class="gen-steps" aria-live="polite">
+          <li v-for="item in steps" :key="item.step" class="step" :class="item.state">
+            <span class="dotc"><i class="ic ic--s" :class="item.state === 'done' ? 'i-check' : STEP_ICONS[item.step]" aria-hidden="true"></i></span>
+            <span class="gen-step__body">
+              <span class="t-strong">{{ item.text }}{{ item.state === 'now' ? '…' : '' }}</span>
+              <span v-if="item.detail" class="t-cap">{{ item.detail }}</span>
+            </span>
+          </li>
+          <li v-if="!steps.length && !done" class="step now">
+            <span class="dotc"><i class="ic ic--s i-pin" aria-hidden="true"></i></span><span class="t-strong">장소 후보 찾는 중…</span>
+          </li>
         </ol>
       </div>
 
@@ -106,7 +155,7 @@ function waitAtHome() {
           <button type="button" class="btn btn--secondary btn--lg" @click="waitAtHome">홈에서 기다리기</button>
           <button type="button" class="btn btn--primary btn--lg" style="flex: 1" :disabled="!done" @click="openResult">완성본 보기</button>
         </div>
-        <p class="cta__hint">다른 화면에 있어도 끝나면 알림이 와요</p>
+        <p class="cta__hint">다른 화면으로 가도 계속 만들고, 끝나면 알려 드려요</p>
       </div>
     </div>
   </div>
@@ -114,10 +163,12 @@ function waitAtHome() {
 
 <style>
 .scr-Generating .gen-map{position:absolute;top:108px;left:16px;right:16px;height:200px;border-radius:var(--radius-lg);overflow:hidden;background:var(--surface)}
-.scr-Generating .gen-map__img{position:absolute;left:-20px;top:-320px;width:390px;height:850px;opacity:.8}
-.scr-Generating .gen-ghost{width:14px;height:14px;margin:-7px;border-width:2px}
-.scr-Generating .gen-body{position:absolute;top:328px;left:16px;right:16px;display:flex;flex-direction:column;gap:16px}
-.scr-Generating .step{display:flex;align-items:center;gap:12px;min-height:40px}
+.scr-Generating .gen-map__msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.scr-Generating .gen-map__badge{position:absolute;left:10px;top:10px;background:#fff;z-index:1}
+.scr-Generating .gen-body{position:absolute;top:328px;left:16px;right:16px;bottom:128px;display:flex;flex-direction:column;gap:16px;overflow:auto}
+.scr-Generating .gen-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.scr-Generating .gen-step__body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.scr-Generating .step{display:flex;align-items:center;gap:12px;min-height:40px;padding:4px 0}
 .scr-Generating .step .dotc{width:24px;height:24px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center}
 .scr-Generating .step.done .dotc{background:var(--navy);color:#fff}
 .scr-Generating .step.now .dotc{border:2px solid var(--navy);color:var(--navy)}

@@ -85,7 +85,8 @@
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
 | `POST /api/plans/chat` | 사용자 말 → 여행 조건 정리 (Gemini) | plan/PlanChatView | 있음 |
-| `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | plan/GeneratingView → trip/PlanCheckView | 있음 |
+| `POST /api/plans/generate` | 조건 → 일정 초안 (저장 안 함) | (화면은 11/04부터 아래 `/generate/stream`) → trip/PlanCheckView | 있음 |
+| `POST /api/plans/generate/stream` | 위와 같음 + 단계마다 진행 알림 (SSE) | plan/GeneratingView → trip/PlanCheckView | 있음 (11/04) |
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
@@ -839,6 +840,28 @@
 > 리뷰로 확인 (11/04): `needs`마다 ① Gemini가 리뷰에서 찾을 단어를 정함 ("4명이 앉을 자리" → 단체석·단체·자리가 넓…) ② 점수 높은 후보 20곳(꼭 갈 곳 제외)의 `retrip_review`에서 그 단어가 든 리뷰를 곳마다 4개까지 꺼내 단어 앞뒤 60자만 자름 ③ Gemini가 곳마다 `ok`·`bad`·`unknown` + 근거 글 ④ **서버가 근거 글이 ②에서 보낸 리뷰에 그대로 있는지 확인**(없으면 버림). `ok`는 점수 +1.0과 칸 `memo`에 `4명이 앉을 자리: 리뷰 "…"`, `bad`는 후보에서 뺌, 결과는 `notes`에 요청마다 한 줄. 관련 리뷰가 없거나 AI가 안 되면 확인하지 않고 `notes`에만 적어요. 리뷰는 네이버 장소(카페·음식점)에만 있어요
 
 ---
+
+### `POST /api/plans/generate/stream`
+`/generate`와 같은 일을 하면서, 단계가 끝날 때마다 진행 알림을 보내요 (11/04). · 로그인 필요 · 화면: plan/GeneratingView
+
+**요청** `/generate`와 같아요. 응답은 `text/event-stream`(SSE: 응답 하나를 열어 두고 서버가 알림을 여러 번 나눠 보냄). 연결은 2분까지.
+
+**알림 순서** (`event:` 이름 + `data:` JSON + 빈 줄)
+| event | data | 언제 |
+|---|---|---|
+| progress | `{step, state, percent, text, detail}` | 단계마다. 오래 걸리는 단계는 `now`(하는 중) → `done`(끝) 두 번 |
+| done | `/generate` 응답과 같은 초안 | 마지막 (이걸 받으면 끝) |
+| fail | `{status, message}` | 오류 (`/generate`의 오류와 같은 내용). 이걸 받으면 끝 |
+
+| step | percent (done 때) | text 예 | detail 예 |
+|---|---|---|---|
+| candidates | 20 | 장소 후보 52곳 찾기 | |
+| reviews | 25 → 40 | 리뷰로 요청 확인 (4명이 앉을 자리) | 안 맞는다는 리뷰가 있는 1곳 뺌 · 뺀 곳 없음 (`needs`가 없으면 이 단계 없음) |
+| ai | 45 → 80 | AI가 칸마다 장소 고르기 / 평점·거리로 장소 고르기 (AI 연결 안 됨) | 5칸 고름 |
+| rules | 90 | 영업시간·종류·겹침 검사 | 모두 통과 / 다시 고른 안내 문구 |
+| fixed | 95 | 18:30 광명역 시간에 맞추기 | (`fixed`가 없으면 이 단계 없음) |
+
+로그인 안 했으면 알림 없이 401 JSON (`/generate`와 같음).
 
 ## ④ 여행 중 판별 (live)
 
