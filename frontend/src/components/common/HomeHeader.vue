@@ -4,7 +4,7 @@
 
 <template>
   <header class="topbar" style="padding: 0 8px 0 16px">
-    <span class="home-logo"><i class="ic ic--l i-pin" aria-hidden="true"></i>여행어때</span>
+    <span class="home-logo"><img src="/img/logo-mark.svg" alt="" width="26" height="26" />여행어때</span>
     <slot />
   </header>
 </template>
