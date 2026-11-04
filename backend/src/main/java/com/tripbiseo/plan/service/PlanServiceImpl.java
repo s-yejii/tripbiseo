@@ -62,7 +62,7 @@ public class PlanServiceImpl implements PlanService {
     private static final int MAX_PROMPT_CANDIDATES = 90;
     private static final int MAX_REASON_LENGTH = 40;      // Gemini 이유 한 줄
     private static final int MAX_MEMO_LENGTH = 200;       // trip_stop.memo 저장 규칙
-    private static final int TODAY_START_AFTER_MIN = 30;  // 오늘 출발이면 지금부터 30분 뒤부터
+    private static final int TODAY_START_AFTER_MIN = 60;  // 오늘 출발이면 지금부터 1시간 뒤부터 (PlanRuleMaker와 같게)
     private static final int FALLBACK_START_MIN = 600;    // AI 없이: 10:00부터 2시간 간격
     private static final int FALLBACK_GAP_MIN = 120;
     private static final int FALLBACK_STEP_MIN = 30;      // 고정 일정과 겹치면 꼭 갈 곳을 30분씩 뒤로
@@ -719,7 +719,9 @@ public class PlanServiceImpl implements PlanService {
                                    Map<String, List<String>> reasons, int days, String startDate, String limitRule) {
         String todayRule = "";
         if (startDate.equals(Geo.now().toLocalDate().toString())) {
-            todayRule = "오늘 출발하는 여행이야. 1일차는 " + Geo.toHhmm(Geo.nowMinutes() + TODAY_START_AFTER_MIN) + " 이후 칸만 채워.\n";
+            // 1일차 칸은 서버가 오늘 남은 시간으로 시각을 당겨 쓰니(PlanRuleMaker.pullToNow), 칸은 다 채우게 함 (11/04)
+            todayRule = "오늘 출발하는 여행이야. 1일차는 " + Geo.toHhmm(Geo.nowMinutes() + TODAY_START_AFTER_MIN)
+                    + "부터 시작해. 칸 시각이 이미 지났어도 칸은 다 채워 (서버가 시각을 뒤로 당겨 써).\n";
         }
         return "여행 일정을 짜 줘.\n"
              + "조건:\n" + toConditionText(conditions)
