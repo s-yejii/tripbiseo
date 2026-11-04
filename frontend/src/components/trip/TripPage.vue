@@ -7,7 +7,7 @@
 //   slot head  : 제목 아래 (예: 일차 고르기)
 //   reorderable: 목록 칸을 끌어 순서 바꾸기 → reorder 이벤트(원래 번호를 새 순서로 담은 목록) (11/04)
 //   지도: 점검 결과에 구간별 경로(trip.legs)가 있으면 진짜 길로, 없으면 장소끼리 점선
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import TripTimeline from '@/components/trip/TripTimeline.vue'
@@ -138,17 +138,43 @@ function pickRow(i) {
 const subText = computed(() => props.sub || `${props.trip.date} · ${props.trip.stops.length}곳 · 이동 ${props.trip.move}분 · ${props.trip.who}`)
 const routePoints = computed(() => props.trip.stops.map((s) => s.x + ',' + s.y).join(' '))
 
-// 고른 칸의 사진·이름 말풍선 위치
+// 고른 칸의 사진·이름 말풍선 위치 (11/04: 이름이 길면 두 줄, 말풍선은 화면 안에, 꼬리는 늘 핀을 가리키게)
+const APP_WIDTH = 390 // 앱 화면 폭(px)
+const TIP_EDGE = 12 // 말풍선을 화면 가장자리에서 띄울 거리(px)
+const TIP_ARROW_EDGE = 18 // 꼬리를 말풍선 모서리에서 띄울 거리(px)
+const tipBox = ref(null) // 말풍선 (그려진 폭을 재요)
+const tipWidth = ref(240) // 말풍선 폭(px). 처음엔 어림값, 그려진 뒤 실제 폭으로
+// 지도를 축소하면 말풍선·글씨도 작게 (11/04): 확대 단계 4까지는 그대로, 한 단계 멀어질 때마다 10%씩, 70%까지
+const TIP_FULL_LEVEL = 4
+const TIP_SHRINK_PER_LEVEL = 0.1
+const TIP_MIN_SCALE = 0.7
+const mapLevel = ref(null) // 카카오 지도 확대 단계 (작을수록 가까이)
+const tipScale = computed(() => {
+  if (!isKakao.value || mapLevel.value === null) return 1
+  const scale = 1 - Math.max(0, mapLevel.value - TIP_FULL_LEVEL) * TIP_SHRINK_PER_LEVEL
+  return Math.max(TIP_MIN_SCALE, scale)
+})
 const tooltip = computed(() => {
   if (selected.value === null) return null
   const stop = props.trip.stops[selected.value]
   const point = isKakao.value ? pickedPoint.value : stop
   if (!point || point.isInside === false) return null // 핀이 지도 밖으로 나가면 말풍선도 숨김
+  const width = tipWidth.value
+  const left = Math.min(Math.max(point.x - width / 2, TIP_EDGE), APP_WIDTH - TIP_EDGE - width)
+  const isBelow = point.y - 82 < 104 // 위쪽 버튼에 가리면 핀 아래에
   return {
     stop,
-    x: Math.min(Math.max(point.x, 110), 280),
-    y: point.y - 82 < 104 ? point.y + 26 : point.y - 82,
+    left,
+    y: isBelow ? point.y + 26 : point.y - 82,
+    isBelow,
+    arrowX: Math.min(Math.max(point.x - left, TIP_ARROW_EDGE), width - TIP_ARROW_EDGE), // 꼬리 위치 = 핀 x − 말풍선 왼쪽
   }
+})
+// 고른 칸이 바뀌면(이름 길이가 다르면) 그려진 말풍선의 실제 폭을 다시 잼
+watch(() => (tooltip.value ? tooltip.value.stop.name : null), async () => {
+  await nextTick()
+  const element = tipBox.value && tipBox.value.$el // RouterLink 컴포넌트 → 실제 a 태그
+  if (element) tipWidth.value = element.offsetWidth
 })
 
 // 핀이나 목록을 누르면 같이 강조하고, 목록은 그 칸이 보이게 스크롤
@@ -165,7 +191,7 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" @move="followPin" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -187,8 +213,15 @@ async function select(i) {
       <template v-else>{{ i + 1 }}</template>
     </button>
     </template>
-    <RouterLink v-if="tooltip" :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'" class="tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px', transform: 'translateX(-50%)' }">
-      <img :src="tooltip.stop.img" alt="" /><b class="t-strong" style="font-size: 14px">{{ tooltip.stop.name }}</b><i class="ic ic--s i-next subtle" aria-hidden="true"></i>
+    <RouterLink
+      v-if="tooltip"
+      ref="tipBox"
+      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'"
+      class="tooltip trip-tip"
+      :class="{ 'is-below': tooltip.isBelow }"
+      :style="{ left: tooltip.left + 'px', top: tooltip.y + 'px', '--arrow-x': tooltip.arrowX + 'px', transform: 'scale(' + tipScale + ')' }"
+    >
+      <img :src="tooltip.stop.img" alt="" /><b class="t-strong trip-tip__name">{{ tooltip.stop.name }}</b><i class="ic ic--s i-next subtle" aria-hidden="true"></i>
     </RouterLink>
 
     <TopBar float :back="back">
@@ -222,4 +255,12 @@ async function select(i) {
 
 <style>
 .trip-route { position: absolute; left: 0; top: 0; width: 390px; height: 344px; pointer-events: none; }
+/* 핀 말풍선: 폭은 250px까지, 이름이 길면 두 줄까지 (낱말 단위로 줄바꿈), 꼬리는 핀 쪽(--arrow-x) */
+.trip-tip { max-width: 250px; white-space: normal; z-index: 4; transform-origin: var(--arrow-x, 50%) calc(100% + 6px); } /* 작아질 때 꼬리 끝(핀 쪽)을 기준으로 */
+.trip-tip.is-below { transform-origin: var(--arrow-x, 50%) -6px; }
+.trip-tip img { flex: none; }
+.trip-tip .i-next { flex: none; }
+.trip-tip__name { flex: 1; min-width: 0; font-size: 14px; line-height: 18px; word-break: keep-all; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.trip-tip::after { left: var(--arrow-x, 50%); }
+.trip-tip.is-below::after { bottom: auto; top: -6px; }
 </style>

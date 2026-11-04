@@ -4,6 +4,7 @@
 // 부모가 ref로 부를 수 있는 것: focusMe() 내 위치로 옮기기, fitAll() 모든 점이 보이게 다시 맞추기, moveTo(lat, lng, level) 가운데 옮기기,
 //   focusAround(center, points) center를 가운데에 두고 points(앞뒤 경로)가 다 보이게 확대 (11/04)
 // move: 지도가 움직이는 동안(끌기·확대·코드로 옮기기) 계속 보내요 → 부모가 핀 위 말풍선을 핀에 붙여 따라 옮겨요 (11/04)
+// zoom(확대 단계): 처음 그린 뒤 한 번, 확대·축소할 때마다 보내요 (작을수록 가까이) → 부모가 말풍선 크기를 맞춰요 (11/04)
 // 화면 좌표 { x, y, isInside }: isInside는 그 점이 지도 칸 안에 보이는지 (밖이면 말풍선을 숨기게)
 // 지도는 아래 시트 뒤까지 화면 전체에 깔아요 (시트를 내리면 지도가 보이게, 11/04).
 //   그래서 화면 맞추기·가운데 옮기기는 padding(위 버튼·아래 시트에 가리는 만큼) 안쪽 기준이에요 (centerFor)
@@ -25,7 +26,7 @@ const props = defineProps({
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
   padding: { type: Object, default: () => ({ top: 150, right: 40, bottom: 444, left: 40 }) },
 })
-const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready', 'move'])
+const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready', 'move', 'zoom'])
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
@@ -62,7 +63,9 @@ onMounted(async () => {
   kakao.maps.event.addListener(map, 'zoom_changed', sendCenter)
   kakao.maps.event.addListener(map, 'zoom_changed', drawWalkDots) // 확대·축소하면 걷는 길 점 간격을 다시 맞춤
   kakao.maps.event.addListener(map, 'bounds_changed', () => emit('move')) // 보이는 영역이 바뀔 때마다 (끄는 동안에도 계속)
+  kakao.maps.event.addListener(map, 'zoom_changed', () => emit('zoom', map.getLevel()))
   draw()
+  emit('zoom', map.getLevel()) // 처음 맞춘 확대 단계
   emit('ready') // 지도가 다 만들어졌어요 (부모가 moveTo 같은 걸 이때 부를 수 있음)
 })
 
