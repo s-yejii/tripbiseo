@@ -77,6 +77,7 @@ const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사
 const retro = ref(null)//서버 응답 . 받기 전에는 null
 const errorMessage = ref(``) // 회고를 못 불러왔을 때 화면에 보여 줄 문구
 const mapBox = ref(null) // 지도를 그릴 칸
+let selectedmap = null // 선택 한 지도로 변환
 const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
 const MAP_PADDING_TOP = 60 // 위쪽 뒤로가기 버튼에 안 가리게
 const MAP_PADDING_SIDE = 40 // 핀이 화면 양옆에 잘리지 않게
@@ -208,6 +209,7 @@ function drawMap() {
   const firstStop = retro.value.stops[0]
   const center = new kakao.maps.LatLng(firstStop.lat , firstStop.lng)
   const map = new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
+  selectedmap = map
   const bounds = new kakao.maps.LatLngBounds() // LatLngBounds: 넣은 좌표가 모두 들어가는 네모 범위
   for (const place of retro.value.stops) // place 장소 들른 곳의 목록 중 꺼낸거
   bounds.extend(new kakao.maps.LatLng(place.lat , place.lng))
@@ -234,6 +236,20 @@ trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음
 function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
 }
+
+const isHybrid = ref(false)
+
+// 버튼을 누를 때마다 일반 ↔ 하이브리드 지도로 바꿈
+function toggleMapType() {
+  if (selectedmap === null) return // 지도가 아직 안 그려졌으면 아무것도 안 함
+  isHybrid.value = !isHybrid.value  // 메모지 고쳐 적기: false → true, true → false
+  if (isHybrid.value) {
+    selectedmap.setMapTypeId(kakao.maps.MapTypeId.HYBRID)  // 하이브리드 지도
+  } else {
+    selectedmap.setMapTypeId(kakao.maps.MapTypeId.ROADMAP) // 일반 지도
+  }
+}
+
 
 </script>
 
@@ -272,6 +288,9 @@ function toggleInfo(no) {
 
       <header class="topbar topbar--float">
         <RouterLink to="/trips" class="iconbtn iconbtn--float" aria-label="뒤로가기"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
+                <button type="button" class="iconbtn iconbtn--float" style="margin-left: auto; width: auto; padding: 0 12px" @click="toggleMapType">
+          {{ isHybrid ? '일반 지도' : '하이브리드 지도' }}
+        </button>
       </header>
 
       <div class="player" style="position: absolute; left: 16px; right: 16px; top: 262px">
