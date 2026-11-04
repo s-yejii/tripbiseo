@@ -12,6 +12,7 @@ import TopBar from '@/components/common/TopBar.vue'
 import { generatePlanStream } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { daysBetween } from '@/utils/dates'
+import { isStayStop } from '@/utils/mapView'
 import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
 
@@ -55,7 +56,10 @@ const mapPins = computed(() => {
     const pins = []
     for (const stop of draft.value.stops) {
       if (stop.lat == null || stop.lng == null) continue
-      pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon: stop.fixed ? 'i-lock' : '', cls: stop.fixed ? 'pin--fixed' : '', label: stop.name })
+      const isStay = isStayStop(stop) // 숙소는 집 모양 핀
+      const icon = isStay ? 'i-home' : stop.fixed ? 'i-lock' : ''
+      const cls = isStay ? 'pin--stay' : stop.fixed ? 'pin--fixed' : ''
+      pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon, cls, label: stop.name })
     }
     return pins
   }

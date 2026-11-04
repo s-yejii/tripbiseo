@@ -1,6 +1,6 @@
 // 서버 여행(Trip) → 일정 화면(TripPage·TripTimeline)이 쓰는 모양으로 바꾸기
 // 화면 모양은 원래 가짜 데이터(data/trips.js)와 같아요: time, name, dur, img, meta, imp, wx, fixed, leg, x, y
-import { imageFor, toMapPositions } from '@/utils/mapView'
+import { imageFor, isStayStop, toMapPositions } from '@/utils/mapView'
 import { toDuration } from '@/utils/time'
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토']
@@ -104,8 +104,9 @@ function toViewStop(stop, position, memo = null) {
     dur: stay,
     img: imageFor(stop.category),
     meta: (stop.category ? stop.category + ' · ' : '') + toDuration(stay),
-    metaIcon: stop.fixed ? 'i-lock' : stop.issue ? 'i-warning' : null,
-    metaCls: stop.fixed ? 'c-navy' : stop.issue ? 'c-warning' : null,
+    metaIcon: isStayStop(stop) ? 'i-home' : stop.fixed ? 'i-lock' : stop.issue ? 'i-warning' : null,
+    metaCls: isStayStop(stop) || stop.fixed ? 'c-navy' : stop.issue ? 'c-warning' : null,
+    isStay: isStayStop(stop), // 숙소 칸 → 지도에 숙소 핀 (11/04)
     memo,
     imp: null, // 중요도·날씨는 서버에 아직 없어서 비워 둠 (화면에서 안 보임)
     wx: null,

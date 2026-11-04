@@ -35,14 +35,15 @@ const mapPins = computed(() => props.trip.stops.map((stop, i) => ({
   lat: stop.lat,
   lng: stop.lng,
   text: i + 1,
-  icon: stop.fixed ? 'i-lock' : '',
+  icon: stop.isStay ? 'i-home' : stop.fixed ? 'i-lock' : '', // 숙소는 집 모양 핀 (11/04)
   cls: pinClass(stop, i),
-  label: i + 1 + ' ' + stop.name,
+  label: (stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name,
 })))
 
 function pinClass(stop, i) {
   let cls = ''
-  if (stop.fixed) cls += ' pin--fixed'
+  if (stop.isStay) cls += ' pin--stay'
+  else if (stop.fixed) cls += ' pin--fixed'
   if (stop.warn) cls += ' pin--warn'
   if (selected.value === i) cls += ' pin--sel'
   return cls
@@ -100,12 +101,13 @@ async function select(i) {
       :key="stop.id + i"
       type="button"
       class="pin"
-      :class="{ 'pin--fixed': stop.fixed, 'pin--warn': stop.warn, 'pin--sel': selected === i }"
+      :class="{ 'pin--stay': stop.isStay, 'pin--fixed': stop.fixed && !stop.isStay, 'pin--warn': stop.warn, 'pin--sel': selected === i }"
       :style="{ left: stop.x + 'px', top: stop.y + 'px' }"
-      :aria-label="i + 1 + ' ' + stop.name"
+      :aria-label="(stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name"
       @click="select(i)"
     >
-      <i v-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
+      <i v-if="stop.isStay" class="ic ic--s i-home" aria-hidden="true" style="width: 13px; height: 13px"></i>
+      <i v-else-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <template v-else>{{ i + 1 }}</template>
     </button>
     </template>
