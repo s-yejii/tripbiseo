@@ -1171,12 +1171,13 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | stops[].actualArrive | string (null 가능) | 실제 도착 시각 `HH:mm`. 안 갔으면 `null` |
 | stops[].actualStay | number (null 가능) | 실제 머문 분. 출발 기록이 없으면 `null` |
 | track[] | object[] | GPS 점 (기록 순) `{lat, lng, day, time}`. `day` = 기록 날짜 − 시작 날짜 + 1 |
+| movedMeters | number | 이동 거리(m). GPS 점 사이 거리를 기록 순서대로 더한 값. 탈것으로 이동한 거리도 포함. 점이 2개 미만이면 `0` |
 
 ```json
 { "id": 12, "title": "서울 하루", "startDate": "2026-10-20", "endDate": "2026-10-20", "visited": 1,
   "stops": [ { "id": 101, "day": 1, "name": "경복궁", "category": "관광지", "lat": 37.5796, "lng": 126.977,
                "time": "10:00", "stay": 90, "state": "done", "actualArrive": "10:03", "actualStay": 112 } ],
-  "track": [ { "lat": 37.5794, "lng": 126.9768, "day": 1, "time": "10:03" } ] }
+  "track": [ { "lat": 37.5794, "lng": 126.9768, "day": 1, "time": "10:03" } ], "movedMeters": 0 }
 ```
 
 **오류** 404 "여행을 찾을 수 없어요."

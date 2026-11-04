@@ -17,4 +17,5 @@ public class RetroResponse {
     private int visited;                               // 실제 도착 기록(arrivedAt)이 있는 칸 수
     private List<RetroStop> stops = new ArrayList<>();
     private List<TrackPoint> track = new ArrayList<>(); // GPS 점 (기록 순)
+    private int movedMeters; // 이동 거리 (m)
 }
