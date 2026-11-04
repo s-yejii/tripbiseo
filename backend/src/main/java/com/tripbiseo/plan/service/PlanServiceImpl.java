@@ -27,14 +27,19 @@ import com.tripbiseo.plan.dto.AiDraftStop;
 import com.tripbiseo.plan.dto.FixedVisit;
 import com.tripbiseo.plan.dto.PlanChatRequest;
 import com.tripbiseo.plan.dto.PlanChatResponse;
+import com.tripbiseo.plan.dto.PlanArea;
 import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanFinish;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanNote;
 import com.tripbiseo.plan.dto.PlanProgress;
+import com.tripbiseo.plan.dto.RouteOptionsResponse;
+import com.tripbiseo.plan.dto.RouteOrderRequest;
+import com.tripbiseo.plan.dto.RouteOrderResponse;
 import com.tripbiseo.plan.dto.PlanStay;
 import com.tripbiseo.trip.dto.Place;
+import com.tripbiseo.trip.dto.PlaceCard;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.service.PlaceService;
 
@@ -74,6 +79,7 @@ public class PlanServiceImpl implements PlanService {
     private static final int MAX_NEEDS = 3;          // 칩에 없는 요청은 3개까지 (리뷰 확인이 요청마다 Gemini를 불러서)
     private static final int MAX_NEED_LENGTH = 20;
     private static final double WISH_BONUS = 2.0;    // 가능하면 갈 곳 점수 (태그 0.3·리뷰 확인 1.0보다 크게: 시간이 되면 먼저 들어가게)
+    private static final double DONG_BONUS = 1.0; // 고른 동 안의 장소: 평점 차이보다 크게
     private static final int WALK_M_PER_MIN = 75;    // 걷는 속도 4.5km/h (RouteClient와 같음)
     private static final double ROAD_DETOUR = 1.3;   // 직선 거리 → 실제 길 (RouteClient와 같음)
     private static final int MIN_WALK_LIMIT = 5;     // 걷는 분 상한은 5~60분으로
@@ -84,6 +90,7 @@ public class PlanServiceImpl implements PlanService {
     private final AiService aiService;
     private final PlaceService placeService;
     private final PlanCandidateFinder planCandidateFinder; // 후보 장소 찾기 (RAG의 찾기)
+    private final RouteOrderer routeOrderer;               // 하루 동선 정리 (직접 고르기 [동선 정리]와 같은 함수)
     private final PlanRuleMaker planRuleMaker;             // AI가 안 될 때 규칙으로 일정 + 숙소 칸 (11/03)
     private final ReviewNeedChecker reviewNeedChecker;     // 칩에 없는 요청을 후보 리뷰로 확인 (11/04)
     private final PlanLimitChecker planLimitChecker;       // 끝 장소·도착 마감, 걷는 시간 상한 (11/04)
@@ -174,7 +181,11 @@ public class PlanServiceImpl implements PlanService {
         if (conditions == null) {
             throw fail(400, "여행 조건이 없어요.");
         }
+        boolean isMoved = moveToTomorrowIfLate(conditions);
         PlanGenerateResponse response = makeEmptyDraft(conditions);
+        if (isMoved) {
+            response.getNotes().add(makeNote("오늘은 늦어서 내일 일정으로 짰어요", null));
+        }
         int days = (int) ChronoUnit.DAYS.between(LocalDate.parse(response.getStartDate()), LocalDate.parse(response.getEndDate())) + 1;
         String region = conditions.getRegion() == null ? "" : conditions.getRegion();
         boolean isNearMe = conditions.getAreaLat() == null && planCandidateFinder.isNearMe(region); // 지역을 골랐으면 내 위치는 안 씀
@@ -196,6 +207,7 @@ public class PlanServiceImpl implements PlanService {
 
         List<AiDraftStop> filled = chooseStops(conditions, request.getMessages(), candidates, scores, reasons, days, response, finish, progress);
         addPickedStops(response, filled, candidates, reasons, days, baseLat, baseLng, conditions);
+        addKeptAndSort(conditions, response, days);
         planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
             boolean isMissingLocation = isNearMe && request.getLat() == null;
@@ -203,12 +215,80 @@ public class PlanServiceImpl implements PlanService {
                                               : "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요.");
         }
         applyLimits(conditions, response, days, finish, progress);
+        setShortTitle(conditions, response, days);
         addWishNotes(conditions, response);
+        addMissedMust(conditions, response);
         reportFixed(conditions, progress);
         // day → time 순 (sort에 넘기는 규칙: day가 같으면 time 글자 순, "09:00" < "10:00")
         response.getStops().sort((first, second) -> first.getDay().equals(second.getDay())
                 ? first.getTime().compareTo(second.getTime()) : first.getDay() - second.getDay());
         return response;
+    }
+
+    /** [동선 최적화] 이동 시간이 짧은 순서 후보 */
+    @Override
+    public RouteOptionsResponse getRouteOptions(RouteOrderRequest request) {
+        if (request.getStops() == null) {
+            throw fail(400, "일정이 없어요.");
+        }
+        double[] start = request.getStartLat() == null ? null : new double[] {request.getStartLat(), request.getStartLng()};
+        LocalDate date = request.getDate() == null ? null : LocalDate.parse(request.getDate());
+        return routeOrderer.getOptions(request.getStops(), start, date, request.getTransports());
+    }
+
+    /** [동선 정리] 하루 일정의 새 순서 (AI 일정과 같은 함수) */
+    @Override
+    public RouteOrderResponse getRouteOrder(RouteOrderRequest request) {
+        if (request.getStops() == null) {
+            throw fail(400, "일정이 없어요.");
+        }
+        double[] start = request.getStartLat() == null ? null : new double[] {request.getStartLat(), request.getStartLng()};
+        LocalDate date = request.getDate() == null ? null : LocalDate.parse(request.getDate());
+        RouteOrderResponse response = new RouteOrderResponse();
+        response.setOrder(routeOrderer.getOrder(request.getStops(), start, date));
+        List<Integer> before = new ArrayList<>();
+        for (int i = 0; i < request.getStops().size(); i++) {
+            before.add(i);
+        }
+        boolean hasPoints = !response.getOrder().isEmpty() && request.getStops().get(0).getLat() != null;
+        response.setBeforeMeters(hasPoints ? routeOrderer.lengthOf(request.getStops(), before, start) : 0);
+        response.setAfterMeters(hasPoints ? routeOrderer.lengthOf(request.getStops(), response.getOrder(), start) : 0);
+        return response;
+    }
+
+    /** 담은 곳을 일정에 넣고 동선 정리: 담은 곳은 잠깐 고정 칸으로 봐서 순서·시각이 안 바뀌게 */
+    private void addKeptAndSort(PlanConditions conditions, PlanGenerateResponse response, int days) {
+        List<Stop> kept = conditions.getKeptStops() == null ? List.of() : conditions.getKeptStops();
+        Map<Stop, Boolean> wasFixed = new java.util.IdentityHashMap<>(); // 같은 칸 객체로 찾아요 (내용이 같아도 다른 칸)
+        for (Stop stop : kept) {
+            wasFixed.put(stop, stop.getFixed());
+            stop.setFixed(true);
+            stop.setDay(stop.getDay() == null ? 1 : stop.getDay());
+            stop.setTime(stop.getTime() == null ? conditions.getStartTime() : stop.getTime());
+            stop.setImportance(MUST);
+            response.getStops().add(stop);
+        }
+        sortRoutes(conditions, response, days);
+        for (Stop stop : kept) {
+            stop.setFixed(Boolean.TRUE.equals(wasFixed.get(stop)));
+        }
+    }
+
+    /** 날마다 동선 정리: 시각 칸은 그대로, 장소 순서만 가까운 차례로 */
+    private void sortRoutes(PlanConditions conditions, PlanGenerateResponse response, int days) {
+        List<Stop> sorted = new ArrayList<>();
+        for (int day = 1; day <= days; day++) {
+            List<Stop> dayStops = new ArrayList<>();
+            for (Stop stop : response.getStops()) {
+                if (stop.getDay() == day) {
+                    dayStops.add(stop);
+                }
+            }
+            dayStops.sort((first, second) -> first.getTime().compareTo(second.getTime())); // 시각 글자 순
+            LocalDate date = LocalDate.parse(response.getStartDate()).plusDays(day - 1);
+            sorted.addAll(routeOrderer.sortDay(dayStops, planRuleMaker.realStartOf(conditions, response.getStartDate(), day), date));
+        }
+        response.setStops(sorted);
     }
 
     // ---------------------------------------------------------------- 진행 단계 (11/04)
@@ -225,6 +305,23 @@ public class PlanServiceImpl implements PlanService {
         reviewNeedChecker.check(conditions, found, scores, reasons, response.getNotes()); // 안 맞는 곳은 빼고, 맞는 곳은 점수·리뷰 근거
         int removed = before - found.size();
         progress.accept(makeProgress("reviews", "done", 40, text, removed > 0 ? "안 맞는다는 리뷰가 있는 " + removed + "곳 뺌" : "뺀 곳 없음"));
+    }
+
+    /** 오늘 하루 일정인데 남은 칸이 없으면(밤늦게) 내일로 옮김. 예약(고정 일정)이 있으면 그날을 지켜야 해서 안 옮김 */
+    private boolean moveToTomorrowIfLate(PlanConditions conditions) {
+        LocalDate today = Geo.now().toLocalDate();
+        String start = hasText(conditions.getStartDate()) ? conditions.getStartDate() : today.toString();
+        boolean hasFixed = conditions.getFixed() != null && !conditions.getFixed().isEmpty();
+        if (!start.equals(today.toString()) || hasFixed || !planRuleMaker.isTodayOver(conditions)) {
+            return false;
+        }
+        String tomorrow = today.plusDays(1).toString();
+        boolean isOneDay = !hasText(conditions.getEndDate()) || conditions.getEndDate().equals(start);
+        conditions.setStartDate(tomorrow);
+        if (isOneDay) {
+            conditions.setEndDate(tomorrow);
+        }
+        return true;
     }
 
     /** Gemini 고르기(실패하면 규칙) → 칸 검사·빈 칸 채우기. 두 단계를 알림 */
@@ -279,6 +376,18 @@ public class PlanServiceImpl implements PlanService {
     }
 
     /** 피하고 싶은 곳(이름)과 빼 달라는 종류는 후보에서 뺌 (종류는 꼭·가능하면 갈 곳으로 직접 말한 곳이면 남김). 뺀 수를 돌려줌 */
+    private boolean isKeptPlace(Place place, PlanConditions conditions) {
+        if (conditions.getKeptStops() == null) {
+            return false;
+        }
+        for (Stop stop : conditions.getKeptStops()) {
+            if (place.getId().equals(stop.getPlaceId()) || isSameName(place.getName(), stop.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private int removeAvoided(PlanConditions conditions, Map<String, Place> found) {
         List<String> avoidKinds = conditions.getAvoidKinds() == null ? List.of() : conditions.getAvoidKinds();
         List<String> removing = new ArrayList<>();
@@ -286,7 +395,8 @@ public class PlanServiceImpl implements PlanService {
             boolean isNamed = planCandidateFinder.isMustVisit(place, conditions.getMustVisit())
                     || planCandidateFinder.isMustVisit(place, conditions.getWishVisit());
             boolean isAvoidKind = avoidKinds.contains(place.getKind()) && !isNamed;
-            if (isAvoidKind || planCandidateFinder.isMustVisit(place, conditions.getAvoidVisit())) { // isMustVisit: 이름이 서로 포함되면 같은 곳
+            boolean isKept = isKeptPlace(place, conditions);
+            if (isKept || isAvoidKind || planCandidateFinder.isMustVisit(place, conditions.getAvoidVisit())) { // isMustVisit: 이름이 서로 포함되면 같은 곳
                 removing.add(place.getId());
             }
         }
@@ -296,8 +406,24 @@ public class PlanServiceImpl implements PlanService {
         return removing.size();
     }
 
-    /** 가능하면 갈 곳은 점수를 크게 더해 시간이 되면 먼저 들어가게 */
+    /** 동을 골랐는데 그 안에 장소가 없으면 구 전체로 넓혔다고 알림 */
+    private void addDongNote(PlanConditions conditions, List<PlanNote> notes) {
+        boolean hasDong = false;
+        for (PlanArea area : conditions.getAreas()) {
+            hasDong = hasDong || (area.getDongs() != null && !area.getDongs().isEmpty());
+        }
+        if (hasDong && conditions.getDongPlaceIds().isEmpty()) {
+            notes.add(makeNote("고른 동에 장소가 적어 구 전체로 넓혔어요", null));
+        }
+    }
+
+    /** 가능하면 갈 곳·고른 동 안의 장소는 점수를 더해 먼저 들어가게 */
     private void addWishBonus(PlanConditions conditions, Map<String, Place> found, Map<String, Double> scores) {
+        if (conditions.getDongPlaceIds() != null) {
+            for (String placeId : conditions.getDongPlaceIds()) {
+                scores.put(placeId, scores.getOrDefault(placeId, 0.0) + DONG_BONUS);
+            }
+        }
         if (conditions.getWishVisit() == null) {
             return;
         }
@@ -319,6 +445,44 @@ public class PlanServiceImpl implements PlanService {
                         placeService.getNaverUrl(name, null)));
             }
         }
+    }
+
+    /** 만든 일정 이름은 짧게: "문래동 하루", "영등포구 1박 2일". 지역을 모르면 Gemini가 지은 이름 그대로 */
+    private void setShortTitle(PlanConditions conditions, PlanGenerateResponse response, int days) {
+        String region = conditions.getRegion();
+        if (region == null || region.isBlank()) {
+            return;
+        }
+        String[] words = region.trim().split("\\s+");
+        String place = words[words.length - 1].replaceAll("\\d+가$", ""); // "문래동1가" → "문래동"
+        response.setTitle(place + (days <= 1 ? " 하루" : " " + (days - 1) + "박 " + days + "일"));
+    }
+
+    /** 꼭 갈 곳 중 일정에 못 넣은 곳을 응답에 담음 (화면이 맨 위에 보여 주고 다시 넣게) */
+    private void addMissedMust(PlanConditions conditions, PlanGenerateResponse response) {
+        if (conditions.getMustVisit() == null) {
+            return;
+        }
+        for (String name : conditions.getMustVisit()) {
+            if (!hasStopNamed(response.getStops(), name)) {
+                response.getMissed().add(toMissedCard(name, conditions));
+            }
+        }
+    }
+
+    /** 이름으로 장소 카드 찾기. 못 찾거나 외부 검색이 실패하면 이름만 */
+    private PlaceCard toMissedCard(String name, PlanConditions conditions) {
+        try {
+            Place place = placeService.getPlaceByName(name, conditions.getAreaLat(), conditions.getAreaLng());
+            if (place != null) {
+                return placeService.getPlaceCard(place, null, null);
+            }
+        } catch (ApiException e) {
+            log.info("못 넣은 꼭 갈 곳 찾기 실패: {}", e.getMessage());
+        }
+        PlaceCard card = new PlaceCard();
+        card.setName(name);
+        return card;
     }
 
     /** 일정에 그 이름이 들어간 칸이 있는지 ("한강" → "뚝섬한강공원"도 같은 곳으로 봄) */
@@ -428,6 +592,9 @@ public class PlanServiceImpl implements PlanService {
             }
         }
         appendLine(text, "style", conditions.getStyle());
+        if (conditions.getAreas() != null && conditions.getAreas().size() > 1) {
+            text.append("여러 구를 돌아요. 칸마다 서버가 정한 구의 후보를 고르세요\n");
+        }
         appendLine(text, "kinds(이 종류 위주로, 하루 칸에 이미 반영)", conditions.getKinds() == null ? null : toKindNames(conditions.getKinds()));
         appendLine(text, "tags(이런 곳 우선)", String.join(",", planCandidateFinder.toTagNames(conditions.getTags())));
         appendLine(text, "needs(장소 요청, 서버가 리뷰로 확인함)", conditions.getNeeds() == null ? null : String.join(",", conditions.getNeeds()));
@@ -544,7 +711,7 @@ public class PlanServiceImpl implements PlanService {
         avoid = removeAll(removeAll(avoid, answer.getKinds()), answer.getMustKinds()); // 다시 가고 싶다고 하면 풀어 줌
         conditions.setAvoidKinds(avoid);
         conditions.setMustKinds(removeAll(conditions.getMustKinds(), avoid));
-        List<String> kinds = removeAll(planRuleMaker.kindsOf(conditions), avoid);
+        List<String> kinds = removeAll(planRuleMaker.chosenKindsOf(conditions), avoid);
         if (kinds != null && !kinds.isEmpty()) {
             conditions.setKinds(kinds);
         }
@@ -661,7 +828,10 @@ public class PlanServiceImpl implements PlanService {
                                               Double baseLat, Double baseLng, List<PlanNote> notes) {
         Map<String, Place> candidates = planCandidateFinder.newCandidates();
         List<String> kinds = planRuleMaker.kindsOf(conditions);
-        if (conditions.getAreaLat() != null) {
+        if (conditions.getAreas() != null && !conditions.getAreas().isEmpty()) {
+            planCandidateFinder.addAreas(candidates, conditions, kinds);
+            addDongNote(conditions, notes);
+        } else if (conditions.getAreaLat() != null) {
             planCandidateFinder.addKinds(candidates, conditions.getAreaLat(), conditions.getAreaLng(), conditions.getAreaType(), kinds);
         } else if (baseLat != null && baseLng != null) {
             planCandidateFinder.addKinds(candidates, baseLat, baseLng, "dong", kinds);
@@ -830,7 +1000,7 @@ public class PlanServiceImpl implements PlanService {
     /** AI 없이: 꼭 갈 곳을 10시부터 2시간 간격, 고정 일정은 그 시각 */
     private List<AiDraftStop> makeFallbackStops(PlanConditions conditions) {
         List<AiDraftStop> stops = new ArrayList<>();
-        int clock = FALLBACK_START_MIN;
+        int clock = conditions.getStartTime() == null ? FALLBACK_START_MIN : Geo.toMinutes(conditions.getStartTime());
         if (conditions.getFixed() != null) {
             for (FixedVisit fixed : conditions.getFixed()) {
                 AiDraftStop stop = makeDraftStop(fixed.getName(), fixed.getTime(), FIXED_STAY_MIN, true);
