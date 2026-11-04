@@ -41,6 +41,12 @@ public class PlanRuleMaker {
 
     private static final double DISTANCE_PENALTY_PER_KM = 0.3; // 평점 0.3점 = 1km 더 가는 것과 같게 봄
     private static final int TODAY_START_AFTER_MIN = 60;       // 오늘 출발이면 지금부터 1시간 뒤 칸부터
+    private static final int TODAY_LAST_END_MIN = 23 * 60;     // 오늘 당겨 쓴 칸은 23:00 안에 끝나는 것만
+    private static final int SLOT_GAP_MIN = 30;                // 당겨 쓴 칸 앞뒤 이동 여유
+    private static final int TIME_STEP_MIN = 10;               // 당긴 시각은 10분 단위로 (17:43 → 17:50)
+    private static final int PULL_LATEST_DAY_KIND_MIN = 19 * 60;   // 관광·전시·쇼핑 칸을 당겨 넣을 때 늦어도 이 시각에 시작
+    private static final int PULL_LATEST_NIGHT_KIND_MIN = 21 * 60; // 맛집·카페·술집 칸은 이 시각까지
+    private static final List<String> NIGHT_KINDS = List.of("food", "cafe", "bar");
     private static final int STAY_MIN = 30;                    // 숙소 칸 머무는 시간 (일정표 표시용)
     private static final int STAY_AFTER_LAST_MIN = 30;         // 마지막 일정이 끝나고 숙소까지 여유
     private static final int LATEST_STAY_MIN = 23 * 60 + 30;   // 숙소 칸은 늦어도 23:30
@@ -144,15 +150,20 @@ public class PlanRuleMaker {
         boolean isToday = date.equals(Geo.now().toLocalDate());
         double[] point = dayStartPoint(conditions, startDate, day, candidates);
         List<String[]> slots = getSlotList(conditions);
+        if (isToday) {
+            slots = pullToNow(slots); // 오늘 출발이면 지난 칸을 버리지 않고 남은 시간으로 당김 (11/04)
+        }
         int replaced = 0;
         for (int i = 0; i < slots.size(); i++) {
+            if (slots.get(i) == null) {
+                continue; // 오늘 남은 시간에 못 들어가는 칸
+            }
             List<String> slotKinds = Arrays.asList(slots.get(i)[0].split(","));
             int start = Geo.toMinutes(slots.get(i)[1]);
             int stay = Integer.parseInt(slots.get(i)[2]);
-            boolean isPast = isToday && start < Geo.nowMinutes() + TODAY_START_AFTER_MIN;
             boolean isAfterEnd = dayEndMin != null && start + stay > dayEndMin; // 끝 장소로 가야 해서 못 쓰는 칸
-            if (isPast || isAfterEnd || overlapsExtra(extras, day, start, stay)) {
-                continue; // 이미 지난 시각이거나 마감 뒤이거나 꼭 갈 곳·고정 일정과 겹치는 칸
+            if (isAfterEnd || overlapsExtra(extras, day, start, stay)) {
+                continue; // 마감 뒤이거나 꼭 갈 곳·고정 일정과 겹치는 칸
             }
             AiDraftStop pick = slotPicks.get(day + "/S" + (i + 1));
             Place place = pick == null ? null : checkPick(pick, slotKinds, candidates, used, conditions, date, start, stay, point, maxWalkMeters);
@@ -246,6 +257,79 @@ public class PlanRuleMaker {
 
     private int dayOf(AiDraftStop stop) {
         return stop.getDay() == null ? 1 : stop.getDay();
+    }
+
+    /**
+     * 오늘 출발하는 날의 칸 (11/04). 예전엔 지난 칸을 그냥 버려서, 오후에 짜면 하루가 비고 숙소만 남았어요
+     * (카페만 고르면 11:00·14:00·17:00 칸이 다 지남).
+     * 1) 지금 1시간 뒤보다 늦은 칸은 그 시각 그대로 2) 지난 칸은 빈 시간에 순서대로 끼워 넣기
+     *    (식사·술집 칸은 뒤에 같은 칸이 남아 있으면 안 넣음, 관광·쇼핑은 19:00·맛집·카페·술집은 21:00까지 시작, 23:00 안에 끝)
+     * 못 넣는 칸은 null. 칸 번호(S1·S2…)는 그대로라 Gemini가 고른 칸과 짝이 맞아요
+     */
+    private List<String[]> pullToNow(List<String[]> slots) {
+        int from = roundUp(Geo.nowMinutes() + TODAY_START_AFTER_MIN);
+        List<String[]> pulled = new ArrayList<>();
+        Set<String> laterKinds = new HashSet<>(); // 아직 안 지난 칸의 종류
+        for (String[] slot : slots) {
+            boolean isLater = Geo.toMinutes(slot[1]) >= from;
+            pulled.add(isLater ? slot : null);
+            if (isLater) {
+                laterKinds.addAll(Arrays.asList(slot[0].split(",")));
+            }
+        }
+        for (int i = 0; i < slots.size(); i++) {
+            String[] slot = slots.get(i);
+            if (pulled.get(i) != null || isRepeatedMeal(slot, laterKinds)) {
+                continue;
+            }
+            int stay = Integer.parseInt(slot[2]);
+            int start = findFreeStart(pulled, from, stay);
+            if (start <= latestPullStart(slot[0]) && start + stay <= TODAY_LAST_END_MIN) {
+                pulled.set(i, new String[] {slot[0], Geo.toHhmm(start), slot[2]});
+            }
+        }
+        return pulled;
+    }
+
+    /** 지난 식사·술집 칸인데 뒤에 같은 칸이 남아 있는지 (점심을 저녁 앞에 또 넣지 않게) */
+    private boolean isRepeatedMeal(String[] slot, Set<String> laterKinds) {
+        boolean isMeal = slot[0].equals("food") || slot[0].equals("bar");
+        return isMeal && laterKinds.contains(slot[0]);
+    }
+
+    /** from 뒤에서, 이미 넣은 칸과 앞뒤 30분 여유를 두고 stay분이 들어가는 가장 이른 시작 시각 */
+    private int findFreeStart(List<String[]> pulled, int from, int stay) {
+        List<int[]> placed = new ArrayList<>(); // [시작, 끝] (분)
+        for (String[] slot : pulled) {
+            if (slot != null) {
+                int start = Geo.toMinutes(slot[1]);
+                placed.add(new int[] {start, start + Integer.parseInt(slot[2])});
+            }
+        }
+        placed.sort((a, b) -> a[0] - b[0]); // 시작 시각 순으로 (짧은 람다: 두 칸의 시작을 비교)
+        int start = from;
+        for (int[] time : placed) {
+            if (start + stay + SLOT_GAP_MIN <= time[0]) {
+                break; // 이 칸 앞에 들어감
+            }
+            start = Math.max(start, roundUp(time[1] + SLOT_GAP_MIN));
+        }
+        return start;
+    }
+
+    /** 당겨 넣을 때 늦어도 시작할 시각 (맛집·카페·술집이 들어간 칸은 저녁까지, 관광·전시·쇼핑은 이르게) */
+    private int latestPullStart(String kinds) {
+        for (String kind : kinds.split(",")) {
+            if (NIGHT_KINDS.contains(kind)) {
+                return PULL_LATEST_NIGHT_KIND_MIN;
+            }
+        }
+        return PULL_LATEST_DAY_KIND_MIN;
+    }
+
+    /** 분을 10분 단위로 올림 (17:43 → 17:50) */
+    private int roundUp(int minutes) {
+        return (minutes + TIME_STEP_MIN - 1) / TIME_STEP_MIN * TIME_STEP_MIN;
     }
 
     /** 하루 칸 목록: [넣을 종류들(쉼표), "HH:mm", 머무는 분]. 고른 종류만 남기고, 하나도 없는 칸은 뺌 */
