@@ -282,6 +282,16 @@ function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
 }
 
+
+// 타임라인 줄을 누르면 재생 위치를 그 장소 도착 시각으로 옮김. 예: 13:00 도착 → (780 − 770) / 260 × 100 ≈ 3.8%
+function moveToPlace(no) {
+  const place = retro.value.stops[no - 1] // 줄 번호는 1부터, 목록 번호는 0부터라 1을 뺌
+  if (place.actualArrive === null) return // 안 간 곳은 옮길 시각이 없음
+  if (endMinutes.value === startMinutes.value) return // GPS가 없거나 한 점이면 옮길 수 없음
+  stop() // 재생 중이면 멈추고 옮김
+  progress.value = (toMinutes(place.actualArrive) - startMinutes.value) / (endMinutes.value  - startMinutes.value) * 100
+}
+
 const isHybrid = ref(false)
 
 // 버튼을 누를 때마다 일반 ↔ 하이브리드 지도로 바꿈
@@ -366,7 +376,7 @@ function toggleMapType() {
             <!-- template: 화면에 안 그려지는 묶음. 한 번 돌 때 장소 줄 또는 이동 줄 중 하나를 고르려고 씀 -->
             <template v-for="(row, index) in timeline" :key="index">
               <!-- 장소 줄 -->
-              <div v-if="row.type === 'place'" class="retro-tl__place" :class="{ 'is-skipped': row.skipped }">
+              <div v-if="row.type === 'place'" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no }" @click="toggleInfo(row.no); moveToPlace(row.no)">
                 <span class="retro-tl__num">{{ row.no }}</span>
                 <span class="retro-tl__body">
                   <b>{{ row.name }}</b>
@@ -419,7 +429,8 @@ function toggleMapType() {
 /* 다녀온 길: 왼쪽 세로 점선 위에 번호 원과 이동 아이콘을 올림 */
 .scr-Retro .retro-tl{position:relative;display:flex;flex-direction:column;margin-top:6px}
 .scr-Retro .retro-tl::before{content:"";position:absolute;left:13px;top:16px;bottom:16px;border-left:2px dashed var(--line-strong);opacity:.5}
-.scr-Retro .retro-tl__place{display:flex;align-items:center;gap:12px;min-height:52px}
+.scr-Retro .retro-tl__place{display:flex;align-items:center;gap:12px;min-height:52px;margin:0 -8px;padding:0 8px;border-radius:10px;cursor:pointer;transition:background-color .2s}
+.scr-Retro .retro-tl__place.is-sel{background:var(--navy-soft)}
 .scr-Retro .retro-tl__num{position:relative;z-index:1;width:28px;height:28px;flex:none;border-radius:50%;background:var(--navy);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(24,33,58,.25)}
 .scr-Retro .retro-tl__body{flex:1;display:flex;flex-direction:column}
 .scr-Retro .retro-tl__tag{font-size:12px;font-weight:600;color:var(--ink-subtle);background:var(--surface-sunken);padding:2px 8px;border-radius:999px}
