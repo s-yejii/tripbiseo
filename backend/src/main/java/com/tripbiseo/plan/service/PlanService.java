@@ -7,12 +7,21 @@ import com.tripbiseo.plan.dto.PlanChatResponse;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanProgress;
+import com.tripbiseo.plan.dto.RouteOptionsResponse;
+import com.tripbiseo.plan.dto.RouteOrderRequest;
+import com.tripbiseo.plan.dto.RouteOrderResponse;
 
 /** ③ AI 일정 만들기 (저장은 안 함, 저장은 ②의 TripService.createTrip) */
 public interface PlanService {
 
     /** 사용자 말 → 여행 조건 정리 (Gemini). Gemini 오류는 API.md 공통 오류 그대로 */
     PlanChatResponse chatPlan(PlanChatRequest request);
+
+    /** [동선 최적화] 이동 시간이 짧은 순서 후보 최대 5개 */
+    RouteOptionsResponse getRouteOptions(RouteOrderRequest request);
+
+    /** [동선 정리] 하루 일정의 새 순서 (최근접 이웃 + 2-opt, 시간 고정·식사 때 유지) */
+    RouteOrderResponse getRouteOrder(RouteOrderRequest request);
 
     /** 조건 → 일정 초안. Gemini가 실패해도 오류 대신 notes에 적고 꼭 갈 곳만으로 초안 */
     PlanGenerateResponse generatePlan(long memberId, PlanGenerateRequest request);

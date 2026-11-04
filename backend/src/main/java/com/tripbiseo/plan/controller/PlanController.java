@@ -1,6 +1,7 @@
 package com.tripbiseo.plan.controller;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -8,6 +9,7 @@ import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,14 +20,22 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.tripbiseo.common.auth.LoginUser;
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.plan.dto.AreaStat;
+import com.tripbiseo.plan.dto.DongShape;
+import com.tripbiseo.plan.dto.DongType;
 import com.tripbiseo.plan.dto.LinkRequest;
 import com.tripbiseo.plan.dto.LinkResponse;
+import com.tripbiseo.plan.dto.RecommendedLink;
+import com.tripbiseo.plan.dto.RouteOptionsResponse;
+import com.tripbiseo.plan.dto.RouteOrderRequest;
+import com.tripbiseo.plan.dto.RouteOrderResponse;
 import com.tripbiseo.plan.dto.PlanChatRequest;
 import com.tripbiseo.plan.dto.PlanChatResponse;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.CaptureResponse;
 import com.tripbiseo.plan.dto.StayCaptureResponse;
+import com.tripbiseo.plan.service.AreaStatService;
 import com.tripbiseo.plan.service.CaptureService;
 import com.tripbiseo.plan.service.LinkService;
 import com.tripbiseo.plan.service.PlanService;
@@ -47,12 +57,33 @@ public class PlanController {
     private final PlanService planService;
     private final CaptureService captureService;
     private final LinkService linkService;
+    private final AreaStatService areaStatService;
+    private final com.tripbiseo.plan.service.PlanCandidateFinder planCandidateFinder;
+    private final com.tripbiseo.trip.service.PlaceService placeService;
     private final LoginUser loginUser;
 
     /** 사용자 말 → 여행 조건 정리 */
     @PostMapping("/chat")
     public PlanChatResponse chatPlan(@RequestBody PlanChatRequest request) {
         return planService.chatPlan(request);
+    }
+
+    /** 한 구의 행정동 특색 (동 지도 색칠) */
+    @PostMapping("/dong-types")
+    public List<DongType> getDongTypeList(@RequestBody List<DongShape> dongs) {
+        return areaStatService.getDongTypeList(dongs);
+    }
+
+    /** 이동 시간이 짧은 순서 후보 ([동선 최적화]) */
+    @PostMapping("/route-options")
+    public RouteOptionsResponse getRouteOptions(@RequestBody RouteOrderRequest request) {
+        return planService.getRouteOptions(request);
+    }
+
+    /** 하루 일정의 새 순서 ([동선 정리]) */
+    @PostMapping("/route-order")
+    public RouteOrderResponse getRouteOrder(@RequestBody RouteOrderRequest request) {
+        return planService.getRouteOrder(request);
     }
 
     /** 조건 → 일정 초안 (저장 안 함) */
@@ -110,7 +141,30 @@ public class PlanController {
         return captureService.readStayCapture(bytes, image == null ? null : image.getContentType());
     }
 
+    /** 가고 싶은 곳 추천 게시물 */
+    @GetMapping("/links/recommended")
+    public List<RecommendedLink> getRecommendedLinkList() {
+        return linkService.getRecommendedLinkList();
+    }
+
+    /** 어디로 가요? 추천 지역: 종류마다 리뷰가 많은 서울 구 */
+    @GetMapping("/areas")
+    public List<AreaStat> getAreaStatList() {
+        return areaStatService.getAreaStatList();
+    }
+
     /** 인스타 게시물·릴스 링크 → 글에 나온 장소 (저장 안 함) */
+    @GetMapping("/places")
+    public java.util.List<com.tripbiseo.trip.dto.PlaceCard> getManualPlaceList(@org.springframework.web.bind.annotation.RequestParam double lat,
+                                                                                @org.springframework.web.bind.annotation.RequestParam double lng,
+                                                                                @org.springframework.web.bind.annotation.RequestParam String kind) {
+        java.util.List<com.tripbiseo.trip.dto.PlaceCard> cards = new java.util.ArrayList<>();
+        for (com.tripbiseo.trip.dto.Place place : planCandidateFinder.findKindPlaces(lat, lng, kind)) {
+            cards.add(placeService.getPlaceCard(place, lat, lng));
+        }
+        return cards;
+    }
+
     @PostMapping("/links")
     public LinkResponse findLinkPlaces(@RequestBody LinkRequest request) {
         return linkService.findPlaces(request);
