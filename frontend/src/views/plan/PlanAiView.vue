@@ -236,7 +236,7 @@ function goNext() {
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-wish">
-          <div class="sec-h"><h2 id="pa-wish" class="t-sub">가고 싶은 곳</h2><span class="t-cap">인스타·유튜브 링크</span></div>
+          <div class="sec-h"><h2 id="pa-wish" class="t-sub">가고 싶은 곳</h2><span class="t-cap">인스타 링크</span></div>
           <WishLinks />
         </section>
       </div>
