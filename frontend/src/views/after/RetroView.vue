@@ -19,17 +19,23 @@ let timer = null
 
 const routePoints = computed(() => trackPoints.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
 const info = computed(() => visited.value.find((v) => v.no === infoNo.value)) 
-// 재생 위치에 맞춰 GPS 점 사이에서 지금 점을 계산해요
+//재생 위치(%)를 시각으로 바꾸고, 그 시각이 들어 있는 GPS 구간에서 점을 계산해요
 const me = computed(() => {
-  const sections = trackPoints.value.length - 1 // sections: GPS 점과 점 사이 구간 수. 예: GPS 점이 5개면 구간은 4개
-  if (sections < 1 ) return { x : - 100, y : - 100 } // 선이 없으면 점을 화면 밖에 두게 함
-  const part = Math.min(sections - 0.001, (progress.value / 100) * sections) // part: 지금 몇 번째 구간쯤인지. 예: 2.72면 2번 구간의 72% 지점. sections - 0.001: 마지막 점을 넘어가지 않게 막음
-  // (progress.value / 100) * sections) : 현재 위치가 전체 구간에 어디에 있는지 계산
-  const i = Math.floor(part) // i: 지금 지나는 구간의 시작 GPS 점 번호 (2.72 → 2)
-  const rate = part - i
-  const a = trackPoints.value[i]
-  const b = trackPoints.value[i + 1]
-  return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
+  const points = trackPoints.value
+  if (points.length < 2) return { x: -100, y: -100 } // 선이 없으면 점을 화면 밖에 두게 함
+  const now = startMinutes.value + (progress.value / 100) * (endMinutes.value - startMinutes.value) // 지금 시각(분). 막대 시각과 같은 계산
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const aTime = toMinutes(a.time)
+    const bTime = toMinutes(b.time)
+    if (now > bTime) continue // 지금이 이 구간 끝보다 늦으면 → 다음 구간으로
+    let rate = 0 // 구간 안에서 몇 % 왔는지 (두 점 시각이 같으면 0)
+    if (bTime > aTime) rate = (now - aTime) / (bTime - aTime)
+    return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
+  }
+  const last = points[points.length - 1] // 끝까지 못 찾으면 마지막 점
+  return { x: last.x, y: last.y }
 })
 const nowText = computed(() => toTime(startMinutes.value + Math.round((progress.value / 100) * (endMinutes.value - startMinutes.value))) + (playing.value ? ' · 4배속' : ''))
 const movedText = computed(() => {
