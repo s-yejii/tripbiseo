@@ -35,6 +35,7 @@ const routes = [
   { path: '/start-check', component: () => import('@/views/trip/MainStartView.vue'), meta: { parent: '/', owner: 2, title: 'S04-a2 홈 · 여행 시간 확인' } },
   { path: '/trips', component: () => import('@/views/trip/TripsView.vue'), meta: { parent: '/', owner: 2, title: 'S04-b 내 여행' } },
   { path: '/trips/empty', component: () => import('@/views/trip/TripsEmptyView.vue'), meta: { parent: '/', owner: 2, title: 'S04-c 내 여행 · 빈 상태' } },
+  { path: '/plan/manual/start', component: () => import('@/views/trip/PlanManualStartView.vue'), meta: { parent: '/new', owner: 2, title: 'S09-a0 직접 고르기 · 어디·언제' } },
   { path: '/plan/manual', component: () => import('@/views/trip/PlanManualView.vue'), meta: { parent: '/plan/check', owner: 2, title: 'S09-a 지도에서 직접 고르기' } },
   { path: '/plan/check', component: () => import('@/views/trip/PlanCheckView.vue'), meta: { parent: '/trips', owner: 2, title: 'S10-a 일정 점검' } },
   { path: '/plan/edit', component: () => import('@/views/trip/PlanEditView.vue'), meta: { parent: '/trips/today', history: true, owner: 2, title: 'S10-a2 일정 편집 모드' } },
