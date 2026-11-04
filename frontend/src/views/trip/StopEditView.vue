@@ -88,7 +88,7 @@ function save() {
       <div v-else class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="dialog" aria-modal="true" style="gap: 18px">
+      <BottomSheet closable role="dialog" aria-modal="true" style="gap: 18px">
         <div class="sheet__head" style="gap: 12px">
           <img class="thumb" :src="stop.img" alt="" />
           <div style="flex: 1; min-width: 0"><h1 class="h-title">{{ stop.name }}</h1><p class="t-cap">{{ day > 1 ? day + '일차 · ' : '' }}{{ index + 1 }}번째{{ stop.cat ? ' · ' + stop.cat : '' }}</p></div>
