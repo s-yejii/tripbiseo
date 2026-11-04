@@ -31,7 +31,7 @@ function add() {
       <img src="/img/sopum.jpg" alt="" aria-hidden="true" class="sa-bg" />
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="dialog" aria-modal="true" style="gap: 14px">
+      <BottomSheet closable role="dialog" aria-modal="true" style="gap: 14px">
         <div class="sheet__head">
           <span class="ico-tile sa-logo"><i class="ic ic--s i-pin" aria-hidden="true"></i></span>
           <h1 class="h-title">여행어때에 담기</h1>
