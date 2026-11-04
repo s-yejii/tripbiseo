@@ -41,6 +41,7 @@ public class LinkServiceImpl implements LinkService {
     private static final int MAX_NAMES = 5;
     private static final int MIN_NAME_LENGTH = 2;
     private static final int MAX_NAME_LENGTH = 40;
+    private static final int MIN_PARTIAL_MATCH_LENGTH = 3; // 이보다 짧은 이름은 전체가 같아야 인정
 
     private static final Pattern EMAIL = Pattern.compile("[\\w.+-]+@[\\w-]+\\.[\\w.-]+");
     private static final Pattern MENTION = Pattern.compile("@[\\w.]+");
@@ -165,10 +166,16 @@ public class LinkServiceImpl implements LinkService {
         return response;
     }
 
+    /** 짧은 이름은 이름 일부만 같아도 엉뚱한 곳이 나와서("갈빗" → 강동구 "강동갈빗살") 이름 전체가 같을 때만 인정 */
+    private boolean isSameName(String name, String foundName) {
+        return compact(name).length() >= MIN_PARTIAL_MATCH_LENGTH || compact(name).equals(compact(foundName));
+    }
+
     /** 우리 DB → TourAPI → 카카오 순으로 찾기. 외부 검색이 실패하면 못 찾은 것으로 */
     private Place findPlace(String name) {
         try {
-            return placeService.getPlaceByName(name, null, null);
+            Place place = placeService.getPlaceByName(name, null, null);
+            return place != null && isSameName(name, place.getName()) ? place : null;
         } catch (ApiException e) {
             log.info("링크 장소 찾기 실패: {}", e.getMessage());
             return null;
