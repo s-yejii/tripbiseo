@@ -18,6 +18,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.tripbiseo.common.auth.LoginUser;
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.plan.dto.LinkRequest;
+import com.tripbiseo.plan.dto.LinkResponse;
 import com.tripbiseo.plan.dto.PlanChatRequest;
 import com.tripbiseo.plan.dto.PlanChatResponse;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
@@ -25,6 +27,7 @@ import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.CaptureResponse;
 import com.tripbiseo.plan.dto.StayCaptureResponse;
 import com.tripbiseo.plan.service.CaptureService;
+import com.tripbiseo.plan.service.LinkService;
 import com.tripbiseo.plan.service.PlanService;
 
 import lombok.RequiredArgsConstructor;
@@ -43,6 +46,7 @@ public class PlanController {
     private final ExecutorService streamThreads = Executors.newFixedThreadPool(STREAM_THREADS);
     private final PlanService planService;
     private final CaptureService captureService;
+    private final LinkService linkService;
     private final LoginUser loginUser;
 
     /** 사용자 말 → 여행 조건 정리 */
@@ -104,5 +108,11 @@ public class PlanController {
     public StayCaptureResponse readStayCapture(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
         byte[] bytes = image == null ? null : image.getBytes();
         return captureService.readStayCapture(bytes, image == null ? null : image.getContentType());
+    }
+
+    /** 인스타 게시물·릴스 링크 → 글에 나온 장소 (저장 안 함) */
+    @PostMapping("/links")
+    public LinkResponse findLinkPlaces(@RequestBody LinkRequest request) {
+        return linkService.findPlaces(request);
     }
 }

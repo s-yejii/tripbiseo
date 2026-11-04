@@ -49,6 +49,8 @@ export const generatePlan = (conditions, messages, lat, lng) => post('/plans/gen
 // 위와 같고 단계마다 onProgress(이름, { step, state, percent, text, detail })를 불러요 → 끝나면 초안 (11/04)
 export const generatePlanStream = (conditions, messages, lat, lng, onProgress) =>
   postStream('/plans/generate/stream', { conditions, messages, lat, lng }, onProgress)
+// ③ 인스타 링크 → { source, places: [장소 카드], missed: [못 찾은 이름] } (저장 안 함). 422면 게시물 글(caption)을 같이 보내요
+export const findLinkPlaces = (url, caption) => post('/plans/links', { url, caption })
 // ③ 숙소 예약 캡처 → { name, address, checkInDate, checkInTime, checkOutDate, checkOutTime, lat, lng } (저장 안 함)
 export function readStayCapture(file) {
   const form = new FormData()
