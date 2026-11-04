@@ -1,18 +1,18 @@
 <script setup>
 // S10-b 일정 한 칸 수정 (②): 머무는 시간, 중요도, 시간 고정을 바꾸고 저장하거나 빼요
-// 주소: /plan/edit/stop?day=1&idx=0 (그날 몇 번째 칸인지) &back=돌아갈 곳
-// 11/04: 초안(store.draft)이 있으면 그 칸을 진짜로 고쳐요. 머무는 시간·고정을 바꾸면 그날 시각을 다시 맞추고(utils/draftEdit),
-//   다음 일정 시각은 일정 점검(POST /api/plans/check)이 다시 계산해요. 초안이 없으면 시연용 가짜 일정이에요
+// 주소: /plan/edit/stop?day=1&idx=0 (그날 몇 번째 칸인지) &back=돌아갈 곳 · 저장된 여행이면 &id=여행 번호
+// 11/04: 지금 고치는 여행(초안 store.draft 또는 저장된 여행 복사본 store.editTrip)의 그 칸을 진짜로 고쳐요.
+//   머무는 시간·고정을 바꾸면 그날 시각을 다시 맞추고(utils/draftEdit), 다음 일정 시각은 일정 점검이 다시 계산해요.
+//   서버 저장은 편집 화면 "완료"에서 한 번에 해요. 고칠 칸이 없으면(새로고침 등) 편집 화면으로 돌아가요
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import DurationSlider from '@/components/common/DurationSlider.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
-import { concertTrip } from '@/data/trips'
 import { importance } from '@/data/places'
 import { useTripStore } from '@/stores/trip'
-import { goBack } from '@/utils/back'
-import { dayStopsOf, retime } from '@/utils/draftEdit'
+import { goBackTo } from '@/utils/back'
+import { dayStopsOf, editingTripOf, retime } from '@/utils/draftEdit'
 import { imageFor } from '@/utils/mapView'
 import { toDuration, toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
@@ -26,14 +26,16 @@ const router = useRouter()
 const store = useTripStore()
 const day = Number(route.query.day || 1)
 const index = Number(route.query.idx || 0)
-const isDraft = store.draft.stops.length > 0 && !!dayStopsOf(store, day)[index]
+const backLink = route.query.back || '/plan/edit' // 닫으면 돌아갈 편집 화면
+const trip = editingTripOf(store, route.query.id)
 
-// 고칠 칸: 초안이면 초안 칸 그대로(고치면 초안이 바뀜), 아니면 시연용 가짜 칸
-const dayStops = isDraft ? dayStopsOf(store, day) : concertTrip.stops
+// 고칠 칸: 여행 칸 그대로(고치면 여행이 바뀜). 없으면 빈 칸으로 그리고 바로 편집 화면으로
+const dayStops = trip ? dayStopsOf(trip, day) : []
 const target = dayStops[index]
-const stop = isDraft
+const stop = target
   ? { name: target.name, time: target.time || '', dur: target.stay || 0, imp: target.importance || 'maybe', fixed: !!target.fixed, img: imageFor(target.category), cat: target.category || '' }
-  : { ...target, cat: '' }
+  : { name: '', time: '', dur: 0, imp: 'maybe', fixed: false, img: '', cat: '' }
+if (!target) router.replace(backLink)
 const next = dayStops[index + 1]
 const maxStay = Math.min(MAX_STAY, Math.ceil((stop.dur + 60) / STAY_STEP) * STAY_STEP)
 
@@ -44,7 +46,6 @@ const fixedTime = ref(stop.time)
 const isMapOk = ref(true)
 
 const diff = computed(() => stay.value - stop.dur) // 늘린 분(+) / 줄인 분(-)
-const slack = computed(() => concertTrip.slack - diff.value) // 시연용만
 const timeRange = computed(() => {
   if (!stop.time) return '시각은 일정 점검이 다시 계산해요'
   const start = toMinutes(stop.time)
@@ -53,10 +54,9 @@ const timeRange = computed(() => {
 const nextText = computed(() => {
   if (!next) return '마지막 일정'
   const moved = diff.value === 0 ? '' : ` (약 ${Math.abs(diff.value)}분 ${diff.value > 0 ? '늦어짐' : '빨라짐'})`
-  if (isDraft) return `다음 ${next.name}${moved}`
-  return `다음 ${next.name} ${toTime(toMinutes(next.time) + diff.value)} 도착${moved}`
+  return `다음 ${next.name}${moved}`
 })
-const mapPins = computed(() => (isDraft && target.lat != null ? [{ key: 'stop', lat: target.lat, lng: target.lng, text: index + 1, cls: 'pin--sel', label: stop.name }] : []))
+const mapPins = computed(() => (target && target.lat != null ? [{ key: 'stop', lat: target.lat, lng: target.lng, text: index + 1, cls: 'pin--sel', label: stop.name }] : []))
 
 // 슬라이더를 0분까지 내리면 빼기 확인으로 가요
 watch(stay, (minutes) => {
@@ -64,49 +64,40 @@ watch(stay, (minutes) => {
 })
 
 function remove() {
-  const back = route.query.back ? '&back=' + encodeURIComponent(route.query.back) : ''
-  router.replace(`/plan/edit/delete?day=${day}&idx=${index}${back}`)
+  const id = route.query.id ? 'id=' + route.query.id + '&' : ''
+  router.replace(`/plan/edit/delete?${id}day=${day}&idx=${index}&back=${encodeURIComponent(backLink)}`)
 }
 
 function save() {
-  if (isDraft) {
-    const startTime = dayStops.length ? dayStops[0].time : null
-    const isTimeChanged = stay.value !== stop.dur || fixed.value !== stop.fixed || (fixed.value && fixedTime.value !== stop.time)
-    target.stay = stay.value
-    target.importance = imp.value
-    target.fixed = fixed.value
-    if (fixed.value) target.time = fixedTime.value
-    if (isTimeChanged) retime(dayStops, startTime) // 고정 칸은 그대로, 나머지 시각은 점검이 다시 채움
-  }
+  const startTime = dayStops[0].time
+  const isTimeChanged = stay.value !== stop.dur || fixed.value !== stop.fixed || (fixed.value && fixedTime.value !== stop.time)
+  target.stay = stay.value
+  target.importance = imp.value
+  target.fixed = fixed.value
+  if (fixed.value) target.time = fixedTime.value
+  if (isTimeChanged) retime(dayStops, startTime) // 고정 칸은 그대로, 나머지 시각은 점검이 다시 채움
   showToast(stop.name + ' 수정했어요')
-  goBack('/plan/edit')
+  goBackTo(backLink)
 }
 </script>
 
 <template>
   <div class="scr scr-StopEdit">
     <div class="app">
-      <KakaoMap v-if="isDraft && isMapOk && mapPins.length" :pins="mapPins" :show-route="false" :padding="MAP_PADDING" @fail="isMapOk = false" />
-      <template v-else>
-        <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
-        <span v-if="!isDraft" class="pin pin--sel" :style="{ left: stop.x + 'px', top: stop.y + 'px' }">{{ index + 1 }}</span>
-      </template>
+      <KakaoMap v-if="isMapOk && mapPins.length" :pins="mapPins" :show-route="false" :padding="MAP_PADDING" @fail="isMapOk = false" />
+      <div v-else class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
       <div class="dim" aria-hidden="true"></div>
 
       <BottomSheet role="dialog" aria-modal="true" style="gap: 18px">
         <div class="sheet__head" style="gap: 12px">
           <img class="thumb" :src="stop.img" alt="" />
           <div style="flex: 1; min-width: 0"><h1 class="h-title">{{ stop.name }}</h1><p class="t-cap">{{ day > 1 ? day + '일차 · ' : '' }}{{ index + 1 }}번째{{ stop.cat ? ' · ' + stop.cat : '' }}</p></div>
-          <button type="button" class="iconbtn iconbtn--soft" aria-label="닫기" @click="goBack('/plan/edit')"><i class="ic i-close" aria-hidden="true"></i></button>
+          <button type="button" class="iconbtn iconbtn--soft" aria-label="닫기" @click="goBackTo(backLink)"><i class="ic i-close" aria-hidden="true"></i></button>
         </div>
 
         <div class="se-time">
           <i class="ic i-clock c-navy" aria-hidden="true"></i>
           <span style="flex: 1"><b class="t-strong tn">{{ timeRange }}</b><span class="t-cap tn" style="display: block">{{ nextText }}</span></span>
-          <template v-if="!isDraft">
-            <span v-if="slack >= 0" class="badge badge--success tn">예약 여유 {{ slack }}분</span>
-            <span v-else class="badge badge--danger tn">예약 {{ -slack }}분 늦음</span>
-          </template>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 8px">

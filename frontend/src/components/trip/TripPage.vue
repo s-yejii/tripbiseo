@@ -21,8 +21,9 @@ const props = defineProps({
   back: { type: String, default: '/trips' },
   rainSwap: { type: Boolean, default: false },
   reorderable: { type: Boolean, default: false },
+  modeEditable: { type: Boolean, default: false }, // 이동 줄을 눌러 수단 고르기 (일정 점검 초안만)
 })
-const emit = defineEmits(['reorder'])
+const emit = defineEmits(['reorder', 'change-mode'])
 const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
 
 const selected = ref(null)
@@ -196,7 +197,7 @@ async function select(i) {
       <slot name="head"></slot>
       <div ref="scrollBox" class="trip-scroll">
         <CheckList :items="trip.checks" :rain-swap="rainSwap" />
-        <TripTimeline :stops="trip.stops" :selected="selected" :reorderable="reorderable" @select="pickRow" @reorder="emit('reorder', $event)" />
+        <TripTimeline :stops="trip.stops" :selected="selected" :reorderable="reorderable" @select="pickRow" :mode-editable="modeEditable" @reorder="emit('reorder', $event)" @change-mode="(i, mode) => emit('change-mode', i, mode)" />
         <p v-if="!trip.stops.length" class="t-cap" style="margin: 0; padding: 16px 0">아직 넣은 일정이 없어요. 일정 편집에서 장소를 넣어 주세요.</p>
         <slot name="below"></slot>
       </div>

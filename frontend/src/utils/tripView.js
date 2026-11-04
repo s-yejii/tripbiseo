@@ -5,8 +5,8 @@ import { toDuration } from '@/utils/time'
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토']
 const TRIP_MAP_BOX = { left: 30, top: 110, width: 330, height: 210 } // TripPage 지도 칸 (viewBox 390×344)
-// 서버 Leg.mode(walk/transit/car) → 화면 이동 수단 이름
-const MODE_OF_LEG = { walk: 'walk', transit: 'subway', car: 'taxi' }
+// 서버 Leg.mode(walk/transit/car) → 화면 이동 수단 이름 (Stop.mode와 같은 이름: walk/transit/taxi)
+const MODE_OF_LEG = { walk: 'walk', transit: 'transit', car: 'taxi' }
 
 // "2026-10-24" → "10/24(토)"
 export function toShortDate(dateText) {
@@ -117,7 +117,7 @@ function toViewStop(stop, position, memo = null) {
     lat: stop.lat,
     lng: stop.lng,
     warn: !!stop.issue,
-    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walk: stop.leg.minutes } : null,
+    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes } : null,
     x: position.x,
     y: position.y,
   }

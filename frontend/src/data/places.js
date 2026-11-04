@@ -25,6 +25,7 @@ export const modes = {
   bus: { label: '버스', icon: 'i-bus' },
   subway: { label: '지하철', icon: 'i-subway' },
   taxi: { label: '택시', icon: 'i-car' },
+  transit: { label: '대중교통', icon: 'i-subway' }, // 서버 구간 수단 transit (버스·지하철을 서버가 골라요) (11/04)
 }
 
 // 중요도 이름

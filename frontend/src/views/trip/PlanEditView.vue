@@ -1,48 +1,90 @@
 <script setup>
 // S10-a2 일정 편집 모드 (②): 손잡이로 순서 바꾸기, 빨간 버튼으로 빼기, 칸을 눌러 한 칸 수정
-// 고정 일정(예약)·숙소는 자리를 안 바꿔요
-// 11/04: 일정 점검에서 들어오면(?day=N) 초안(store.draft)의 그날 칸을 진짜로 고쳐요.
-//   순서를 바꾸면 첫 칸·고정 칸 시각만 두고 나머지는 비워서, 일정 점검이 다시 계산해 채워요 (utils/draftEdit)
-//   "완료"는 그대로 두고 점검으로, ✕는 들어오기 전으로 되돌려요
-//   저장된 여행(?id=)에서 들어오면 아직 시연용 가짜 일정이에요 (서버 수정 API 연결 전)
-import { computed, onUnmounted, ref } from 'vue'
+// 고정 일정(예약)·숙소·이미 다녀온 칸은 자리를 안 바꿔요
+// 두 가지로 들어와요 (11/04)
+//   - 일정 점검에서(?day=N): 새로 짠 초안(store.draft)을 고치고, "완료"면 점검으로 돌아가 시각을 다시 계산
+//   - 저장된 여행 상세에서(?id=12): 서버에서 읽은 복사본(store.editTrip)을 고치고, "완료"면 서버에 한 번에 저장
+//     (빈 시각은 점검으로 채운 뒤 PUT /api/trips/{id}/stops)
+// 순서를 바꾸면 첫 칸·고정 칸 시각만 두고 나머지는 비워요 (utils/draftEdit). ✕는 들어오기 전으로 되돌려요
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { concertTrip } from '@/data/trips'
 import { importance } from '@/data/places'
 import { useTripStore } from '@/stores/trip'
-import { goBack } from '@/utils/back'
-import { cancelEdit, dayStopsOf, finishEdit, retime, setDayStops, startEdit, toEditRow } from '@/utils/draftEdit'
+import { goBackTo } from '@/utils/back'
+import { addDays } from '@/utils/dates'
+import { cancelEdit, dayStopsOf, editingTripOf, finishEdit, loadEditTrip, retime, saveEditTrip, setDayStops, startEdit, toEditRow } from '@/utils/draftEdit'
 import { toDuration } from '@/utils/time'
+import { toShortDate, tripDetailLink } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
 
 const route = useRoute()
 const router = useRouter()
 const store = useTripStore()
-const day = Number(route.query.day || 1)
-const isDraft = !route.query.id && store.draft.stops.length > 0 // 초안 편집 (아니면 시연용)
-const backTo = '/plan/edit?day=' + day // 한 칸 수정·빼기에서 돌아올 곳
+const tripId = route.query.id || null // 있으면 저장된 여행 편집, 없으면 새로 짠 초안 편집
+const day = ref(Number(route.query.day || 1))
+const isLoading = ref(!!tripId)
+const isSaving = ref(false)
+const loadError = ref('')
 
-if (isDraft) startEdit(store)
-const demoList = ref(concertTrip.stops.map((stop) => ({ ...stop, key: stop.id, movable: !stop.fixed })))
-const rows = computed(() => (isDraft ? dayStopsOf(store, day).map(toEditRow) : demoList.value))
+const trip = computed(() => editingTripOf(store, tripId))
+const hasTrip = computed(() => !!trip.value && trip.value.stops.length > 0)
+const rows = computed(() => (hasTrip.value ? dayStopsOf(trip.value, day.value).map(toEditRow) : []))
+// 일차 목록 [{ day: 1, label: '12/4(금)' }] (여행 날짜 수만큼, 하루면 안 보여 줌)
+const dayList = computed(() => {
+  if (!hasTrip.value) return []
+  let last = countDays(trip.value)
+  for (const stop of trip.value.stops) last = Math.max(last, stop.day || 1)
+  const list = []
+  for (let d = 1; d <= last; d++) list.push({ day: d, label: trip.value.startDate ? toShortDate(addDays(trip.value.startDate, d - 1)) : '' })
+  return list
+})
 const dragIndex = ref(null) // 끌고 있는 칸 번호
 const dropTo = ref(null) // 놓으면 자리를 바꿀 칸 번호
 const dragY = ref(0) // 끄는 칸이 손가락을 따라 움직인 거리(px)
 let startY = 0
 let scale = 1 // 폰 화면을 줄여 보여 줄 때 손가락 거리 → 화면 거리 비율
 
-// 두 칸 자리 바꾸기 (초안이면 그날 칸 순서를 바꿔 넣고 시각을 다시 맞춤)
+onMounted(async () => {
+  router.replace(hereLink()) // 주소에 day를 늘 붙여 둠 (한 칸 수정에서 "뒤로"로 돌아올 때 주소가 같게)
+  if (!tripId) {
+    if (hasTrip.value) startEdit(trip.value)
+    return
+  }
+  try {
+    await loadEditTrip(store, tripId)
+    startEdit(store.editTrip)
+  } catch (e) {
+    loadError.value = e.message
+  }
+  isLoading.value = false
+})
+
+// 여행 날짜 수 (시작일 ~ 끝날 포함, 날짜가 없으면 1)
+function countDays(t) {
+  if (!t.startDate || !t.endDate) return 1
+  return Math.round((new Date(t.endDate) - new Date(t.startDate)) / 86400000) + 1
+}
+
+// 지금 편집 화면 주소 (한 칸 수정·빼기에서 돌아올 곳)
+function hereLink() {
+  return '/plan/edit?' + (tripId ? 'id=' + tripId + '&' : '') + 'day=' + day.value
+}
+// 다른 날 고르기
+function pickDay(d) {
+  day.value = d
+  router.replace(hereLink())
+}
+
+// 두 칸 자리 바꾸기 (그날 칸 순서를 바꿔 넣고 시각을 다시 맞춤)
 function swapRows(from, to) {
-  const list = isDraft ? [...dayStopsOf(store, day)] : demoList.value
-  const startTime = isDraft && list.length ? list[0].time : null
+  const list = [...dayStopsOf(trip.value, day.value)]
+  const startTime = list[0].time
   const moved = list[from]
   list[from] = list[to]
   list[to] = moved
-  if (!isDraft) return
   retime(list, startTime)
-  setDayStops(store, day, list)
+  setDayStops(trip.value, day.value, list)
 }
-
 // 끌기: 다른 칸은 그대로, 끄는 칸만 손가락을 따라 움직이고 놓은 자리의 칸과 자리를 바꿔요 (11/04)
 // 움직임·놓기는 화면 전체(window)에서 받아요 (손가락이 손잡이 밖으로 나가도 계속)
 function startDrag(i, e) {
@@ -88,21 +130,48 @@ function moveBy(i, step) {
   swapRows(i, target)
 }
 
+// 한 칸 수정·빼기 열기 (몇째 날 몇 번째 칸, 돌아올 곳)
+function sheetLink(path, i) {
+  return `${path}?${tripId ? 'id=' + tripId + '&' : ''}day=${day.value}&idx=${i}&back=${encodeURIComponent(hereLink())}`
+}
 function openStop(i) {
-  router.push(isDraft ? `/plan/edit/stop?day=${day}&idx=${i}&back=${encodeURIComponent(backTo)}` : '/plan/edit/stop?idx=' + i)
+  router.push(sheetLink('/plan/edit/stop', i))
 }
 function openDelete(i) {
-  router.push(isDraft ? `/plan/edit/delete?day=${day}&idx=${i}&back=${encodeURIComponent(backTo)}` : '/plan/edit/delete?idx=' + i)
+  router.push(sheetLink('/plan/edit/delete', i))
+}
+
+// 저장된 여행이면 상세로, 초안이면 일정 점검으로
+function exitLink() {
+  if (!tripId) return '/plan/check?day=' + day.value
+  return trip.value ? tripDetailLink(trip.value) : '/trips'
 }
 
 function cancel() {
-  if (isDraft) cancelEdit(store)
-  goBack('/plan/check')
+  const link = exitLink() // 복사본을 지우기 전에 돌아갈 곳부터 정함
+  cancelEdit(trip.value)
+  if (tripId) store.editTrip = null
+  goBackTo(link)
 }
-function done() {
-  if (isDraft) finishEdit()
-  showToast(isDraft ? '일정을 바꿨어요 · 시간을 다시 계산해요' : '일정을 바꿨어요')
-  router.replace(isDraft ? '/plan/check?day=' + day : '/plan/check')
+
+async function done() {
+  if (!tripId) {
+    finishEdit()
+    showToast('일정을 바꿨어요 · 시간을 다시 계산해요')
+    goBackTo(exitLink())
+    return
+  }
+  const link = exitLink()
+  isSaving.value = true
+  try {
+    await saveEditTrip(store)
+    showToast('일정을 저장했어요')
+    goBackTo(link) // 상세로 돌아가면 상세가 서버에서 다시 읽어요
+  } catch (e) {
+    showToast(e.message)
+  } finally {
+    isSaving.value = false
+  }
 }
 </script>
 
@@ -111,15 +180,19 @@ function done() {
     <div class="app app--white">
       <header class="topbar" style="padding-right: 16px">
         <button type="button" class="iconbtn" aria-label="편집 취소" @click="cancel"><i class="ic ic--l i-close" aria-hidden="true"></i></button>
-        <h1 class="topbar__title">일정 편집{{ isDraft && day > 1 ? ' · ' + day + '일차' : '' }}</h1>
-        <button type="button" class="btn btn--primary btn--sm" @click="done">완료</button>
+        <h1 class="topbar__title">일정 편집{{ dayList.length > 1 ? ' · ' + day + '일차' : '' }}</h1>
+        <button type="button" class="btn btn--primary btn--sm" :disabled="isLoading || isSaving || !hasTrip" @click="done">{{ isSaving ? '저장 중' : '완료' }}</button>
       </header>
 
       <div class="scroll" style="padding-top: 4px; gap: 10px; bottom: 34px">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
-          <p class="t-cap" style="display: flex; align-items: center; gap: 4px"><i class="ic ic--s i-grip" aria-hidden="true"></i>손잡이를 끌어 순서를 바꿔요{{ isDraft ? ' · 시각은 다시 계산해요' : '' }}</p>
-          <span v-if="!isDraft" class="badge badge--success tn" aria-live="polite"><i class="ic ic--s i-check" aria-hidden="true"></i>예약 여유 {{ concertTrip.slack }}분</span>
+        <p v-if="isLoading" class="t-cap">일정을 불러오는 중이에요</p>
+        <p v-else-if="loadError" class="t-cap c-warning">{{ loadError }}</p>
+        <p v-else-if="!hasTrip" class="t-cap">고칠 일정이 없어요</p>
+        <template v-else>
+        <div v-if="dayList.length > 1" class="pe-days" role="tablist" aria-label="며칠째">
+          <button v-for="d in dayList" :key="d.day" type="button" role="tab" class="chip chip--sm" :class="{ 'is-on': d.day === day }" :aria-selected="d.day === day" @click="pickDay(d.day)">{{ d.day }}일차<span class="t-cap tn">{{ d.label }}</span></button>
         </div>
+        <p class="t-cap" style="display: flex; align-items: center; gap: 4px"><i class="ic ic--s i-grip" aria-hidden="true"></i>손잡이를 끌어 순서를 바꿔요 · 시각은 다시 계산해요</p>
 
         <ol class="elist">
           <li
@@ -130,21 +203,23 @@ function done() {
             :style="dragIndex === i ? { transform: 'translateY(' + dragY + 'px)' } : null"
             :data-idx="i"
           >
-            <button type="button" class="delbtn" :aria-label="stop.name + ' 빼기'" @click="openDelete(i)"><i class="ic ic--s i-minus" aria-hidden="true"></i></button>
+            <button v-if="!stop.isDone" type="button" class="delbtn" :aria-label="stop.name + ' 빼기'" @click="openDelete(i)"><i class="ic ic--s i-minus" aria-hidden="true"></i></button>
+            <span v-else class="delbtn" style="visibility: hidden" aria-hidden="true"></span>
             <button type="button" class="stop" :class="{ 'is-fixed': stop.fixed }" style="grid-template-columns: 1fr" @click="openStop(i)">
               <span class="stop__card">
                 <img class="thumb" :src="stop.img" alt="" />
                 <span class="stop__body">
                   <span class="stop__name">{{ stop.name }}</span>
-                  <span v-if="stop.fixed" class="stop__meta c-navy">{{ stop.time }} · 시간 고정</span>
+                  <span v-if="stop.isDone" class="stop__meta c-success"><i class="ic ic--s i-check" aria-hidden="true"></i>{{ stop.time }} · 다녀왔어요</span>
+                  <span v-else-if="stop.fixed" class="stop__meta c-navy">{{ stop.time }} · 시간 고정</span>
                   <span v-else-if="stop.isStay" class="stop__meta c-navy"><i class="ic ic--s i-home" aria-hidden="true"></i>숙소</span>
                   <span v-else class="stop__meta">{{ stop.time || '시각 다시 계산' }} · {{ toDuration(stop.dur) }}</span>
                 </span>
                 <span v-if="!stop.fixed && !stop.isStay" class="imp" :class="'imp--' + stop.imp">{{ importance[stop.imp] }}</span>
               </span>
             </button>
-            <span v-if="!stop.movable" class="grip" style="opacity: 0.35; cursor: default" :aria-label="stop.isStay ? '숙소는 순서가 그대로예요' : '고정 일정은 순서가 그대로예요'">
-              <i class="ic ic--l" :class="stop.isStay ? 'i-home' : 'i-clock'" aria-hidden="true"></i>
+            <span v-if="!stop.movable" class="grip" style="opacity: 0.35; cursor: default" :aria-label="stop.isDone ? '다녀온 곳은 순서가 그대로예요' : stop.isStay ? '숙소는 순서가 그대로예요' : '고정 일정은 순서가 그대로예요'">
+              <i class="ic ic--l" :class="stop.isDone ? 'i-check' : stop.isStay ? 'i-home' : 'i-clock'" aria-hidden="true"></i>
             </span>
             <button
               v-else
@@ -159,7 +234,9 @@ function done() {
             </button>
           </li>
         </ol>
-        <RouterLink to="/plan/manual" class="btn btn--secondary btn--md btn--block" style="margin-top: 4px"><i class="ic i-plus" aria-hidden="true"></i>장소 추가</RouterLink>
+        <!-- 장소 추가는 새로 짜는 초안에만 담겨요 (저장된 여행에 추가는 아직 연결 전이라 숨김) -->
+        <RouterLink v-if="!tripId" to="/plan/manual" class="btn btn--secondary btn--md btn--block" style="margin-top: 4px"><i class="ic i-plus" aria-hidden="true"></i>장소 추가</RouterLink>
+        </template>
       </div>
     </div>
   </div>
@@ -168,6 +245,9 @@ function done() {
 <style>
 .scr-PlanEdit .elist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .scr-PlanEdit .grip { touch-action: none; }
+.scr-PlanEdit .pe-days { display: flex; gap: 6px; overflow-x: auto; }
+.scr-PlanEdit .pe-days .chip { gap: 4px; flex: none; }
+.scr-PlanEdit .pe-days .chip.is-on .t-cap { color: inherit; }
 .scr-PlanEdit .erow.is-drag { position: relative; z-index: 5; pointer-events: none; }
 .scr-PlanEdit .erow.is-drag .stop__card { border-color: var(--navy); background: #fff; box-shadow: 0 8px 20px rgba(24, 33, 58, 0.22); }
 .scr-PlanEdit .erow.is-target .stop__card { border: 2px dashed var(--navy); background: var(--navy-soft); }

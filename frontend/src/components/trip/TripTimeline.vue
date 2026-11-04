@@ -1,19 +1,20 @@
 <script setup>
 // 일정 목록 (시간 · 장소 카드 · 사이 이동). 일정 점검·여행 상세·테마 코스가 같이 써요
-// 이동 줄을 누르면 도보·버스·지하철·택시 중에 고를 수 있어요
+// modeEditable이면 이동 줄을 눌러 도보·대중교통·택시 중에 골라요 → change-mode(칸 번호, 수단) (11/04)
+//   고르면 점검 화면이 그 칸 수단을 바꾸고 다시 점검해서 시간·경로가 진짜로 바뀌어요. 아니면 글자만 보여 줘요
 // 메모가 있으면 카드 아래 한 줄 (AI 일정: 고른 이유 · 리뷰 근거 "조용해요 · 리뷰 10개 중 4개")
 // reorderable이면 카드 오른쪽 손잡이를 끌어 다른 칸에 놓으면 두 칸 자리가 바뀌어요 (고정·숙소 칸은 손잡이 없음) → reorder(새 순서의 원래 번호 목록) (11/04)
 import { onUnmounted, ref, watch } from 'vue'
 import { importance, modes } from '@/data/places'
-import { minutesBy } from '@/data/trips'
-import { showToast } from '@/utils/toast'
 
 const props = defineProps({
   stops: { type: Array, required: true },
   selected: { type: Number, default: null },
   reorderable: { type: Boolean, default: false },
+  modeEditable: { type: Boolean, default: false },
 })
-const emit = defineEmits(['select', 'reorder'])
+const emit = defineEmits(['select', 'reorder', 'change-mode'])
+const MODE_CHOICES = ['walk', 'transit', 'taxi'] // 고를 수 있는 수단 (서버 Stop.mode가 아는 값만)
 
 // 끌기: 다른 칸은 그대로 두고, 끄는 칸만 손가락을 따라 움직여요. 놓은 자리의 칸과 둘이 자리를 바꿔요 (11/04)
 const dragFrom = ref(null) // 끄는 칸 번호 (안 끌면 null)
@@ -81,7 +82,6 @@ function moveBy(i, step) {
 }
 
 const openLeg = ref(null) // 이동 수단 고르기를 연 줄 번호
-const pickedMode = ref({}) // 줄 번호 → 고른 이동 수단
 
 const weather = {
   sun: { icon: 'i-sun', label: '맑음' },
@@ -89,20 +89,13 @@ const weather = {
   rain: { icon: 'i-rain', label: '비 60%' },
 }
 
-function modeOf(i, leg) {
-  return pickedMode.value[i] || leg.mode
-}
-function minutesOf(i, leg) {
-  const mode = modeOf(i, leg)
-  return mode === leg.mode ? leg.min : minutesBy(mode, leg.walk)
-}
 function toggleLeg(i) {
   openLeg.value = openLeg.value === i ? null : i
 }
+// 수단을 고름: 지금 수단이면 닫기만, 다르면 점검 화면에 알림
 function pickMode(i, mode) {
-  pickedMode.value[i] = mode
   openLeg.value = null
-  showToast(modes[mode].label + '(으)로 바꿨어요 · 시간을 다시 계산했어요')
+  if (mode !== props.stops[i].leg.mode) emit('change-mode', i, mode)
 }
 </script>
 
@@ -113,24 +106,25 @@ function pickMode(i, mode) {
       <li v-if="stop.leg" class="leg">
         <span></span>
         <span>
-          <button type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
-            <i class="ic ic--s" :class="modes[modeOf(i, stop.leg)].icon" aria-hidden="true"></i>{{ modes[modeOf(i, stop.leg)].label }} {{ minutesOf(i, stop.leg) }}분<i class="ic ic--s i-down" aria-hidden="true"></i>
+          <button v-if="modeEditable" type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
+            <i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ stop.leg.min }}분<i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
+          <span v-else class="legbtn legbtn--text"><i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ stop.leg.min }}분</span>
           <b v-if="stop.leg.rush" class="legwarn"><i class="ic ic--s i-users" aria-hidden="true"></i>퇴근길 혼잡</b>
         </span>
       </li>
-      <li v-if="stop.leg && openLeg === i" class="legpick" role="radiogroup" aria-label="이동 수단">
+      <li v-if="modeEditable && stop.leg && openLeg === i" class="legpick" role="radiogroup" aria-label="이동 수단">
         <button
-          v-for="(m, key) in modes"
+          v-for="key in MODE_CHOICES"
           :key="key"
           type="button"
           role="radio"
-          :aria-checked="key === modeOf(i, stop.leg)"
+          :aria-checked="key === stop.leg.mode"
           class="chip chip--sm"
-          :class="{ 'is-on': key === modeOf(i, stop.leg) }"
+          :class="{ 'is-on': key === stop.leg.mode }"
           @click="pickMode(i, key)"
         >
-          <i class="ic ic--s" :class="m.icon" aria-hidden="true"></i>{{ m.label }} {{ key === stop.leg.mode ? stop.leg.min : minutesBy(key, stop.leg.walk) }}분
+          <i class="ic ic--s" :class="modes[key].icon" aria-hidden="true"></i>{{ modes[key].label }}<template v-if="key === stop.leg.mode"> {{ stop.leg.min }}분</template>
         </button>
       </li>
 
@@ -181,5 +175,6 @@ function pickMode(i, mode) {
 .tl .tl-row.is-drag{position:relative;z-index:5;pointer-events:none}
 .tl .tl-row.is-drag .stop__card{border-color:var(--navy);background:#fff;box-shadow:0 8px 20px rgba(24,33,58,.22)}
 .tl .tl-row.is-target .stop__card{border:2px dashed var(--navy);background:var(--navy-soft)}
+.tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>

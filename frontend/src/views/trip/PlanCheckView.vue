@@ -5,10 +5,12 @@
 // 11/04: 여러 날이면 일차를 골라 그날만 점검(?day=N) · 목록 손잡이를 끌어 순서 바꾸기 → 시각을 비우고 다시 점검
 //        · 지도는 점검 결과의 구간 경로(길찾기 API)로 진짜 길
 //        · 오른쪽 위 버튼은 칸을 골랐을 때만 "○○ 편집"으로 떠서 그 칸 수정으로 가요 (순서는 목록에서 끌어서 바꿔요)
+//        · 이동 줄을 눌러 도보·대중교통·택시를 고르면 그 칸 수단(mode)을 바꾸고 다시 점검 → 시간·경로가 진짜로 바뀜
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TripPage from '@/components/trip/TripPage.vue'
 import { concertTrip } from '@/data/trips'
+import { modes } from '@/data/places'
 import { checkPlan, createTrip } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { addDays } from '@/utils/dates'
@@ -64,12 +66,21 @@ function pickDay(d) {
 
 // 목록에서 끌어 순서를 바꿈: order = 원래 번호를 새 순서로. 첫 시각·고정 칸만 두고 나머지는 비운 뒤 다시 점검
 function reorder(order) {
-  const list = dayStopsOf(store, day.value)
+  const list = dayStopsOf(store.draft, day.value)
   const startTime = list.length ? list[0].time : null
   const moved = order.map((i) => list[i])
   retime(moved, startTime)
-  setDayStops(store, day.value, moved)
+  setDayStops(store.draft, day.value, moved)
   runCheck()
+}
+
+// 이동 수단을 바꿈: i번째 칸으로 오는 수단을 초안에 넣고, 시각을 비운 뒤 다시 점검 (시간·경로를 서버가 다시 계산)
+async function changeMode(i, mode) {
+  const list = dayStopsOf(store.draft, day.value)
+  list[i].mode = mode
+  retime(list, list[0].time)
+  await runCheck()
+  if (!error.value) showToast(modes[mode].label + '(으)로 바꿨어요')
 }
 
 // 고른 칸 편집 버튼: "성내동 카페 편집" → 그 칸 수정 (칸을 안 고르면 버튼이 없어요)
@@ -78,7 +89,7 @@ function editLabel(selected) {
 }
 function editLink(selected) {
   if (!hasDraft.value) return '/plan/edit/stop?idx=' + selected
-  return `/plan/edit/stop?day=${day.value}&idx=${selected}&back=${encodeURIComponent('/plan/check?day=' + day.value)}`
+  return `/plan/edit/stop?day=${day.value}&idx=${selected}&back=${encodeURIComponent(route.fullPath)}` // 돌아올 곳 = 지금 주소 그대로
 }
 
 async function save() {
@@ -105,7 +116,7 @@ async function save() {
 
 <template>
   <div class="scr scr-PlanCheck">
-    <TripPage :trip="trip" back="/trips" :reorderable="hasDraft" @reorder="reorder">
+    <TripPage :trip="trip" back="/trips" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode">
       <template #right="{ selected }">
         <RouterLink v-if="selected !== null" :to="editLink(selected)" class="btn btn--sm btn--float"><i class="ic ic--s i-edit" aria-hidden="true"></i>{{ editLabel(selected) }}</RouterLink>
       </template>
