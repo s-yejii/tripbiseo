@@ -83,8 +83,19 @@ export function toViewTrip(trip, check = null, day = 1) {
   }
   if (check && check.slackMin != null) view.slack = check.slackMin
   // 구간별 실제 경로선 (점검 결과의 legs: 길찾기 API 좌표, 실패하면 두 점) → 지도에 구불구불한 길 (11/04)
-  view.legs = check && check.legs ? check.legs.map((leg) => ({ coords: leg.coords || [], mode: leg.mode })) : []
+  // from·to: 구간 앞뒤 장소 좌표 → 대중교통 선이 역·정류장에서 끝나면 장소까지 걷는 점으로 이어요 (KakaoMap)
+  view.legs = check && check.legs ? check.legs.map((leg, i) => toViewLeg(leg, check.stops[i], check.stops[i + 1])) : []
   return view
+}
+
+// 구간 하나: 경로선 + 수단 + 앞뒤 장소 좌표 [위도, 경도] (없으면 null)
+function toViewLeg(leg, fromStop, toStop) {
+  return {
+    coords: leg.coords || [],
+    mode: leg.mode,
+    from: fromStop && fromStop.lat != null ? [fromStop.lat, fromStop.lng] : null,
+    to: toStop && toStop.lat != null ? [toStop.lat, toStop.lng] : null,
+  }
 }
 
 // 칸 메모 (점검 결과 칸에는 memo가 없어서 원래 일정에서 이름·날짜로 찾음). AI 일정이면 고른 이유·리뷰 근거
@@ -117,7 +128,8 @@ function toViewStop(stop, position, memo = null) {
     lat: stop.lat,
     lng: stop.lng,
     warn: !!stop.issue,
-    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes } : null,
+    // walkMin: 그중 걷는 시간 (대중교통이면 역·정류장까지·갈아탈 때, 11/04)
+    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walkMin: stop.leg.walkMinutes || 0 } : null,
     x: position.x,
     y: position.y,
   }

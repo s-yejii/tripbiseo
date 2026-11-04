@@ -90,6 +90,15 @@ const weather = {
   rain: { icon: 'i-rain', label: '비 60%' },
 }
 
+// 대중교통·차인데 걷는 시간이 있으면 "대중교통 16분 +도보 6분"으로 나눠 보여 줘요 (11/04)
+//   서버 minutes는 걷는 시간까지 합친 값이라, 앞 숫자는 걷는 시간을 뺀 타는 시간
+function hasWalkPart(leg) {
+  return leg.mode !== 'walk' && leg.walkMin > 0
+}
+function rideMinutes(leg) {
+  return hasWalkPart(leg) ? Math.max(1, leg.min - leg.walkMin) : leg.min
+}
+
 function toggleLeg(i) {
   openLeg.value = openLeg.value === i ? null : i
 }
@@ -108,9 +117,9 @@ function pickMode(i, mode) {
         <span></span>
         <span>
           <button v-if="modeEditable" type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
-            <i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ stop.leg.min }}분<i class="ic ic--s i-down" aria-hidden="true"></i>
+            <i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ rideMinutes(stop.leg) }}분<b v-if="hasWalkPart(stop.leg)" class="legwalk">+도보 {{ stop.leg.walkMin }}분</b><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
-          <span v-else class="legbtn legbtn--text"><i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ stop.leg.min }}분</span>
+          <span v-else class="legbtn legbtn--text"><i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ rideMinutes(stop.leg) }}분<b v-if="hasWalkPart(stop.leg)" class="legwalk">+도보 {{ stop.leg.walkMin }}분</b></span>
           <b v-if="stop.leg.rush" class="legwarn"><i class="ic ic--s i-users" aria-hidden="true"></i>퇴근길 혼잡</b>
         </span>
       </li>
@@ -179,6 +188,7 @@ function pickMode(i, mode) {
 /* 고정 칸 앞·뒤에 끼울 때: 카드 위(앞)·아래(뒤) 테두리를 굵게 → "여기 앞/뒤에 들어가요" */
 .tl .tl-row.is-before .stop__card{background:var(--navy-soft);box-shadow:inset 0 4px 0 var(--navy)}
 .tl .tl-row.is-after .stop__card{background:var(--navy-soft);box-shadow:inset 0 -4px 0 var(--navy)}
+.tl .legwalk{color:var(--success);font-weight:700}
 .tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>

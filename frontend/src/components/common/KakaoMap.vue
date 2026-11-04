@@ -5,6 +5,8 @@
 //   focusAround(center, points) center를 가운데에 두고 points(앞뒤 경로)가 다 보이게 확대 (11/04)
 // move: 지도가 움직이는 동안(끌기·확대·코드로 옮기기) 계속 보내요 → 부모가 핀 위 말풍선을 핀에 붙여 따라 옮겨요 (11/04)
 // 화면 좌표 { x, y, isInside }: isInside는 그 점이 지도 칸 안에 보이는지 (밖이면 말풍선을 숨기게)
+// 지도는 아래 시트 뒤까지 화면 전체에 깔아요 (시트를 내리면 지도가 보이게, 11/04).
+//   그래서 화면 맞추기·가운데 옮기기는 padding(위 버튼·아래 시트에 가리는 만큼) 안쪽 기준이에요 (centerFor)
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { loadKakaoMap } from '@/utils/kakaoMap'
 
@@ -13,7 +15,8 @@ const props = defineProps({
   me: { type: Object, default: null }, // 내 위치 { lat, lng }
   showRoute: { type: Boolean, default: true },
   path: { type: Array, default: () => [] }, // 길 안내 경로선 [[위도, 경도], ...] (도로를 따라가는 진짜 길)
-  paths: { type: Array, default: () => [] }, // 구간별 진짜 길 [{ coords: [[위도, 경도], ...], mode }] (일정 점검, 11/04). 도보는 점선
+  paths: { type: Array, default: () => [] }, // 구간별 진짜 길 [{ coords: [[위도, 경도], ...], mode, from, to }] (일정 점검, 11/04). 도보는 동그라미 점
+  //   from·to(앞뒤 장소 [위도, 경도])가 있으면, 대중교통 선이 역·정류장에서 끝날 때 장소까지 걷는 점으로 이어요
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
   follow: { type: Boolean, default: false }, // 내 위치가 바뀌면 지도를 따라 옮김 (길 안내)
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
@@ -34,6 +37,7 @@ let overlays = [] // 지금 지도에 올린 핀·선 (다시 그릴 때 지움)
 let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 뒤엔 사용자가 옮긴 화면을 유지)
 let isMovingByCode = false // moveTo로 옮기는 중
 const WALK_DOT_GAP_PX = 12 // 걷는 길 동그라미 점 사이 간격 (화면 px, 확대해도 같은 간격)
+const WALK_END_GAP_M = 30 // 대중교통 선 끝과 장소가 이보다 멀면 걷는 점으로 이어요
 let walkLegs = [] // 걷는 구간 좌표 목록 (확대·축소하면 점을 다시 찍음)
 let dotOverlays = [] // 지금 찍힌 동그라미 점
 
@@ -93,8 +97,12 @@ function draw() {
   for (const leg of props.paths) {
     if (!leg.coords || leg.coords.length < 2) continue
     const legPoints = leg.coords.map((point) => new kakao.maps.LatLng(point[0], point[1]))
-    if (leg.mode === 'walk') walkLegs.push(legPoints) // 걷는 길은 동그라미 점으로 (화면을 맞춘 뒤 찍음)
-    else addLeg(legPoints)
+    if (leg.mode === 'walk') {
+      walkLegs.push(legPoints) // 걷는 길은 동그라미 점으로 (화면을 맞춘 뒤 찍음)
+    } else {
+      addLeg(legPoints)
+      addWalkEnds(leg, legPoints)
+    }
   }
   if (props.ring) addRing(props.ring)
 
@@ -136,6 +144,22 @@ function addLeg(points) {
   under.setMap(map)
   line.setMap(map)
   overlays.push(under, line)
+}
+
+// 대중교통 길찾기는 타는 구간 선만 줘서, 장소 → 역·정류장, 역·정류장 → 장소 걷는 부분이 비어요 (11/04)
+// 선의 처음·끝이 장소에서 30m 넘게 떨어져 있으면 그 사이를 걷는 점으로 이어요 (걷는 길 모양은 몰라서 곧게)
+function addWalkEnds(leg, legPoints) {
+  const first = legPoints[0]
+  const last = legPoints[legPoints.length - 1]
+  if (leg.from && isFar(leg.from, first)) walkLegs.push([new kakao.maps.LatLng(leg.from[0], leg.from[1]), first])
+  if (leg.to && isFar(leg.to, last)) walkLegs.push([last, new kakao.maps.LatLng(leg.to[0], leg.to[1])])
+}
+
+// [위도, 경도]와 지도 좌표가 WALK_END_GAP_M보다 먼지 (짧은 거리라 평면으로 계산)
+function isFar(point, position) {
+  const dy = (position.getLat() - point[0]) * 111000
+  const dx = (position.getLng() - point[1]) * 111000 * Math.cos((point[0] * Math.PI) / 180)
+  return Math.hypot(dx, dy) > WALK_END_GAP_M
 }
 
 // 걷는 길: 선 대신 동그라미 점을 화면에서 12px마다 찍어요 (지도 점선은 길쭉하게 나와서)
@@ -233,7 +257,7 @@ function fitOnce(points) {
 // 내 위치로 지도를 옮김 (부모의 "내 위치로" 버튼)
 function focusMe() {
   if (!map || !props.me) return false
-  map.panTo(new kakao.maps.LatLng(props.me.lat, props.me.lng))
+  map.panTo(centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng)))
   return true
 }
 
@@ -279,8 +303,19 @@ function focusAround(center, points) {
   const pad = props.padding
   map.setBounds(bounds, pad.top, pad.right, pad.bottom, pad.left)
   if (map.getLevel() < CLOSEST_LEVEL) map.setLevel(CLOSEST_LEVEL)
-  map.setCenter(new kakao.maps.LatLng(center[0], center[1]))
+  map.setCenter(centerFor(new kakao.maps.LatLng(center[0], center[1])))
   isMovingByCode = false
+}
+
+// position이 가려지지 않는 칸(padding 안쪽)의 가운데에 보이려면 지도 가운데를 어디에 둬야 하는지
+//   예: 아래 시트가 404px 가리면 보이는 칸 가운데는 지도 가운데보다 위 → 그만큼 지도 가운데를 아래로
+function centerFor(position) {
+  const pad = props.padding
+  const shiftX = (pad.left - pad.right) / 2 // 보이는 칸 가운데가 지도 가운데보다 오른쪽(+)으로 몇 px
+  const shiftY = (pad.top - pad.bottom) / 2 // 아래(+)로 몇 px
+  const projection = map.getProjection()
+  const point = projection.containerPointFromCoords(position)
+  return projection.coordsFromContainerPoint(new kakao.maps.Point(point.x - shiftX, point.y - shiftY))
 }
 
 defineExpose({ focusMe, fitAll, pointOf, moveTo, focusAround })

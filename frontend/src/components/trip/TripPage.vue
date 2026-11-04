@@ -32,7 +32,8 @@ const mapRef = ref(null) // 카카오 지도 (칸을 고르면 그 칸 쪽으로
 const useRealMap = ref(true) // 카카오 지도를 못 쓰면(키 없음·불러오기 실패) false → 예전 지도 그림
 const pickedPoint = ref(null) // 카카오 지도에서 누른 핀의 화면 위치 { x, y, isInside } (말풍선 위치)
 const isTipOnPin = ref(false) // 핀을 눌러 말풍선을 띄웠는지 (지도를 옮기면 말풍선이 핀을 따라가요)
-const TRIP_MAP_PADDING = { top: 110, right: 40, bottom: 40, left: 40 } // 핀이 위 버튼에 가리지 않게
+// 지도는 시트 뒤까지 화면 전체 (시트를 내리면 지도가 보여요). 핀은 위 버튼·아래 시트(404px)에 가리지 않는 곳에 맞춰요 (11/04)
+const TRIP_MAP_PADDING = { top: 110, right: 40, bottom: 444, left: 40 }
 const FOCUS_RADIUS_M = 400 // 칸을 고르면 핀에서 이만큼(m)까지의 앞뒤 경로만 보이게 확대 (지하철처럼 긴 길도 좁게)
 
 // 모든 칸에 좌표가 있으면 카카오 지도 (좌표 없는 가짜 테마 코스는 그림 지도)
@@ -164,10 +165,10 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" @move="followPin" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" style="bottom: 404px" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" @move="followPin" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
-    <div class="map" aria-hidden="true" style="bottom: 404px"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
+    <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
     <svg class="route trip-route" viewBox="0 0 390 344">
       <polyline :points="routePoints" fill="none" stroke="#1F3A68" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 8" />
     </svg>

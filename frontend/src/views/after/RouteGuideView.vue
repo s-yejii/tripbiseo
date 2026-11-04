@@ -34,7 +34,8 @@ const DEMO_STEP_MS = 1500
 const DEMO_STEP_COUNT = 24 // 시연: 경로를 몇 걸음에 가는지
 const DEMO_START_OFFSET = 0.004 // 시연: 다녀온 곳이 없을 때 출발점을 도착지에서 이만큼(도) 떨어뜨림
 const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978 }
-const ROUTE_MAP_PADDING = { top: 120, right: 40, bottom: 40, left: 40 }
+// 지도는 시트 뒤까지 화면 전체 (시트를 내리면 지도가 보여요). 아래 시트(404px)에 가리지 않는 곳에 맞춰요 (11/04)
+const ROUTE_MAP_PADDING = { top: 120, right: 40, bottom: 444, left: 40 }
 
 const route = useRoute()
 const router = useRouter()
@@ -392,7 +393,7 @@ const statusText = computed(() => {
       </template>
 
       <template v-else>
-        <KakaoMap :pins="mapPins" :me="position" :path="path" follow :padding="ROUTE_MAP_PADDING" style="bottom: 380px" />
+        <KakaoMap :pins="mapPins" :me="position" :path="path" follow :padding="ROUTE_MAP_PADDING" />
 
         <header class="topbar topbar--float">
           <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/live')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
