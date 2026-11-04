@@ -1,13 +1,15 @@
 <script setup>
-// "가고 싶은 곳": 인스타 게시물·릴스 링크를 붙여넣으면 글에 나온 장소를 찾아 담아요 (③ POST /api/plans/links)
+// "가고 싶은 곳": 인스타·유튜브·네이버 링크를 붙여넣으면 글에 나온 장소를 찾아 담아요 (③ POST /api/plans/links)
 // 담은 곳은 일정 조건의 "꼭 갈 곳"(store.planConditions.mustVisit)에 이름으로 들어가요
-// 인스타가 글을 안 보여 주면(422) 게시물 글을 복사해 붙이는 칸을 열어요
+// 글을 못 읽었거나(422) 찾은 곳이 없으면 글을 복사해 붙이는 칸을 열어요 (유튜브는 키가 없으면 제목만 읽어요)
 import { computed, ref } from 'vue'
 import { findLinkPlaces } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
+import { areaFromPlaces } from '@/utils/planArea'
 import { showToast } from '@/utils/toast'
 
 const store = useTripStore()
+const emit = defineEmits(['added'])
 
 const url = ref('')
 const caption = ref('')
@@ -15,11 +17,25 @@ const showCaption = ref(false)
 const error = ref('')
 const loading = ref(false)
 const found = ref(null) // 찾은 장소 카드 목록 (찾기 전에는 null)
-const missed = ref([]) // 글에는 있었지만 못 찾은 이름
 const picked = ref({}) // 찾은 장소 중 고른 것 { 이름: true }
 
 const wish = computed(() => store.planConditions?.mustVisit || [])
 const pickCount = computed(() => (found.value ? found.value.filter((place) => picked.value[place.name]).length : 0))
+
+// 추천 게시물을 누르면 링크를 넣고 바로 찾기 (여행 정보 화면이 불러요)
+function fill(link) {
+  url.value = link
+  found.value = null
+  findPlaces()
+}
+defineExpose({ fill })
+
+// 찾은 곳 표시: 링크 주소로 플랫폼 이름
+const sourceName = computed(() => {
+  if (/youtu/.test(url.value)) return '유튜브'
+  if (/naver/.test(url.value)) return '네이버'
+  return '인스타'
+})
 
 async function findPlaces() {
   const link = url.value.trim()
@@ -28,8 +44,12 @@ async function findPlaces() {
   loading.value = true
   try {
     const result = await findLinkPlaces(link, caption.value.trim() || null)
+    if (!result.places.length) {
+      error.value = '장소를 못 찾았어요. 설명 글을 붙여 넣어 주세요'
+      showCaption.value = true
+      return
+    }
     found.value = result.places
-    missed.value = result.missed
     picked.value = {}
     for (const place of result.places) {
       if (!wish.value.includes(place.name)) picked.value[place.name] = true
@@ -43,7 +63,6 @@ async function findPlaces() {
 }
 function cancel() {
   found.value = null
-  missed.value = []
   url.value = ''
   caption.value = ''
   showCaption.value = false
@@ -52,10 +71,19 @@ function setWish(names) {
   store.planConditions = { ...(store.planConditions || {}), mustVisit: names }
 }
 function addPicked() {
-  const add = found.value.filter((place) => picked.value[place.name]).map((place) => place.name)
-  setWish([...wish.value, ...add])
+  const places = found.value.filter((place) => picked.value[place.name])
+  setWish([...wish.value, ...places.map((place) => place.name)])
+  const area = setAreaFrom(places)
   cancel()
-  showToast(add.length + '곳을 담았어요 · 일정에 꼭 넣을게요')
+  showToast(places.length + '곳 담음' + (area ? ' · ' + area.fullName : ''))
+  emit('added', places)
+}
+// 담은 곳 주소에서 가장 많이 나온 구를 지역으로 (직접 고른 지역이 있으면 그대로 둠). 좌표는 그 구 장소들의 가운데
+function setAreaFrom(places) {
+  if (store.planArea && !store.planArea.isAuto) return null
+  const area = areaFromPlaces(places)
+  if (area) store.planArea = area
+  return area
 }
 function removeWish(name) {
   setWish(wish.value.filter((item) => item !== name))
@@ -65,7 +93,7 @@ function removeWish(name) {
 <template>
   <div v-for="name in wish" :key="name" class="opt" style="padding: 10px 12px">
     <span class="ico-tile"><i class="ic i-pin" aria-hidden="true"></i></span>
-    <span class="opt__body"><b class="t-strong">{{ name }}</b><span class="t-cap">일정에 꼭 넣어요</span></span>
+    <span class="opt__body"><b class="t-strong">{{ name }}</b></span>
     <button type="button" class="iconbtn" :aria-label="name + ' 빼기'" @click="removeWish(name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
   </div>
 
@@ -73,22 +101,21 @@ function removeWish(name) {
     <form class="wl-form" @submit.prevent="findPlaces">
       <div class="field" :class="{ 'is-error': error }" style="flex: 1; min-width: 0">
         <label for="pa-url" class="sr">게시물 링크</label>
-        <div class="field__box"><input id="pa-url" v-model="url" type="text" inputmode="url" placeholder="인스타 게시물·릴스 링크" autocomplete="off" autocapitalize="off" @input="error = ''" /></div>
+        <div class="field__box"><input id="pa-url" v-model="url" type="text" inputmode="url" placeholder="링크 붙여넣기" autocomplete="off" autocapitalize="off" @input="error = ''" /></div>
       </div>
       <button type="submit" class="btn btn--secondary btn--md" :disabled="loading">{{ loading ? '찾는 중' : '장소 찾기' }}</button>
     </form>
     <p v-if="error" class="field__help c-danger" style="margin: -4px 0 0" role="alert"><i class="ic ic--s i-danger" aria-hidden="true"></i>{{ error }}</p>
     <div v-if="showCaption" class="field">
       <label for="pa-caption" class="t-cap">게시물 글</label>
-      <textarea id="pa-caption" v-model="caption" class="wl-caption" rows="4" maxlength="2200" placeholder="인스타 앱에서 게시물 글을 복사해 붙여 넣어 주세요"></textarea>
+      <textarea id="pa-caption" v-model="caption" class="wl-caption" rows="4" maxlength="2200" placeholder="글 붙여 넣기"></textarea>
     </div>
-    <button v-else type="button" class="wl-more" @click="showCaption = true">게시물 글도 같이 붙여 넣기</button>
-    <p class="t-cap" style="margin: 0">게시물 속 장소를 찾아 드려요. 담은 곳은 일정에 꼭 넣어요.</p>
+    <button v-else type="button" class="wl-more" @click="showCaption = true">글 붙여 넣기</button>
   </template>
 
   <div v-else class="wl-found" role="group" aria-label="찾은 장소">
     <span style="display: flex; justify-content: space-between; align-items: center">
-      <b class="t-strong">{{ found.length ? '게시물에서 ' + found.length + '곳을 찾았어요' : '게시물에서 장소를 찾지 못했어요' }}</b><span class="wl-src"><i class="ic ic--s i-link" aria-hidden="true"></i>인스타</span>
+      <b class="t-strong">{{ found.length ? found.length + '곳 찾았어요' : '장소를 찾지 못했어요' }}</b><span class="wl-src"><i class="ic ic--s i-link" aria-hidden="true"></i>{{ sourceName }}</span>
     </span>
     <template v-for="place in found" :key="place.name">
       <div v-if="wish.includes(place.name)" class="opt is-locked">
@@ -100,10 +127,9 @@ function removeWish(name) {
         <span class="check" :class="{ 'is-on': picked[place.name] }"><i class="ic ic--s i-check" aria-hidden="true"></i></span>
       </button>
     </template>
-    <p v-if="missed.length" class="t-cap" style="margin: 0">찾지 못한 이름: {{ missed.join(', ') }}</p>
     <div class="cta__row">
       <button type="button" class="btn btn--secondary btn--md" @click="cancel">{{ found.length ? '취소' : '닫기' }}</button>
-      <button v-if="found.length" type="button" class="btn btn--primary btn--md" :disabled="!pickCount" @click="addPicked">{{ pickCount ? pickCount + '곳 담기' : '담을 곳을 골라요' }}</button>
+      <button v-if="found.length" type="button" class="btn btn--primary btn--md" :disabled="!pickCount" @click="addPicked">{{ pickCount ? pickCount + '곳 담기' : '골라 주세요' }}</button>
     </div>
   </div>
 </template>

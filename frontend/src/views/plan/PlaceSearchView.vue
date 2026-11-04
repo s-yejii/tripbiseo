@@ -11,7 +11,7 @@
 import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
-import { getLocationHere, searchAreas, searchLocations } from '@/api/trips'
+import { getLocationHere, getLocationHubs, searchAreas, searchLocations } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { goBack } from '@/utils/back'
 import { addDays, daysBetween, toMonthDay } from '@/utils/dates'
@@ -22,6 +22,9 @@ import { showToast } from '@/utils/toast'
 const SEARCH_WAIT_MS = 300 // 글자를 다 칠 때까지 기다렸다가 찾기
 const TYPE_TEXT = { gu: '구', dong: '동', spot: '동네' }
 const HERE_CATEGORY = '현재 위치' // 서버(/locations/here)가 붙여 주는 분류
+const WALK_M_PER_MIN = 67 // 걷는 속도 (4km/h)
+const WALK_LIMIT_M = 2000
+const LINE_COLOR = { 1: '#0052A4', 2: '#00A84D', 3: '#EF7C1C', 4: '#00A5DE', 5: '#996CAC', 6: '#CD7C2F', 7: '#747F00', 8: '#E6186C', 9: '#BDB092' } // 지하철 노선 색
 
 const route = useRoute()
 const store = useTripStore()
@@ -41,6 +44,10 @@ const isLoading = ref(false)
 const isLocating = ref(false)
 const error = ref('')
 const pickedIndex = ref(-1) // 카카오 결과에서 고른 칸
+const hubs = ref([]) // 출발지 추천: 근처 지하철역·구청·시청
+const pickedHub = ref(null)
+const hubsTitle = ref('')
+const isHubFromGps = ref(false) // 내 위치 기준이면 걷는 시간을 보여 줌
 const time = ref('') // 꼭 지킬 시각 'HH:mm'
 const fixedDay = ref(1) // 꼭 지킬 시간이 며칠째인지 (여러 날 여행에서만 고름)
 // 여행 날짜 목록 [{ day: 1, label: '12/4(금)' }] (여행 정보 달력에서 고른 기간, 당일치기면 1개)
@@ -57,7 +64,10 @@ let timer = null
 let requestNo = 0 // 늦게 온 예전 검색 결과는 버리려고
 
 if (mode === 'origin') {
-  getPositionOnce().then((pos) => (position = pos))
+  getPositionOnce().then((pos) => {
+    position = pos
+    loadHubs(pos)
+  })
 } else if (mode === 'fixed' && store.planArea) {
   position = { lat: store.planArea.lat, lng: store.planArea.lng } // 같은 이름 지점이 여럿일 때 여행 지역에서 가까운 곳을 고르게
 }
@@ -76,7 +86,36 @@ if (current) {
 }
 onUnmounted(() => clearTimeout(timer))
 
-const picked = computed(() => found.value[pickedIndex.value] || null)
+// 출발지 추천 받기: 내 위치, 없으면 고른 지역 가운데 기준 (둘 다 없으면 안 보여 줌)
+async function loadHubs(pos) {
+  const center = pos || store.planArea
+  if (!center) return
+  try {
+    hubs.value = await getLocationHubs(center.lat, center.lng)
+    isHubFromGps.value = !!pos
+    hubsTitle.value = pos ? '내 주변' : store.planArea.name + ' 주변'
+  } catch {
+    hubs.value = [] // 추천은 없어도 검색으로 고를 수 있음
+  }
+}
+// 검색 결과가 있으면 추천은 숨김 (현재 위치 한 줄만 있으면 같이 보여 줌)
+const showHubs = computed(() => mode === 'origin' && hubs.value.length > 0 && found.value.every((item) => item.category === HERE_CATEGORY))
+function pickHub(hub) {
+  pickedHub.value = hub
+  pickedIndex.value = -1
+}
+function hubLine(hub) {
+  const match = /(\d)호선/.exec(hub.category || '')
+  return match ? LINE_COLOR[match[1]] : ''
+}
+function hubText(hub) {
+  if (!isHubFromGps.value) return hub.category
+  const distance = hub.distance >= 1000 ? (hub.distance / 1000).toFixed(1) + 'km' : hub.distance + 'm'
+  if (hub.distance > WALK_LIMIT_M) return distance // 멀면 걷는 시간은 안 보여 줌
+  return '도보 ' + Math.max(1, Math.round(hub.distance / WALK_M_PER_MIN)) + '분 · ' + distance
+}
+
+const picked = computed(() => pickedHub.value || found.value[pickedIndex.value] || null)
 const isTimeOk = computed(() => TIME_PATTERN.test(time.value))
 const fixedAdded = computed(() => store.planConditions?.fixed || []) // 지금까지 넣은 꼭 지킬 시간
 const isFixedDone = computed(() => mode === 'fixed' && picked.value === null) // 꼭 지킬 시간에서 고른 곳이 없으면 버튼은 "완료"
@@ -88,6 +127,7 @@ function search(value) {
   keyword.value = value
   clearTimeout(timer)
   pickedIndex.value = -1
+  pickedHub.value = null
   error.value = ''
   if (!value.trim()) {
     found.value = []
@@ -122,6 +162,7 @@ async function useHere() {
     return
   }
   position = pos
+  loadHubs(pos)
   try {
     const here = await getLocationHere(pos.lat, pos.lng)
     // 전에 넣은 '현재 위치' 줄은 빼고 새 위치 하나만 맨 위에 (여러 번 눌러도 한 줄)
@@ -135,6 +176,7 @@ async function useHere() {
 
 // 결과를 고르면 그 이름을 검색창에 (다시 찾지는 않고 목록은 그대로)
 function pick(i) {
+  pickedHub.value = null
   pickedIndex.value = i
   keyword.value = found.value[i].name
 }
@@ -211,7 +253,7 @@ function removeFixed(name) {
   <div class="scr scr-PlaceSearch">
     <div class="app">
       <div class="dim" aria-hidden="true"></div>
-      <BottomSheet role="dialog" aria-modal="true" style="top: 60px">
+      <BottomSheet closable role="dialog" aria-modal="true" style="top: 60px">
         <div class="sheet__head">
           <h1 class="h-title">{{ text.title }}</h1>
           <button type="button" class="iconbtn iconbtn--soft" aria-label="닫기" @click="goBack('/plan/info')"><i class="ic i-close" aria-hidden="true"></i></button>
@@ -228,6 +270,18 @@ function removeFixed(name) {
         <button v-if="mode === 'origin'" type="button" class="btn btn--secondary btn--md" :disabled="isLocating" @click="useHere">
           <i class="ic i-locate" aria-hidden="true"></i>{{ isLocating ? '위치 찾는 중…' : '현재 위치에서 출발' }}
         </button>
+
+        <!-- 출발지 추천: 근처 지하철역·구청·시청 -->
+        <section v-if="showHubs" class="ps-hubs" :aria-label="hubsTitle">
+          <h2 class="t-strong" style="margin: 0">{{ hubsTitle }}</h2>
+          <div role="radiogroup" :aria-label="hubsTitle" class="ps-hubs__list">
+            <button v-for="hub in hubs" :key="hub.name + hub.lat" type="button" role="radio" :aria-checked="pickedHub === hub" class="ps-hub" :class="{ 'is-on': pickedHub === hub }" @click="pickHub(hub)">
+              <span class="ps-hub__ic" :style="hubLine(hub) ? { background: hubLine(hub), color: '#fff' } : {}"><i class="ic ic--s" :class="hubLine(hub) ? 'i-subway' : 'i-flag'" aria-hidden="true"></i></span>
+              <span class="ps-hub__body"><b>{{ hub.name }}</b><span class="tn">{{ hubText(hub) }}</span></span>
+              <span class="radio"></span>
+            </button>
+          </div>
+        </section>
 
         <!-- 카카오 검색 결과 (지역·출발지·꼭 지킬 시간 모두) -->
         <div role="radiogroup" :aria-label="text.title + ' 검색 결과'" class="ps-list">
@@ -291,4 +345,13 @@ function removeFixed(name) {
 .scr-PlaceSearch .ps-days{padding:0 12px;flex-wrap:wrap}
 .scr-PlaceSearch .ps-msg{text-align:center;padding:24px 0;line-height:20px}
 .scr-PlaceSearch input[type='search']::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none} /* 브라우저 기본 X 숨김 (우리 지우기 버튼만) */
+.scr-PlaceSearch .ps-hubs{flex:none;display:flex;flex-direction:column;gap:8px}
+.scr-PlaceSearch .ps-hubs__list{display:flex;flex-direction:column;gap:6px}
+.scr-PlaceSearch .ps-hub{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 12px;border:1.5px solid var(--line);border-radius:14px;background:var(--surface-raised);font:inherit;color:var(--ink);text-align:left;cursor:pointer;transition:border-color .15s,background .15s}
+.scr-PlaceSearch .ps-hub:hover{border-color:var(--navy)}
+.scr-PlaceSearch .ps-hub.is-on{border-color:var(--navy);background:var(--navy-soft)}
+.scr-PlaceSearch .ps-hub__ic{flex:none;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--navy);background:var(--navy-soft)}
+.scr-PlaceSearch .ps-hub__body{flex:1;min-width:0;display:flex;flex-direction:column}
+.scr-PlaceSearch .ps-hub__body b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px;line-height:20px;font-weight:700}
+.scr-PlaceSearch .ps-hub__body span{font-size:12px;line-height:16px;color:var(--ink-muted)}
 </style>
