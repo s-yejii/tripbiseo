@@ -42,6 +42,9 @@ public interface TripService {
     /** 일정 칸 삭제 → 여행 전체 */
     Trip deleteStop(long memberId, long tripId, long stopId);
 
+    /** 일정 칸 전부를 한 번에 저장 → 여행 전체. 목록에 없는 칸은 지우고, 있는 칸은 고침 (편집 화면 "완료") */
+    Trip updateStops(long memberId, long tripId, List<Stop> stops);
+
     /** 여러 일정 칸을 state = skipped로 (④ 대안 적용에서 빠지는 칸) */
     void skipStops(long memberId, long tripId, List<Long> stopIds);
 

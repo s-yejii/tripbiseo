@@ -121,7 +121,7 @@ const pickCount = computed(() => picked.value.length + pickedServer.value.length
 <template>
   <div class="scr scr-PlanManual">
     <div class="app">
-      <div class="map" aria-hidden="true" style="bottom: 380px"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
+      <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
 
       <!-- 이미 일정에 있는 곳: 작은 회색 핀 -->
       <span v-for="(stop, i) in concertTrip.stops" :key="stop.id" class="pin pin--done pm-small" :style="{ left: stop.x + 'px', top: stop.y + 'px' }" aria-hidden="true">

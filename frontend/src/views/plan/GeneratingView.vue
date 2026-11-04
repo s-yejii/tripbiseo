@@ -1,6 +1,7 @@
 <script setup>
 // S08 일정 만드는 중 (③): 서버가 일정을 짜는 단계를 실제로 보내 주는 대로(POST /api/plans/generate/stream) 보여 줘요 (11/04)
-//   단계: 장소 후보 찾기 → (요청이 있으면) 리뷰로 확인 → AI가 칸마다 고르기 → 영업시간·종류 검사 → (고정 일정이 있으면) 시간 맞추기
+//   단계: 장소 후보 찾기 → (요청이 있으면) 리뷰로 확인 → AI가 칸마다 고르기 → 영업시간·종류 검사
+//        → (있으면) 끝 장소 도착 맞추기 → 걷는 시간 확인 → 고정 일정 시간 맞추기
 //   %는 서버가 단계마다 보낸 값이에요. AI가 고르는 동안처럼 오래 걸리는 단계는 그 단계 범위 안에서만 천천히 올라가요
 //   끝나면 초안(store.draft)에 넣고 지도에 실제 일정 핀을 그려요 → "완성본 보기"로 일정 점검
 //   다른 화면으로 가도 만들기는 계속되고, 끝나면 토스트로 알려요
@@ -11,14 +12,15 @@ import TopBar from '@/components/common/TopBar.vue'
 import { generatePlanStream } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { daysBetween } from '@/utils/dates'
+import { isStayStop } from '@/utils/mapView'
 import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
 
 const CREEP_MS = 400 // 하는 중인 단계에서 %가 1씩 오르는 간격
 const FIRST_CREEP_TO = 15 // 첫 알림(후보 찾기 끝)이 오기 전까지 올라갈 수 있는 %
 // 단계가 끝날 때의 % (서버 PlanServiceImpl이 보내는 값과 같음) → 하는 중이면 이 값 바로 아래까지만 올라감
-const DONE_PERCENT = { candidates: 20, reviews: 40, ai: 80, rules: 90, fixed: 95 }
-const STEP_ICONS = { candidates: 'i-pin', reviews: 'i-search', ai: 'i-sparkle', rules: 'i-clock', fixed: 'i-lock' }
+const DONE_PERCENT = { candidates: 20, reviews: 40, ai: 80, rules: 90, finish: 93, walk: 94, fixed: 95 }
+const STEP_ICONS = { candidates: 'i-pin', reviews: 'i-search', ai: 'i-sparkle', rules: 'i-clock', finish: 'i-flag', walk: 'i-walk', fixed: 'i-lock' }
 const MAP_PADDING = { top: 40, right: 30, bottom: 30, left: 30 }
 
 const route = useRoute()
@@ -54,7 +56,10 @@ const mapPins = computed(() => {
     const pins = []
     for (const stop of draft.value.stops) {
       if (stop.lat == null || stop.lng == null) continue
-      pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon: stop.fixed ? 'i-lock' : '', cls: stop.fixed ? 'pin--fixed' : '', label: stop.name })
+      const isStay = isStayStop(stop) // 숙소는 집 모양 핀
+      const icon = isStay ? 'i-home' : stop.fixed ? 'i-lock' : ''
+      const cls = isStay ? 'pin--stay' : stop.fixed ? 'pin--fixed' : ''
+      pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon, cls, label: stop.name })
     }
     return pins
   }

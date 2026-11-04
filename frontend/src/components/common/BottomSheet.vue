@@ -5,6 +5,7 @@
 //   - 손잡이를 누르거나(Enter) 머리 위에서 휠을 굴려도 펼치고 내려요
 //   - 같은 화면(.app)의 data-sheet-follow 붙은 것(지도 위 버튼·칩)은 시트와 같이 움직여요
 // 예) <BottomSheet class="sheet--peek" style="top: 440px"> <div data-drag>머리</div> 내용 </BottomSheet>
+//     내용이 짧은 시트는 <BottomSheet data-drag>처럼 시트 자체에 붙이면 어디를 잡아도 끌려요 (버튼·링크는 그대로 눌림)
 import { onUnmounted, ref } from 'vue'
 
 const HANDLE_LEFT_PX = 34 // 내렸을 때 남겨 둘 손잡이 높이
@@ -132,6 +133,6 @@ onUnmounted(removeListeners)
 </template>
 
 <style>
-.sheet [data-drag] { touch-action: none; cursor: grab; }
+.sheet [data-drag], .sheet[data-drag] { touch-action: none; cursor: grab; }
 .sheet .handle { touch-action: none; cursor: grab; }
 </style>

@@ -2,6 +2,8 @@
 // S15 지연 감지 (④): 왜 늦는지 보여 주고, 그냥 갈지 대안을 볼지 고르게 해요
 // 지금 있는 곳의 실제 도착(GPS 기록 arrivedAt)·계획보다 더 머문 시간·고정 일정 예상 도착(서버 계산)으로 줄을 만들어요.
 // "그냥 갈게요"를 누르면 여행 중 화면의 지연 알림을 접고, 10분 더 늦어지면 다시 띄워요.
+// 11/04: 시트 어디를 잡고 끌어도(버튼 빼고), 시트 위에서 휠을 굴려도 내려가요 (data-drag).
+//   전에는 위 손잡이(작은 막대)만 잡혀서, 내용을 끌거나 스크롤하면 아무 반응이 없어 멈춘 것처럼 보였어요
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
@@ -82,7 +84,7 @@ function goAnyway() {
       <KakaoMap v-if="replan.base" :pins="mapPins" :me="replan.position" :padding="DELAY_MAP_PADDING" />
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="alertdialog" aria-modal="true" style="gap: 16px">
+      <BottomSheet role="alertdialog" aria-modal="true" data-drag style="gap: 16px">
         <PageMessage v-if="replan.error" icon="i-warning" title="지금 상황을 계산할 수 없어요" :text="replan.error" to="/live" button="여행 중 화면으로" />
         <PageMessage v-else-if="!replan.base" is-loading title="지금 위치에서 다시 계산하는 중이에요" />
 

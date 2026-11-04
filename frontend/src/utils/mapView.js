@@ -27,6 +27,11 @@ export function toMapPositions(points, box) {
   })
 }
 
+// 숙소 칸인지 (일정 만들기가 넣는 숙소 칸은 category가 '숙소', 11/04)
+export function isStayStop(stop) {
+  return stop.category === '숙소'
+}
+
 // 분류로 고르는 기본 사진 (DB 장소 사진이 없을 때)
 export function imageFor(category) {
   const c = category || ''

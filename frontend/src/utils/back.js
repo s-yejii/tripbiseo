@@ -6,6 +6,17 @@
 //   - 둘 다 없으면 fallback
 import router from '@/router'
 
+// path로 돌아가기 (11/04): 바로 전 화면이 path면 뒤로가기(기록이 쌓이지 않게), 아니면 path로 바꾸기
+//   예: 편집 → 한 칸 수정 → 저장하면 편집으로 "뒤로" 가서, 편집에서 다시 뒤로가기 하면 상세로 가요
+export function goBackTo(path) {
+  const previous = window.history.state && window.history.state.back
+  if (previous === path) {
+    router.back()
+    return
+  }
+  router.replace(path)
+}
+
 export function goBack(fallback = '/') {
   const queryBack = router.currentRoute.value.query.back
   const isInnerPath = typeof queryBack === 'string' && queryBack.startsWith('/') && !queryBack.startsWith('//') // 다른 사이트 주소는 막음

@@ -83,7 +83,7 @@ public class ReviewNeedChecker {
             notes.add(makeNote("'" + need + "' — 후보 장소 리뷰에 관련 이야기가 없어서 확인하지 못했어요"));
             return;
         }
-        AiNeedJudge judge = aiService.askJson(makeJudgePrompt(need, textsByPlace, candidates), AiNeedJudge.class);
+        AiNeedJudge judge = aiService.askJsonQuick(makeJudgePrompt(need, textsByPlace, candidates), AiNeedJudge.class);
         List<AiNeedVerdict> verdicts = judge == null || judge.getResults() == null ? new ArrayList<>() : judge.getResults();
         applyVerdicts(need, verdicts, textsByPlace, candidates, scores, reasons, notes);
     }
@@ -111,7 +111,7 @@ public class ReviewNeedChecker {
                 + "예) 4명이 앉을 자리 → 단체석, 단체, 자리가 넓, 자리가 좁 / 주차되는 곳 → 주차\n"
                 + "요청: \"" + need + "\"\n"
                 + "JSON만: {\"words\": [\"단어\"]}";
-        AiNeedWords answer = aiService.askJson(prompt, AiNeedWords.class);
+        AiNeedWords answer = aiService.askJsonQuick(prompt, AiNeedWords.class); // 쉬운 일이라 빨리
         List<String> words = new ArrayList<>();
         if (answer == null || answer.getWords() == null) {
             return words;

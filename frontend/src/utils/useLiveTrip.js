@@ -2,6 +2,8 @@
 //   - 진행 중인 여행을 찾고
 //   - 브라우저 GPS가 바뀔 때마다 POST /live/track (같은 점을 너무 자주 보내지 않게 간격을 둠)
 //   - 30초마다 POST /live/status로 지금 상황을 다시 계산
+//     (11/04: GPS가 바뀔 때마다 다시 계산하던 걸, 위치를 저장할 때(20초 간격)만 같이 하게 바꿈.
+//      휴대폰 GPS는 거의 1초마다 와서 매번 서버 계산·길찾기 API·지도 다시 그리기가 돌았어요)
 //   - 시연 모드(?demo=1): 진짜 GPS 대신 오늘 일정 장소를 차례로 지나가는 가짜 GPS (발표장에서 걸어 다닐 수 없어서)
 // 화면을 떠날 때 stop()을 꼭 불러야 타이머·GPS 감시가 꺼져요.
 import { ref } from 'vue'
@@ -85,7 +87,7 @@ export function useLiveTrip() {
     }
   }
 
-  // 위치가 바뀌면 저장(간격 두고) + 상황 다시 계산
+  // 위치가 바뀌면: 지도 위 내 위치는 바로, 저장 + 상황 다시 계산은 간격(20초)을 두고
   async function moveTo(lat, lng, accuracy = null, isForced = false) {
     position.value = { lat, lng }
     store.position = position.value // 대안 화면도 같은 위치를 씀
@@ -97,8 +99,10 @@ export function useLiveTrip() {
       } catch (e) {
         error.value = e.message
       }
+      await refresh() // 저장한 뒤(도착·출발 기록이 바뀌었을 수 있음) 상황 다시 계산
+      return
     }
-    await refresh()
+    if (!status.value) await refresh() // 아직 상황을 한 번도 못 받았으면 바로
   }
 
   // 진짜 GPS: watchPosition은 위치가 바뀔 때마다 알려 줌

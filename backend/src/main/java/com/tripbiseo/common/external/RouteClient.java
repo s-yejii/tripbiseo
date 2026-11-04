@@ -138,17 +138,24 @@ public class RouteClient {
         }
         List<double[]> coords = new ArrayList<>();
         List<String> rides = new ArrayList<>();
+        int walkSeconds = 0; // 걷는 구간(WALK) 시간 합 (초)
         for (JsonNode leg : itinerary.path("legs")) {
             coords.addAll(tmapLegLine(leg));
             String legMode = leg.path("mode").asString("");
-            if (!legMode.equals("WALK")) {
+            if (legMode.equals("WALK")) {
+                walkSeconds += leg.path("sectionTime").asInt(0);
+            } else {
                 int stopCount = leg.path("passStopList").path("stationList").size() - 1;
                 rides.add(ride(legMode.equals("BUS"), leg.path("route").asString(""), leg.path("start").path("name").asString(""),
                         leg.path("end").path("name").asString(""), stopCount));
             }
         }
-        return route((int) Math.round(itinerary.path("totalTime").asDouble(0) / 60), itinerary.path("totalDistance").asInt(0),
+        Route result = route((int) Math.round(itinerary.path("totalTime").asDouble(0) / 60), itinerary.path("totalDistance").asInt(0),
                 itinerary.path("totalWalkDistance").asInt(0), lineOrStraight(coords, lat1, lng1, lat2, lng2), "transit", "tmap", String.join(" · ", rides));
+        if (walkSeconds > 0) {
+            result.setWalkMinutes((int) Math.round(walkSeconds / 60.0)); // 없으면 걷는 거리로 계산한 기본값 그대로
+        }
+        return result;
     }
 
     // TMAP 대중교통 한 구간의 선: passShape가 있으면 그것, 없으면 걷기 steps를 이어 붙임
@@ -178,9 +185,12 @@ public class RouteClient {
             throw fail(502, "ODsay 결과 없음");
         }
         List<String> rides = new ArrayList<>(); // trafficType 1 지하철, 2 버스, 3 걷기
+        int walkMinutes = 0; // 걷기(3) 구간 시간 합 (분)
         for (JsonNode sub : path.path("subPath")) {
             int type = sub.path("trafficType").asInt(0);
-            if (type != 3) {
+            if (type == 3) {
+                walkMinutes += sub.path("sectionTime").asInt(0);
+            } else {
                 String routeName = sub.path("lane").path(0).path(type == 2 ? "busNo" : "name").asString("");
                 rides.add(ride(type == 2, routeName, sub.path("startName").asString(""), sub.path("endName").asString(""),
                         sub.path("stationCount").asInt(0)));
@@ -188,8 +198,12 @@ public class RouteClient {
         }
         JsonNode info = path.path("info");
         List<double[]> coords = odsayLine(info.path("mapObj").asString(""));
-        return route(info.path("totalTime").asInt(0), info.path("totalDistance").asInt(0), info.path("totalWalk").asInt(0),
+        Route result = route(info.path("totalTime").asInt(0), info.path("totalDistance").asInt(0), info.path("totalWalk").asInt(0),
                 lineOrStraight(coords, lat1, lng1, lat2, lng2), "transit", "odsay", String.join(" · ", rides));
+        if (walkMinutes > 0) {
+            result.setWalkMinutes(walkMinutes); // 없으면 걷는 거리로 계산한 기본값 그대로
+        }
+        return result;
     }
 
     // ODsay 노선 모양(loadLane). 실패하면 빈 목록 → 직선으로 그림
@@ -258,6 +272,8 @@ public class RouteClient {
         r.setMinutes(minutes);
         r.setMeters(meters);
         r.setWalkMeters(walkMeters);
+        // 걷는 시간 기본값: 도보면 전체 시간, 아니면 걷는 거리 ÷ 걷는 속도 (대중교통 API 결과는 위에서 API 값으로 덮어씀)
+        r.setWalkMinutes(mode.equals("walk") ? minutes : (int) Math.ceil((double) walkMeters / WALK_M_PER_MIN));
         r.setCoords(coords);
         r.setMode(mode);
         r.setSource(source);
