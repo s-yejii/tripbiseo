@@ -20,7 +20,8 @@ const store = useTripStore() // 고른 지역·출발지 (planArea · planOrigin
 const people = ref(2)
 const companion = ref('친구')
 const moves = ref({ 지하철: true, 도보: true })
-const fixedList = ref([]) // 꼭 지킬 시간 (장소 검색·예약 캡처로 넣어요)
+// 꼭 지킬 시간: 장소 검색·예약 캡처가 store.planConditions.fixed 에 넣은 { name, time } 목록
+const fixedList = computed(() => store.planConditions?.fixed || [])
 
 const companions = ['혼자', '친구', '연인', '가족', '아이와']
 const moveList = [
@@ -60,6 +61,11 @@ const stayNights = computed(() => {
   for (const stay of store.planStays) total += daysBetween(stay.checkInDate, stay.checkOutDate)
   return total
 })
+// 꼭 지킬 시간 빼기 (일정 만들기 조건과 직접 고르기 초안에서 같이)
+function removeFixed(name) {
+  store.planConditions = { ...store.planConditions, fixed: fixedList.value.filter((item) => item.name !== name) }
+  store.draft.stops = store.draft.stops.filter((stop) => !(stop.fixed && stop.name === name))
+}
 // 칩 켜고 끄기 (코드 목록에 넣거나 빼기)
 function toggleCode(list, code) {
   return list.includes(code) ? list.filter((item) => item !== code) : [...list, code]
@@ -180,11 +186,10 @@ function goNext() {
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-fix">
           <div class="sec-h"><h2 id="pa-fix" class="t-sub">꼭 지킬 시간</h2><span class="t-cap">예약·공연</span></div>
-          <div v-for="(item, i) in fixedList" :key="item.name" class="stop is-fixed" style="grid-template-columns: 1fr">
+          <div v-for="item in fixedList" :key="item.name" class="stop is-fixed" style="grid-template-columns: 1fr">
             <div class="stop__card">
-              <img class="thumb" :src="item.img" alt="" />
-              <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><i class="ic ic--s i-lock c-navy" aria-hidden="true"></i><b class="c-navy tn">{{ item.time }} 고정</b> · {{ item.note }}</span></span>
-              <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="fixedList.splice(i, 1)"><i class="ic i-close muted" aria-hidden="true"></i></button>
+              <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><i class="ic ic--s i-lock c-navy" aria-hidden="true"></i><b class="c-navy tn">{{ item.time }} 고정</b></span></span>
+              <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(item.name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
             </div>
           </div>
           <p v-if="!fixedList.length" class="t-cap">예약한 곳이 있으면 넣어 두세요. 그 시간에 맞춰 일정을 짜요.</p>

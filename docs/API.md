@@ -76,7 +76,7 @@
 | `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
 | `GET /api/places/popular` | 요즘 인기 장소 (다른 회원들의 최근 30일 여행 기록) | trip/MainView | 있음 |
 | `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
-| `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? 역·건물·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
+| `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? · 꼭 지킬 시간(예약한 곳) 역·건물·가게·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`, `?mode=fixed`) | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -671,7 +671,7 @@
 **오류** 400 "검색어를 1~40자로 입력해 주세요." · 502 "카카오 로컬 …" (키 거절·연결 실패) · 503 "위치 검색 키(KAKAO_REST_API_KEY)가 설정되지 않았어요."
 
 ### `GET /api/places/locations`
-여행 정보의 "어디서 출발해요?"에서 역·출구·건물·가게·주소를 찾아요 (카카오). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가)
+여행 정보의 "어디서 출발해요?"에서 역·출구·건물·가게·주소를 찾아요 (카카오). · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/03 추가), `?mode=fixed` 꼭 지킬 시간의 예약한 곳 찾기 (11/04 추가, 고른 여행 지역의 좌표를 `lat`·`lng`로 보내 거리를 보여 줌)
 
 **요청** 쿼리 `q` (1~40자), `lat`·`lng` (없어도 됨, 있으면 `distance`가 붙음)
 
