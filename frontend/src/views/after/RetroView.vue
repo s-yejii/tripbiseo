@@ -111,6 +111,44 @@ const compare = computed(() => {
   return rows
 })
 
+// 다녀온 길 : 자옷를 순서대로 한 줄 씩 담음 : {  예: { no: 1, name: '경복궁', timeText: '13:00 ~ 14:20', skipped: false }
+const timeline = computed(() => {
+  const rows = []
+  if (retro.value === null) return rows
+
+  const stops = retro.value.stops
+  for (let i = 0; i < stops.length; i++) { // i : 몇번째 장소인지 (다음 단계에서 '다음 장소를 볼때 i +1')
+    rows.push({
+      type: 'place',
+      no : i + 1,
+      name : stops[i].name,
+      timeText : toTimeRange(stops[i]),
+      skipped: stops[i].state === 'skipped',
+    })
+    if (i + 1 < stops.length) { // 마지막 장소 뒤에는 이동이 없음
+      const move = toMoveRow(stops[i], stops[i + 1])
+      if (move !== null) rows.push(move) // 기록이 없어 계산 못 하면 안 넣음
+    }
+  }
+
+  return rows
+})
+
+function toTimeRange(place) { // 실제 시각 ~ 떠난 시각 글자 : 예 : 13:00에 와서 80분 -> 13:00 ~ 14:20
+  if(place.actualArrive === null) return '기록 없음' // 안 간 곳
+  if(place.actualStay === null) return place.actualArrive + ' 떠난 시간이 없어요'
+  const leave = toMinutes(place.actualArrive) + place.actualStay
+  return place.actualArrive + ' ~ ' + toTime(leave) // 도착  + 머문시간
+}
+
+// 두 장소 사이 이동 줄. 예: 14:20에 나와서 14:50에 도착 → { type: 'move', text: '이동 30분', timeText: '14:20 ~ 14:50' }
+function toMoveRow(from, to) {
+if(from.actualArrive === null || from.actualStay === null ) return null
+if(to.actualArrive === null) return null
+const leave = toMinutes(from.actualArrive) + from.actualStay
+const arrive = toMinutes(to.actualArrive)
+return { type : 'move', text : '이동 ' + (arrive - leave) + '분', timeText: toTime(leave) + ' ~ ' + to.actualArrive }
+}
 
 // 분류별로 계획과의 시간 차이 합계와 장소 개수를 모음. 예: { 카페: { sum: 36, count: 2 } }
 const categoryTotals = computed(() => {
@@ -315,6 +353,30 @@ function toggleMapType() {
           <div class="stat"><b>{{  skippedCount }}</b><span class="t-cap">건너 뛴 곳</span></div>
         </div>
 
+        <!-- 다녀온 길: 장소 줄과 이동 줄을 시간 순서대로 (timeline) -->
+        <section v-if="timeline.length > 0" class="card card--pad" aria-labelledby="tl-h">
+          <h2 id="tl-h" class="t-sub">다녀온 길</h2>
+          <div class="retro-tl">
+            <!-- template: 화면에 안 그려지는 묶음. 한 번 돌 때 장소 줄 또는 이동 줄 중 하나를 고르려고 씀 -->
+            <template v-for="(row, index) in timeline" :key="index">
+              <!-- 장소 줄 -->
+              <div v-if="row.type === 'place'" class="retro-tl__place" :class="{ 'is-skipped': row.skipped }">
+                <span class="retro-tl__num">{{ row.no }}</span>
+                <span class="retro-tl__body">
+                  <b>{{ row.name }}</b>
+                  <span class="t-cap tn">{{ row.timeText }}</span>
+                </span>
+                <span v-if="row.skipped" class="retro-tl__tag">건너뜀</span>
+              </div>
+              <!-- 이동 줄 -->
+              <div v-else class="retro-tl__move">
+                <span class="retro-tl__icon"><span><i class="ic i-walk" aria-hidden="true"></i></span></span>
+                <span class="t-cap">{{ row.text  }} · <span class="tn">{{ row.timeText }}</span></span>
+              </div>
+            </template>
+          </div>
+        </section>
+
         <section class="card card--pad retro-cmp" aria-labelledby="cmp-h">
           <div class="sec-h" style="min-height: 28px">
             <h2 id="cmp-h" class="t-sub">계획 vs 실제</h2>
@@ -348,6 +410,19 @@ function toggleMapType() {
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
 .scr-Retro .retro-cmp{display:flex;flex-direction:column;gap:6px}
+/* 다녀온 길: 왼쪽 세로 점선 위에 번호 원과 이동 아이콘을 올림 */
+.scr-Retro .retro-tl{position:relative;display:flex;flex-direction:column;margin-top:6px}
+.scr-Retro .retro-tl::before{content:"";position:absolute;left:13px;top:16px;bottom:16px;border-left:2px dashed var(--line-strong);opacity:.5}
+.scr-Retro .retro-tl__place{display:flex;align-items:center;gap:12px;min-height:52px}
+.scr-Retro .retro-tl__num{position:relative;z-index:1;width:28px;height:28px;flex:none;border-radius:50%;background:var(--navy);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(24,33,58,.25)}
+.scr-Retro .retro-tl__body{flex:1;display:flex;flex-direction:column}
+.scr-Retro .retro-tl__tag{font-size:12px;font-weight:600;color:var(--ink-subtle);background:var(--surface-sunken);padding:2px 8px;border-radius:999px}
+.scr-Retro .retro-tl__place.is-skipped .retro-tl__num{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong);box-shadow:none}
+.scr-Retro .retro-tl__place.is-skipped b{color:var(--ink-subtle)}
+.scr-Retro .retro-tl__move{display:flex;align-items:center;gap:12px;min-height:32px}
+.scr-Retro .retro-tl__icon{position:relative;z-index:1;width:28px;flex:none;display:flex;justify-content:center}
+.scr-Retro .retro-tl__icon>span{width:22px;height:22px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink-subtle)}
+.scr-Retro .retro-tl__icon .ic{width:14px;height:14px}
 .scr-Retro .retro-key{display:inline-block;width:10px;height:8px;border-radius:4px}
 .scr-Retro .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .scr-Retro .stat{padding:12px;border-radius:var(--radius-lg);background:var(--surface-raised);border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
