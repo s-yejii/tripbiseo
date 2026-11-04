@@ -42,13 +42,14 @@ import lombok.RequiredArgsConstructor;
 public class AlternativeServiceImpl implements AlternativeService {
 
     private static final int TRIM_STAY_DIVIDE = 2;  // A 시간 단축: 한 칸에서 최대 이만큼 나눈 만큼까지 줄임 (절반)
+    private static final int MUST_MIN_STAY_MIN = 20; // A 시간 단축: 꼭 갈 곳은 여기까지만 줄임
     private static final int TRIM_BUFFER_MIN = 5;   // A 시간 단축: 늦는 시간보다 이만큼 더 줄여서 여유를 둠
     // B 한 곳 빼기: 뺄 순위 (클수록 먼저 뺌)
     private static final int DROP_RANK_CLOSED = 3;  // 도착하면 문 닫은 곳
     private static final int DROP_RANK_MISSED = 2;  // 계획 시간이 지난 곳
     private static final int DROP_RANK_OPTIONAL = 1; // 중요도 "빼도 됨"
     private static final int DROP_RANK_NORMAL = 0;  // 그 밖 (그중 오래 머무는 곳)
-    private static final String IMPORTANCE_MUST = "must";     // 꼭 갈 곳: 줄이거나 빼지 않음
+    private static final String IMPORTANCE_MUST = "must";     // 꼭 갈 곳: 자동으로 빼지 않음 (머묾은 20분까지 줄일 수 있음)
     private static final String IMPORTANCE_OPTIONAL = "drop"; // 빼도 되는 곳: 먼저 뺌
     private static final int SWAP_CANDIDATE_COUNT = 10;       // 장소 바꾸기 후보 수
     private static final int PREVIEW_PRECISE_COUNT = 3;       // 직접 고친 일정: 여행 중 화면(StatusServiceImpl)과 같게 앞 3구간은 진짜 길찾기
@@ -404,19 +405,33 @@ public class AlternativeServiceImpl implements AlternativeService {
         }
     }
 
-    /** 고정 일정 앞 칸부터 차례로 줄여서 need분을 채움. 한 칸에서는 최대 절반까지 */
+    /**
+     * 고정 일정 앞 칸부터 차례로 줄여서 need분을 채움. 먼저 꼭 갈 곳이 아닌 칸을 최대 절반까지,
+     * 그래도 모자라면 꼭 갈 곳도 20분까지 줄임 (꼭 = 빼지 않는다는 뜻. 11/04 사용자 요청으로 "머묾도 그대로"에서 바뀜)
+     */
     private void trimStays(List<Stop> stops, int need) {
+        int left = need;
         for (Stop stop : stops) {
-            if (Boolean.TRUE.equals(stop.getFixed()) || need <= 0) {
+            if (Boolean.TRUE.equals(stop.getFixed()) || left <= 0) {
                 break; // 고정 일정 뒤 칸은 늦는 것과 상관없어서 안 줄임
             }
-            if (isMust(stop)) {
-                continue; // 꼭 갈 곳은 머무는 시간도 그대로
+            if (!isMust(stop)) {
+                int stay = liveStopFinder.getStay(stop);
+                int cut = Math.min(stay / TRIM_STAY_DIVIDE, left);
+                stop.setStay(stay - cut);
+                left -= cut;
             }
-            int stay = liveStopFinder.getStay(stop);
-            int cut = Math.min(stay / TRIM_STAY_DIVIDE, need);
-            stop.setStay(stay - cut);
-            need = need - cut;
+        }
+        for (Stop stop : stops) {
+            if (Boolean.TRUE.equals(stop.getFixed()) || left <= 0) {
+                break;
+            }
+            if (isMust(stop)) {
+                int stay = liveStopFinder.getStay(stop);
+                int cut = Math.min(Math.max(0, stay - MUST_MIN_STAY_MIN), left);
+                stop.setStay(stay - cut);
+                left -= cut;
+            }
         }
     }
 

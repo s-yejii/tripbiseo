@@ -76,8 +76,7 @@ const banner = computed(() => {
   return {
     cls: isLate ? 'banner--danger' : 'banner--success',
     icon: isLate ? 'i-danger' : 'i-success',
-    title: `${fixed.name} ${fixed.eta} 도착 · ` + (isLate ? -fixed.slackMin + '분 늦어요' : '여유 ' + fixed.slackMin + '분'),
-    text: isLate ? '다른 대안도 같이 보세요' : replan.applied.message,
+    title: `${fixed.name} ${fixed.eta} · ` + (isLate ? -fixed.slackMin + '분 늦어요' : '여유 ' + fixed.slackMin + '분'),
   }
 })
 
@@ -158,9 +157,9 @@ async function undo() {
 
         <div v-if="replan.applied.nextAlert" class="banner banner--info">
           <i class="ic i-bell" aria-hidden="true"></i>
-          <span class="banner__body"><span class="t-cap">{{ replan.applied.nextAlert }}</span></span>
+          <span class="banner__body"><span class="t-cap">출발 10분 전에 알려 드려요</span></span>
         </div>
-        <p v-if="canUndo" class="t-cap" style="text-align: center">5분 안에는 위쪽 되돌리기로 원래 일정으로 돌아가요</p>
+        
       </div>
 
       <div class="cta">

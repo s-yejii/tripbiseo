@@ -64,28 +64,28 @@ const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '�
 
 const resultText = computed(() => {
   if (!isEdited.value) {
-    if (recommendStop.value) return `아직 줄인 곳이 없어요 · 추천은 ${recommendStop.value.name} ${recommendStop.value.cut}분`
-    return replan.lateMin ? '줄여서 맞출 수 있는 곳이 없어요 · 다른 대안을 보세요' : '지금 일정대로도 늦지 않아요'
+    if (recommendStop.value) return `추천 ${recommendStop.value.name} ${recommendStop.value.cut}분`
+    return replan.lateMin ? '줄일 곳이 없어요' : '안 늦어요'
   }
   const arrive = result.value ? result.value.finalArrive : '-'
-  return `${basisName.value} ${arrive} 도착 · ` + (isOk.value ? `여유 ${slack.value}분` : `아직 ${-slack.value}분 늦어요`)
+  return `${arrive} 도착 · ` + (isOk.value ? `여유 ${slack.value}분` : `${-slack.value}분 늦어요`)
 })
 
 const button = computed(() => {
   if (!isEdited.value) {
-    if (recommendStop.value) return { text: `추천대로 적용 · ${recommendStop.value.name} ${recommendStop.value.cut}분 줄이기`, isOff: false }
-    return { text: '줄일 곳을 골라 주세요', isOff: true }
+    if (recommendStop.value) return { text: `${recommendStop.value.name} ${recommendStop.value.cut}분 줄이기`, isOff: false }
+    return replan.lateMin ? { text: '한 곳 빼러 가기', to: '/live/alt/drop', isOff: false } : { text: '그대로 가요', to: '/live', isOff: false }
   }
-  if (!isOk.value && replan.lateMin) return { text: `${-slack.value}분 더 줄여 주세요`, isOff: true }
-  return { text: `이대로 적용 · 총 ${cutTotal.value}분 줄이기`, isOff: false }
+  if (!isOk.value && replan.lateMin) return { text: `${cutTotal.value}분 줄이기 · 아직 ${-slack.value}분 늦어요`, isOff: false }
+  return { text: `${cutTotal.value}분 줄이기`, isOff: false }
 })
 
 // 칸 한 줄에 보일 글자
 function rowMeta(stop) {
   const planned = replan.trimPlan[stop.id]
-  if (planned === 0) return '일정에서 뺌'
+  if (planned === 0) return '뺌'
   if (planned != null) return `<s>${stop.stay}분</s> → <b>${planned}분</b>`
-  return stop.stay + '분 머묾'
+  return stop.stay + '분'
 }
 
 function reset() {
@@ -94,6 +94,7 @@ function reset() {
 }
 
 async function apply() {
+  if (button.value.to) return router.replace(button.value.to)
   if (button.value.isOff || isApplying.value) return
   isApplying.value = true
   try {
@@ -122,8 +123,8 @@ async function apply() {
 
         <section class="tsum" aria-label="줄인 시간 합계" aria-live="polite">
           <div class="tsum__top">
-            <span class="tsum__lbl">줄인 시간 합계</span>
-            <span v-if="replan.lateMin" class="tsum__need">늦지 않으려면 <b>{{ replan.lateMin }}분 이상</b></span>
+            <span class="tsum__lbl">줄인 시간</span>
+            <span v-if="replan.lateMin" class="tsum__need">필요 <b>{{ replan.lateMin }}분</b></span>
           </div>
           <div class="tsum__mid">
             <span class="tsum__big" :class="cutTotal === 0 ? '' : isOk ? 'c-success' : 'c-warning'">{{ cutTotal }}분</span>
@@ -140,30 +141,19 @@ async function apply() {
           <img v-if="replan.currentStop" class="thumb" :src="imageFor(replan.currentStop.category)" alt="" style="width: 40px; height: 40px" />
           <span style="flex: 1">
             <span class="t-strong" style="display: block">지금 · {{ replan.currentStop ? replan.currentStop.name : '이동 중' }}</span>
-            <span class="t-cap tn">{{ replan.status.now }} · 꼭 갈 곳은 안 줄여요</span>
+            <span class="t-cap tn">{{ replan.status.now }}</span>
           </span>
         </div>
-
-        <p class="tr-hint"><i class="ic ic--s i-info c-navy" aria-hidden="true" style="margin-top: 2px"></i>장소를 눌러 머무는 시간을 줄여요. 여러 곳을 조금씩 줄여도 돼요.</p>
 
         <div style="display: flex; flex-direction: column; gap: 8px">
           <template v-for="stop in replan.stops" :key="stop.id">
             <!-- 고정 일정: 못 줄여요 -->
             <div v-if="stop.fixed" class="opt is-locked">
               <img class="thumb" :src="imageFor(stop.category)" alt="" />
-              <span class="opt__body"><b class="t-sub">{{ stop.name }}</b><span class="t-cap tn">{{ stop.eta }} 고정 · 줄일 수 없어요</span></span>
+              <span class="opt__body"><b class="t-sub">{{ stop.name }}</b><span class="t-cap tn">{{ stop.eta }} 고정</span></span>
               <i class="ic i-lock subtle" aria-hidden="true"></i>
             </div>
-            <!-- 꼭 갈 곳: 안 줄여요 -->
-            <div v-else-if="stop.importance === 'must'" class="opt is-locked">
-              <img class="thumb" :src="imageFor(stop.category)" alt="" />
-              <span class="opt__body">
-                <span class="tr-name"><b class="t-sub">{{ stop.name }}</b><span class="imp imp--must">꼭</span></span>
-                <span class="t-cap tn">{{ stop.stay }}분 · 꼭 갈 곳이라 줄이지 않아요</span>
-              </span>
-              <i class="ic i-lock subtle" aria-hidden="true"></i>
-            </div>
-            <!-- 줄일 수 있는 곳 -->
+            <!-- 줄일 수 있는 곳 (꼭 갈 곳도 20분까지) -->
             <RouterLink
               v-else
               :to="'/live/alt/trim?id=' + stop.id"

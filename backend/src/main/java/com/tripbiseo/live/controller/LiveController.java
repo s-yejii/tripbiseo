@@ -21,6 +21,8 @@ import com.tripbiseo.live.dto.AssistRequest;
 import com.tripbiseo.live.dto.AssistResponse;
 import com.tripbiseo.live.dto.InsertRequest;
 import com.tripbiseo.live.dto.InsertResponse;
+import com.tripbiseo.live.dto.LinkFitRequest;
+import com.tripbiseo.live.dto.LinkFitResponse;
 import com.tripbiseo.live.dto.LocationRequest;
 import com.tripbiseo.live.dto.PreviewRequest;
 import com.tripbiseo.live.dto.RecommendRequest;
@@ -29,6 +31,7 @@ import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.SwapCandidate;
 import com.tripbiseo.live.dto.TrackRequest;
 import com.tripbiseo.live.service.AlternativeService;
+import com.tripbiseo.live.service.LiveLinkService;
 import com.tripbiseo.live.service.LiveService;
 import com.tripbiseo.live.service.StatusService;
 import com.tripbiseo.live.service.TrackService;
@@ -44,6 +47,7 @@ public class LiveController {
     private final LiveService liveService;
     private final StatusService statusService;
     private final AlternativeService alternativeService;
+    private final LiveLinkService liveLinkService;
     private final TrackService trackService;
     private final LoginUser loginUser;
 
@@ -94,6 +98,12 @@ public class LiveController {
     @PostMapping("/preview")
     public Alternative previewAlternative(@PathVariable long id, @RequestBody PreviewRequest request) {
         return alternativeService.previewAlternative(loginUser.id(), id, request);
+    }
+
+    /** 링크로 찾은 장소를 남은 일정에 넣어 보기 (저장 안 함) */
+    @PostMapping("/link-fit")
+    public LinkFitResponse fitLinkPlace(@PathVariable long id, @RequestBody LinkFitRequest request) {
+        return liveLinkService.fitPlace(loginUser.id(), id, request);
     }
 
     /** 남은 칸 하나를 바꿀 장소 후보 */

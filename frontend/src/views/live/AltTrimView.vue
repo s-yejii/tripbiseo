@@ -12,6 +12,7 @@ import { imageFor } from '@/utils/mapView'
 import { showToast } from '@/utils/toast'
 
 const STEP_MIN = 5 // 슬라이더 한 칸
+const MUST_MIN_STAY = 20 // 꼭 갈 곳은 여기까지만 줄임 (빼지는 않음)
 
 const route = useRoute()
 const router = useRouter()
@@ -35,6 +36,7 @@ onMounted(async () => {
 
 const stop = computed(() => replan.stops.find((item) => item.id === stopId) || null)
 const max = computed(() => (stop.value ? stop.value.stay : 0))
+const rangeMin = computed(() => (stop.value && stop.value.importance === 'must' ? Math.min(MUST_MIN_STAY, max.value) : 0))
 // 이 칸이 기준 칸(고정 일정) 앞에 있어야 줄인 만큼 도착이 빨라짐
 const isBeforeBasis = computed(() => {
   const list = replan.stops
@@ -76,7 +78,7 @@ const otherCut = computed(() => {
 const needStay = computed(() => {
   if (!atMax.value || atMax.value.slackMin >= 0 || !isBeforeBasis.value) return null
   const need = Math.floor((max.value + atMax.value.slackMin) / STEP_MIN) * STEP_MIN
-  return need > 0 ? need : null
+  return need > rangeMin.value ? need : null
 })
 const markerLeft = computed(() => ((needStay.value / max.value) * 100).toFixed(1) + '%')
 
@@ -149,7 +151,7 @@ function slackLabel(value) {
       </header>
       <div class="dim" aria-hidden="true"></div>
 
-      <BottomSheet role="dialog" aria-modal="true" style="gap: 18px">
+      <BottomSheet closable role="dialog" aria-modal="true" style="gap: 18px">
         <PageMessage v-if="replan.error" icon="i-warning" title="계산할 수 없어요" :text="replan.error" to="/live" button="여행 중 화면으로" />
         <PageMessage v-else-if="replan.base && !stop" title="줄일 장소를 찾을 수 없어요" to="/live/alt" button="대안 고르기로" />
         <PageMessage v-else-if="!stop || !atMax" is-loading title="계산하는 중이에요" />
@@ -157,7 +159,7 @@ function slackLabel(value) {
         <template v-else>
         <div class="sheet__head" style="gap: 12px">
           <img class="thumb" :src="imageFor(stop.category)" alt="" />
-          <div style="flex: 1"><h2 class="h-title">{{ stop.name }}</h2><p class="t-cap">왼쪽으로 밀어 머무는 시간을 줄여요</p></div>
+          <div style="flex: 1"><h2 class="h-title">{{ stop.name }}</h2></div>
           <button type="button" class="iconbtn iconbtn--soft" aria-label="닫기" @click="router.replace('/live/alt')"><i class="ic i-close" aria-hidden="true"></i></button>
         </div>
 
@@ -171,8 +173,8 @@ function slackLabel(value) {
             <span class="t-label tn c-danger trim-mark-text" :style="{ left: `clamp(0px, calc(${markerLeft} - 60px), calc(100% - 130px))` }">{{ needStay }}분 이하면 안 늦어요</span>
             <span class="trim-mark" :style="{ left: markerLeft }" aria-hidden="true"></span>
           </template>
-          <input v-model.number="stay" class="range" type="range" min="0" :max="max" :step="STEP_MIN" aria-label="머무는 시간(분)" @change="onRelease" />
-          <div style="display: flex; justify-content: space-between"><span class="t-cap tn">0분</span><span class="t-cap tn">기존 {{ max }}분</span></div>
+          <input v-model.number="stay" class="range" type="range" :min="rangeMin" :max="max" :step="STEP_MIN" aria-label="머무는 시간(분)" @change="onRelease" />
+          <div style="display: flex; justify-content: space-between"><span class="t-cap tn">{{ rangeMin }}분</span><span class="t-cap tn">기존 {{ max }}분</span></div>
         </div>
 
         <div v-if="stay === 0" class="banner banner--danger">
@@ -185,7 +187,7 @@ function slackLabel(value) {
             <span class="t-cap tn">{{ otherCut ? '다른 곳까지 합쳐 ' : '' }}총 {{ cut + otherCut }}분 줄임</span>
           </span>
         </div>
-        <p v-if="!isBeforeBasis" class="t-cap" style="margin: 0">{{ stop === replan.basisStop ? '기준이 되는 마지막 일정이라' : basisName + ' 뒤에 있는 곳이라' }} 줄여도 {{ basisName }} 도착 시각은 그대로예요</p>
+        <p v-if="!isBeforeBasis" class="t-cap" style="margin: 0">{{ basisName }} 도착은 그대로예요</p>
 
         <button v-if="stay === 0" type="button" class="btn btn--danger btn--lg btn--block" @click="askRemove"><i class="ic i-trash" aria-hidden="true"></i>{{ buttonText }}</button>
         <button v-else type="button" class="btn btn--primary btn--lg btn--block" @click="done(stay)">{{ buttonText }}</button>
