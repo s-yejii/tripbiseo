@@ -8,6 +8,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +36,9 @@ public class TripServiceImpl implements TripService {
     private static final List<String> IMPORTANCES = List.of("must", "maybe", "drop"); // 중요도 꼭 / 가능하면 / 빼도 됨
     private static final String DEFAULT_IMPORTANCE = "maybe";
     private static final List<String> STATES = List.of("todo", "done", "skipped");
+    private static final Logger log = LoggerFactory.getLogger(TripServiceImpl.class);
+    private static final int MAX_TRASH = 20;        // 휴지통에 남길 수 (계정마다)
+    private static final String STATUS_ONGOING = "ongoing";
     private static final int MAX_TRIP_DAYS = 30;
     private static final int MAX_STAY_MIN = 720;
     private static final int MAX_CHAT_LENGTH = 2000;
@@ -97,12 +102,55 @@ public class TripServiceImpl implements TripService {
         return getTrip(memberId, tripId);
     }
 
-    /** 여행 삭제 (일정·GPS·대화는 FK CASCADE로 같이 지워짐) */
+    /** 여행 삭제 = 휴지통으로 옮기기. 휴지통이 넘치면 가장 오래 전에 지운 것부터 영구 삭제 */
     @Override
+    @Transactional
     public void deleteTrip(long memberId, long tripId) {
-        if (tripMapper.deleteTrip(tripId, memberId) == 0) {
+        if (tripMapper.updateTripTrashed(tripId, memberId) == 0) {
             throw fail(404, "여행을 찾을 수 없어요.");
         }
+        log.info("여행 삭제 member={} trip={} 동작=휴지통으로", memberId, tripId);
+        int removed = tripMapper.deleteOldTrash(memberId, MAX_TRASH);
+        if (removed > 0) {
+            log.info("여행 삭제 member={} 동작=휴지통이 넘쳐 오래된 {}개 영구 삭제", memberId, removed);
+        }
+    }
+
+    /** 휴지통 목록 */
+    @Override
+    public List<Trip> getTrashList(long memberId) {
+        return tripMapper.selectTrashList(memberId);
+    }
+
+    /** 휴지통에서 꺼내기. status는 그대로라 원래 상태로 돌아가요 */
+    @Override
+    public Trip restoreTrip(long memberId, long tripId) {
+        Trip trashed = tripMapper.selectTrashTrip(tripId, memberId);
+        if (trashed == null) {
+            throw fail(404, "휴지통에서 여행을 찾을 수 없어요.");
+        }
+        boolean isOngoing = STATUS_ONGOING.equals(trashed.getStatus());
+        if (isOngoing && tripMapper.selectOtherOngoingTrip(memberId, tripId) != null) {
+            throw fail(409, "지금 진행 중인 여행이 있어서 복원할 수 없어요. 그 여행을 끝내거나 보관한 뒤 복원해 주세요.");
+        }
+        tripMapper.updateTripRestored(tripId, memberId);
+        log.info("여행 복원 member={} trip={}", memberId, tripId);
+        return getTrip(memberId, tripId);
+    }
+
+    /** 휴지통의 여행 영구 삭제 */
+    @Override
+    public void deleteTrashTrip(long memberId, long tripId) {
+        if (tripMapper.deleteTrip(tripId, memberId) == 0) {
+            throw fail(404, "휴지통에서 여행을 찾을 수 없어요.");
+        }
+        log.info("여행 영구 삭제 member={} trip={}", memberId, tripId);
+    }
+
+    /** 휴지통 비우기 */
+    @Override
+    public void deleteAllTrash(long memberId) {
+        log.info("휴지통 비우기 member={} 개수={}", memberId, tripMapper.deleteAllTrash(memberId));
     }
 
     /** 여행 시작: 오늘이 여행 기간 안이고, 진행 중인 다른 여행이 없을 때만 */
@@ -127,6 +175,17 @@ public class TripServiceImpl implements TripService {
     public Trip finishTrip(long memberId, long tripId) {
         getTrip(memberId, tripId);
         tripMapper.updateTripStatus(tripId, "done");
+        return getTrip(memberId, tripId);
+    }
+
+    /** 보관: status를 planned로 되돌림. started_at이 남아 있어서 "시작한 적 있는 planned" = 보관으로 구분 (새 컬럼 없음) */
+    @Override
+    public Trip archiveTrip(long memberId, long tripId) {
+        Trip trip = getTrip(memberId, tripId);
+        if (!"ongoing".equals(trip.getStatus())) {
+            throw fail(400, "진행 중인 여행만 보관할 수 있어요.");
+        }
+        tripMapper.updateTripStatus(tripId, "planned");
         return getTrip(memberId, tripId);
     }
 

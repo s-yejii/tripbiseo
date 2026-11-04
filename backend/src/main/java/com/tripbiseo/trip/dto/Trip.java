@@ -16,6 +16,8 @@ public class Trip {
     private Integer people;         // 1~20
     private List<String> transports = new ArrayList<>(); // bus, subway, walk, taxi, car
     private String status;          // planned / ongoing / done
+    private Boolean archived;       // 보관함에 있나 (planned인데 시작한 적 있음)
+    private String deletedAt;       // 휴지통에 지운 시각 yyyy-MM-ddTHH:mm:ss (휴지통 목록에서만 값이 있음)
     private Integer stopCount;      // 목록(GET /api/trips)에서만 값이 있음
     private List<Stop> stops = new ArrayList<>(); // 목록에서는 항상 [], 상세에서는 day → time → id 순
 }

@@ -16,7 +16,8 @@
   <sql id="tripColumns">
     t.trip_id AS id, t.member_id, t.title,
     t.start_date::text AS start_date, t.end_date::text AS end_date,
-    t.people, t.transports, t.status
+    t.people, t.transports, t.status,
+    (t.status = 'planned' AND t.started_at IS NOT NULL) AS archived
   </sql>
 
   <!-- ============================== 여행 ============================== -->
@@ -27,7 +28,7 @@
            (SELECT COUNT(*) FROM trip_stop s
              WHERE s.trip_id = t.trip_id AND s.state &lt;&gt; 'skipped') AS stop_count
     FROM trip t
-    WHERE t.member_id = #{memberId}
+    WHERE t.member_id = #{memberId} AND t.deleted_at IS NULL
     ORDER BY t.start_date DESC, t.trip_id DESC
   </select>
 
@@ -35,14 +36,14 @@
   <select id="selectTrip" resultMap="tripResult">
     SELECT <include refid="tripColumns"/>
     FROM trip t
-    WHERE t.trip_id = #{tripId} AND t.member_id = #{memberId}
+    WHERE t.trip_id = #{tripId} AND t.member_id = #{memberId} AND t.deleted_at IS NULL
   </select>
 
   <!-- 여행 시작 전 확인: 이 회원의 진행 중인 다른 여행 -->
   <select id="selectOtherOngoingTrip" resultMap="tripResult">
     SELECT <include refid="tripColumns"/>
     FROM trip t
-    WHERE t.member_id = #{memberId} AND t.status = 'ongoing' AND t.trip_id &lt;&gt; #{tripId}
+    WHERE t.member_id = #{memberId} AND t.status = 'ongoing' AND t.trip_id &lt;&gt; #{tripId} AND t.deleted_at IS NULL
     LIMIT 1
   </select>
 
@@ -68,8 +69,48 @@
     WHERE trip_id = #{tripId}
   </update>
 
+  <!-- ============================== 휴지통 (deleted_at에 값이 있으면 휴지통) ============================== -->
+
+  <update id="updateTripTrashed">
+    UPDATE trip SET deleted_at = NOW()
+    WHERE trip_id = #{tripId} AND member_id = #{memberId} AND deleted_at IS NULL
+  </update>
+
+  <update id="updateTripRestored">
+    UPDATE trip SET deleted_at = NULL
+    WHERE trip_id = #{tripId} AND member_id = #{memberId} AND deleted_at IS NOT NULL
+  </update>
+
+  <select id="selectTrashList" resultMap="tripResult">
+    SELECT <include refid="tripColumns"/>, to_char(t.deleted_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS deleted_at
+    FROM trip t
+    WHERE t.member_id = #{memberId} AND t.deleted_at IS NOT NULL
+    ORDER BY t.deleted_at DESC, t.trip_id DESC
+  </select>
+
+  <select id="selectTrashTrip" resultMap="tripResult">
+    SELECT <include refid="tripColumns"/>, to_char(t.deleted_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS deleted_at
+    FROM trip t
+    WHERE t.trip_id = #{tripId} AND t.member_id = #{memberId} AND t.deleted_at IS NOT NULL
+  </select>
+
+  <!-- 영구 삭제: 일정·GPS·대화는 FK CASCADE로 같이 지워져요. 휴지통에 있는 것만 -->
   <delete id="deleteTrip">
-    DELETE FROM trip WHERE trip_id = #{tripId} AND member_id = #{memberId}
+    DELETE FROM trip WHERE trip_id = #{tripId} AND member_id = #{memberId} AND deleted_at IS NOT NULL
+  </delete>
+
+  <delete id="deleteAllTrash">
+    DELETE FROM trip WHERE member_id = #{memberId} AND deleted_at IS NOT NULL
+  </delete>
+
+  <!-- 넘친 휴지통: 최근에 지운 keep개만 남기고 오래된 것부터 영구 삭제 (OFFSET: 앞에서 그만큼 건너뜀) -->
+  <delete id="deleteOldTrash">
+    DELETE FROM trip WHERE trip_id IN (
+      SELECT trip_id FROM trip
+      WHERE member_id = #{memberId} AND deleted_at IS NOT NULL
+      ORDER BY deleted_at DESC, trip_id DESC
+      OFFSET #{keep}
+    )
   </delete>
 
   <!-- ============================== 일정 칸 ============================== -->
