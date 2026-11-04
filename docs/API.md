@@ -91,7 +91,7 @@
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
-| `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks), plan/ShareAddView | 확인 필요 |
+| `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 
 ### ④ 여행 중 판별 (live)
@@ -831,6 +831,34 @@
 > 예약 번호·예약자 이름·전화번호·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
 
 **오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "숙소 예약 정보를 읽지 못했어요. 숙소 이름과 체크인 날짜가 보이게 다시 찍어 주세요." · Gemini 공통 오류
+
+### `POST /api/plans/links`
+인스타 게시물·릴스 링크의 글에서 장소 이름을 뽑아 실제 장소로 찾아 줘요. **저장하지 않아요** — 화면에서 고른 곳의 이름을 조건의 `mustVisit`에 넣어요. · 로그인 필요 · 화면: plan/PlanAiView (WishLinks) (11/04 추가)
+
+**요청**
+```json
+{ "url": "https://www.instagram.com/reel/C9x2abc/", "caption": "📍대림창고 분위기 최고 #어니언" }
+```
+
+| 필드 | 설명 |
+|---|---|
+| url | 필수. `instagram.com`의 `/p/`·`/reel/`·`/reels/`·`/tv/` 주소만 |
+| caption | 선택. 사용자가 복사한 게시물 글 (2200자까지). 공개 페이지를 읽지 못해도 이 글로 찾아요 |
+
+**응답**
+```json
+{ "source": "caption", "places": [ { "id": "naver-123", "name": "대림창고", "category": "카페", "address": "서울 성동구 …", "lat": 37.54, "lng": 127.05, "rating": 4.5, "reviewCount": 100, "naverUrl": "https://map.naver.com/…" } ], "missed": [] }
+```
+
+| 필드 | 설명 |
+|---|---|
+| source | `page`(인스타 공개 페이지의 글을 읽음) · `caption`(붙여 넣은 글만 씀) |
+| places | 장소 카드 목록. 이름으로 우리 DB → TourAPI → 카카오 순으로 찾아요. DB에 없는 곳은 `id`가 `null`. 찾지 못했으면 `[]` |
+| missed | 글에서 뽑았지만 장소를 찾지 못한 이름 |
+
+> 공개 페이지를 GET 한 번만 부르고(로그인·크롤링 없음, 리다이렉트 안 따라감) `og:description`·`og:title`의 게시물 글만 읽어요. Gemini에는 이메일·계정(@)·전화번호·URL을 지운 글만 보내요 (좌표·회원 정보 없음). Gemini 키가 없거나 실패하면 규칙(📍·위치: 표시, 해시태그)으로 찾아요. 그래서 Gemini 공통 오류는 나지 않아요. Gemini가 고른 이름은 글에 실제로 있는지 서버가 다시 확인하고, 장소 `id`는 서버가 찾아서 붙여요.
+
+**오류** 400 "인스타그램 게시물·릴스 링크만 찾을 수 있어요." · 400 "게시물 글은 2200자까지 붙여 넣을 수 있어요." · 422 "인스타에서 글을 읽지 못했어요. 게시물 글을 복사해 같이 붙여 넣어 주세요."
 
 ### `POST /api/plans/generate`
 조건으로 일정 초안을 만들어요. 저장은 안 해요. · 로그인 필요 · 화면: plan/GeneratingView → trip/PlanCheckView
