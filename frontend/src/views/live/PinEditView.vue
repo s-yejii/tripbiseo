@@ -187,7 +187,7 @@ const mapPins = computed(() => (stop.value ? [{ key: stop.value.id, lat: stop.va
       <KakaoMap v-if="stop" :pins="mapPins" :me="replan.position" :show-route="false" :padding="PIN_MAP_PADDING" />
       <div class="dim" aria-hidden="true" style="background: rgba(16, 22, 38, 0.24)"></div>
 
-      <BottomSheet role="dialog" aria-modal="true" style="gap: 14px">
+      <BottomSheet closable role="dialog" aria-modal="true" style="gap: 14px">
         <PageMessage v-if="replan.error" icon="i-warning" title="남은 일정을 불러오지 못했어요" :text="replan.error" to="/live" button="여행 중 화면으로" />
         <PageMessage v-else-if="replan.isLoading && !stop" is-loading title="남은 일정을 계산하는 중이에요" />
         <PageMessage v-else-if="!stop" icon="i-info" title="이 장소는 이미 지나갔어요" text="남은 일정에 있는 장소만 미리 바꿀 수 있어요" to="/live" button="여행 중 화면으로" />

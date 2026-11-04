@@ -9,7 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
-import { getLiveStatus, getRouteGuide, getTripList, sendTrack } from '@/api/trips'
+import { getTrip, getLiveStatus, getRouteGuide, getTripList, sendTrack } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { distanceMeters, pathLength, pointAlongPath, snapToPath } from '@/utils/geo'
 import { toMinutes, toTime } from '@/utils/time'
@@ -350,6 +350,55 @@ const fareText = computed(() => {
   return (modeKey.value === 'car' ? '예상 택시비 ' : '요금 ') + guide.value.fare.toLocaleString() + '원'
 })
 
+const APP_OPEN_WAIT_MS = 1200 // 앱이 열렸는지 기다리는 시간
+const isTaxi = computed(() => modeKey.value === 'car' && !!guide.value && guide.value.available)
+const taxiFare = computed(() => (guide.value && guide.value.fare != null ? '약 ' + guide.value.fare.toLocaleString() + '원' : '-'))
+
+// 도착지 주소: 지금 상황(live/status) 칸에는 주소가 없어서, 택시를 고르면 여행에서 찾아 둠 (누른 뒤 받으면 복사가 막히는 브라우저가 있어요)
+const taxiAddress = ref('')
+watch([isTaxi, destination], async ([taxi, place]) => {
+  taxiAddress.value = ''
+  if (!taxi || !place) return
+  try {
+    const trip = await getTrip(tripId.value)
+    const stop = trip.stops.find((item) => item.id === place.id)
+    taxiAddress.value = stop && stop.address ? stop.address : ''
+  } catch {
+    taxiAddress.value = ''
+  }
+})
+
+// 카카오 T 앱으로 택시 부르기 (kakaot:// 앱 주소). 앱이 없어서 화면이 그대로면 카카오맵 길찾기 웹으로
+function callTaxi() {
+  const { name, lat, lng } = destination.value
+  window.location.href = `kakaot://taxi?dest_lat=${lat}&dest_lng=${lng}`
+  setTimeout(() => {
+    if (document.visibilityState === 'visible') window.open(`https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}`, '_blank', 'noopener')
+  }, APP_OPEN_WAIT_MS)
+}
+
+// 기사님께 보여 줄 도착지 주소 복사 (주소가 없으면 장소 이름). http에서는 clipboard가 없을 수 있어 옛날 방식으로
+async function copyAddress() {
+  const text = taxiAddress.value || destination.value.name
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const box = document.createElement('textarea')
+    box.value = text
+    document.body.appendChild(box)
+    box.select()
+    const isCopied = document.execCommand('copy')
+    box.remove()
+    if (!isCopied) return showToast(text)
+  }
+  showToast('주소를 복사했어요')
+}
+
+// 택시로 가다 도착하면 한 번 더 알려 줌
+watch(isArrived, (arrived) => {
+  if (arrived && modeKey.value === 'car') showToast('두고 내린 물건 없는지 확인해요')
+})
+
 const mapPins = computed(() => {
   if (!destination.value) return []
   const pins = [{ key: 'dest', lat: destination.value.lat, lng: destination.value.lng, text: destination.value.no, icon: destination.value.fixed ? 'i-lock' : '', cls: ' pin--sel', label: destination.value.name, route: false }]
@@ -364,7 +413,7 @@ const statusText = computed(() => {
   if (isRerouting.value) return '길을 다시 찾는 중…'
   if (snap.value && snap.value.off > OFF_ROUTE_M && !hasJoined.value) return '출발 지점까지 ' + Math.round(snap.value.off / 10) * 10 + 'm 걸어가세요'
   if (snap.value && snap.value.off > OFF_ROUTE_M) return '경로에서 벗어났어요 · ' + Math.round(snap.value.off) + 'm'
-  return '이동 중 · 도착하면 자동으로 기록돼요 (' + minutesLeft.value + '분 남음)'
+  return '이동 중 · ' + minutesLeft.value + '분 남음'
 })
 </script>
 
@@ -412,6 +461,22 @@ const statusText = computed(() => {
           <p v-if="!guide || !guide.available" class="t-cap" style="display: flex; gap: 6px; margin: 0">
             <i class="ic ic--s i-info" aria-hidden="true"></i>{{ guide && guide.message ? guide.message : '이 수단으로는 길을 찾지 못했어요' }}
           </p>
+          <!-- 택시: 길은 기사님이 아니까 도착 시각·요금만 크게 -->
+          <section v-else-if="isTaxi" class="rg-taxi" aria-label="택시 예상">
+            <div class="rg-taxi__main">
+              <div class="rg-taxi__cols">
+                <div class="rg-taxi__col"><b class="tn">{{ eta }}</b><span>도착 · {{ guide.minutes }}분 · {{ (guide.meters / 1000).toFixed(1) }}km</span></div>
+                <i class="rg-taxi__line" aria-hidden="true"></i>
+                <div class="rg-taxi__col"><b class="tn">{{ taxiFare }}</b><span>TMAP 기준 예상</span></div>
+              </div>
+            </div>
+            <div class="rg-taxi__actions">
+              <button type="button" class="btn btn--lg rg-taxi__call" @click="callTaxi"><i class="ic ic--s i-car" aria-hidden="true"></i>카카오 T로 부르기</button>
+              <button type="button" class="btn btn--secondary btn--lg rg-taxi__copy" @click="copyAddress">주소 복사</button>
+            </div>
+            <p class="rg-taxi__tip"><i class="ic ic--s i-info" aria-hidden="true"></i>내릴 때 두고 내린 물건 없는지 확인해요</p>
+          </section>
+
           <template v-else>
             <p v-if="fareText || guide.source" class="t-cap tn" style="margin: 0">{{ (guide.meters / 1000).toFixed(1) }}km{{ fareText ? ' · ' + fareText : '' }} · {{ guide.source === 'odsay' ? 'ODsay' : 'TMAP' }} 길찾기</p>
             <ol ref="stepList" class="rg-steps">
@@ -428,7 +493,7 @@ const statusText = computed(() => {
 
         <div class="cta cta--white">
           <div class="rg-status">
-            <span class="rg-eta tn"><b>{{ eta }}</b><small>도착 예상</small></span>
+            <span v-if="!isTaxi" class="rg-eta tn"><b>{{ eta }}</b><small>도착 예상</small></span>
             <span style="flex: 1; display: flex; flex-direction: column; gap: 6px">
               <span class="t-cap rg-moving" :class="{ 'c-warning': snap && snap.off > OFF_ROUTE_M && hasJoined }"><i class="ic ic--s i-locate" aria-hidden="true"></i>{{ statusText }}</span>
               <span class="bar"><i :style="{ width: progress + '%' }"></i></span>
@@ -453,6 +518,18 @@ const statusText = computed(() => {
 .scr-RouteGuide .rg-steps small{display:block;font-size:13px;line-height:18px;color:var(--ink-muted)}
 .scr-RouteGuide .rg-dot{width:32px;height:32px;border-radius:50%;background:var(--navy-soft);color:var(--navy);display:flex;align-items:center;justify-content:center;flex:none}
 .scr-RouteGuide .is-key .rg-dot{background:var(--success);color:#fff}
+.scr-RouteGuide .rg-taxi{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;padding-bottom:96px}
+.scr-RouteGuide .rg-taxi__main{flex:none;padding:16px 8px;border-radius:18px;background:linear-gradient(135deg,var(--navy),var(--navy-pressed));box-shadow:0 8px 20px rgba(31,58,104,.22)}
+.scr-RouteGuide .rg-taxi__cols{display:flex;align-items:center}
+.scr-RouteGuide .rg-taxi__col{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;color:#fff;text-align:center}
+.scr-RouteGuide .rg-taxi__col b{font-size:26px;line-height:32px;font-weight:800;letter-spacing:-.5px;white-space:nowrap}
+.scr-RouteGuide .rg-taxi__col span{font-size:12px;opacity:.78}
+.scr-RouteGuide .rg-taxi__line{flex:none;width:1px;height:40px;background:rgba(255,255,255,.22)}
+.scr-RouteGuide .rg-taxi__actions{flex:none;display:flex;gap:8px}
+.scr-RouteGuide .rg-taxi__call{flex:1;min-width:0;gap:6px;color:#191600;background:#FEE500;border:0}
+.scr-RouteGuide .rg-taxi__call:hover{background:#F5DC00}
+.scr-RouteGuide .rg-taxi__copy{flex:none;padding:0 14px}
+.scr-RouteGuide .rg-taxi__tip{flex:none;display:flex;align-items:center;justify-content:center;gap:6px;margin:0;padding:10px;border-radius:12px;font-size:13px;font-weight:600;color:var(--coral-ink);background:var(--coral-soft)}
 .scr-RouteGuide .rg-status{display:flex;align-items:center;gap:12px;min-height:52px}
 .scr-RouteGuide .rg-eta{display:flex;flex-direction:column;justify-content:center;min-width:64px}
 .scr-RouteGuide .rg-eta b{font-size:20px;line-height:24px}

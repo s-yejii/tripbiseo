@@ -5,6 +5,7 @@
   --navy:#1F3A68;--navy-pressed:#152A4E;--navy-soft:#E8EEF8;--on-navy:#FFFFFF;--focus-ring:#3A64B0;
   --coral:#E8603F;--coral-soft:#FDEEE9;--coral-ink:#A9412A;
   --success:#1D7A4C;--success-soft:#E6F4EC;--warning:#A65800;--warning-soft:#FDF1E1;--danger:#C2352B;--danger-soft:#FCEBEA;
+  --sky:#0F6E9E;--sky-soft:#D6EEFB;--sky-line:#B5DDF5;--lilac:#0F6E9E;--lilac-soft:#D6EEFB;
   --overlay:rgba(16,22,38,.48);
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
   --radius-sm:6px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;--radius-full:999px;
@@ -326,6 +327,8 @@ button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
 .i-up{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M6 15l6-6 6 6%22/%3E%3C/svg%3E")}
 .i-toilet{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%227%22 cy=%224.5%22 r=%221.8%22/%3E%3Ccircle cx=%2217%22 cy=%224.5%22 r=%221.8%22/%3E%3Cpath d=%22M5 9h4v6H8v6H6v-6H5z%22/%3E%3Cpath d=%22M17 8.5l3 7.5h-2v5h-2v-5h-2z%22/%3E%3Cpath d=%22M12 3v18%22/%3E%3C/svg%3E")}
 .i-cup{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z%22/%3E%3Cpath d=%22M16 10h1.5a2.5 2.5 0 0 1 0 5H16%22/%3E%3Cpath d=%22M8 3v3M12 3v3%22/%3E%3C/svg%3E")}
+.i-food{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6a2 2 0 0 0 2 2h3zm0 0v7%22/%3E%3C/svg%3E")}
+.i-glass{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M8 22h8M7 10h10M12 15v7M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5z%22/%3E%3C/svg%3E")}
 .i-won{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 6l3.5 12L12 8l4.5 10L20 6%22/%3E%3Cpath d=%22M3 11h18M3 14h18%22/%3E%3C/svg%3E")}
 .i-busstop{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%225%22 y=%223%22 width=%2210%22 height=%229%22 rx=%222%22/%3E%3Cpath d=%22M8 7h4M10 12v9M7 21h6%22/%3E%3Ccircle cx=%2218%22 cy=%2216%22 r=%222%22/%3E%3C/svg%3E")}
 .i-receipt{--i:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.75%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M6 3h12v18l-3-2-3 2-3-2-3 2z%22/%3E%3Cpath d=%22M9 8h6M9 12h6M9 16h3%22/%3E%3C/svg%3E")}
@@ -652,3 +655,21 @@ button.dur-delta .ic{width:12px;height:12px}
 .seg-dot{flex:none;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--navy);position:relative;z-index:1}
 .seg-dot--to{background:var(--navy)}
 .seg-cta{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:12px}
+
+/* 이 브랜치에서 더한 것 */
+.ico-tile--sky{background:var(--sky-soft);color:var(--sky)}
+.ico-tile--lilac{background:var(--lilac-soft);color:var(--lilac)}
+.ico-tile--coral{background:var(--coral-soft);color:var(--coral-ink)}
+.pin__tag{position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);max-width:150px;padding:3px 8px;border-radius:6px;background:var(--navy);color:#fff;font-size:12px;line-height:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 마이 페이지는 지금 모양 그대로 (11/04 결정): 공통 값을 되돌려도 이 화면들은 안 바뀌게 고정 */
+.scr-My,.scr-ProfileEdit,.scr-StyleEdit,.scr-FriendInvite,.scr-LocHistory,.scr-CardAdd{--surface:#F7FBFE;--surface-sunken:#EEF4F8;--line:#DCE8F1;--navy-soft:#EAF4FB;--warning:#A9412A;--warning-soft:#FDEEE9;--radius-md:12px;--shadow-card:none;--shadow-sheet:0 2px 16px rgba(24,33,58,.16)}
+.scr-My .btn--lg,.scr-ProfileEdit .btn--lg,.scr-StyleEdit .btn--lg,.scr-FriendInvite .btn--lg,.scr-LocHistory .btn--lg,.scr-CardAdd .btn--lg{font-size:15px;font-weight:700}
+.scr-My .row,.scr-ProfileEdit .row,.scr-StyleEdit .row,.scr-FriendInvite .row,.scr-LocHistory .row,.scr-CardAdd .row{min-height:60px;padding:12px 16px}
+.scr-My .row+.row,.scr-ProfileEdit .row+.row,.scr-StyleEdit .row+.row,.scr-FriendInvite .row+.row,.scr-LocHistory .row+.row,.scr-CardAdd .row+.row{box-shadow:none}
+.scr-My .row+.row::after,.scr-ProfileEdit .row+.row::after,.scr-StyleEdit .row+.row::after,.scr-FriendInvite .row+.row::after,.scr-LocHistory .row+.row::after,.scr-CardAdd .row+.row::after{content:"";position:absolute;top:0;left:68px;right:16px;height:1px;background:var(--line)}
+.scr-My .tabbar{left:0;right:0;bottom:0;height:64px;padding:0 6px;border-top:1px solid var(--line);border-radius:0;background:var(--surface-raised);box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+.scr-My .tabbar a{font:400 12px/16px var(--font-sans)}
+.scr-My .tabbar a.is-on{font-weight:700}
+.scr-My .tabbar a::before{display:none}
+.scr-My .app:has(> .tabbar) > .scroll{padding-bottom:84px}

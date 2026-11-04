@@ -63,8 +63,13 @@
 | `POST /api/trips` | 여행 저장 (일정 칸까지 한 번에) | trip/PlanCheckView | 있음 |
 | `GET /api/trips/{id}` | 여행 상세 | trip/TripDetailView, trip/TripDetailTodayView, live/LiveView | 있음 |
 | `PUT /api/trips/{id}` | 여행 정보 수정 (이름·날짜·인원·수단) | (화면 아직 없음) | 있음 |
-| `DELETE /api/trips/{id}` | 여행 삭제 | trip/TripsView | 있음 |
+| `DELETE /api/trips/{id}` | 여행 삭제 = 휴지통으로 (11/04) | trip/MainView 등 | 있음 |
+| `GET /api/trips/trash` | 휴지통 목록 | member/TrashView | 있음 |
+| `DELETE /api/trips/trash` | 휴지통 비우기 | member/TrashView | 있음 |
+| `POST /api/trips/{id}/restore` | 휴지통에서 꺼내기 | member/TrashView | 있음 |
+| `DELETE /api/trips/{id}/trash` | 휴지통의 여행 영구 삭제 | member/TrashView | 있음 |
 | `POST /api/trips/{id}/start` | 여행 시작 | trip/MainStartView, trip/TripDetailTodayView | 있음 |
+| `POST /api/trips/{id}/archive` | 진행 중인 여행 보관 | trip/TripDetailTodayView | 있음 |
 | `POST /api/trips/{id}/finish` | 여행 마치기 | live/LiveView | 있음 |
 | `POST /api/trips/{id}/stops` | 일정 칸 추가 | trip/PlanManualView, trip/PlanEditView | 있음 |
 | `PUT /api/trips/{id}/stops/{stopId}` | 일정 칸 수정 | live/PinEditView (trip/StopEditView는 11/04부터 `PUT /stops`로 한 번에) | 있음 |
@@ -76,7 +81,10 @@
 | `GET /api/places/search` | 장소 검색 (이름·분류) | plan/PlaceSearchView, trip/PlanManualView | 있음 |
 | `GET /api/places/nearby` | 근처 장소 | trip/PlanManualView | 있음 |
 | `GET /api/places/popular` | 요즘 인기 장소 (다른 회원들의 최근 30일 여행 기록) | trip/MainView | 있음 |
+| `POST /api/places/photos/trip` | 한 일정의 칸들 사진 `[{key, name, address}]` → `[{placeId(=key), imageUrl, siteName, linkUrl}]` (카카오 이미지 검색, 일정 안에서 안 겹침) | trip/MainView, trip/PlanCheckView | 있음 |
+| `GET /api/places/photos` | 장소들의 사진 (DB → 카카오 블로그 검색) | trip/MainView (PopularPlaces) | 있음 |
 | `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
+| `GET /api/places/locations/hubs` | 출발지 추천: 근처 지하철역·구청·시청 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
 | `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? · 꼭 지킬 시간(예약한 곳) 역·건물·가게·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`, `?mode=fixed`) | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
@@ -91,7 +99,13 @@
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
-| `POST /api/plans/links` | 인스타·릴스 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
+| `GET /api/plans/places` | 직접 고르기 지도: 종류별 장소 (들를 곳은 카카오 보충) | trip/PlanManualView | 있음 |
+| `GET /api/plans/areas` | 추천 지역 (종류마다 리뷰가 많은 서울 구) | plan/PlanAiView | 있음 |
+| `GET /api/plans/links/recommended` | 추천 게시물 목록 (파일 기반, 지금은 비어 있음) | plan/PlanAiView | 있음 |
+| `POST /api/plans/dong-types` | 한 구의 행정동 특색 (동 지도 색칠) | plan/DongPicker | 있음 |
+| `POST /api/plans/route-options` | [동선 최적화] 이동 시간이 짧은 순서 후보 최대 5개 | trip/TripDetailView, trip/PlanEditView | 있음 |
+| `POST /api/plans/route-order` | [동선 정리] 하루 일정의 새 순서 (최근접 이웃 + 2-opt). AI 일정과 같은 함수 | trip/PlanManualView | 있음 |
+| `POST /api/plans/links` | 인스타·유튜브·네이버(블로그·지도) 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 
 ### ④ 여행 중 판별 (live)
@@ -103,6 +117,7 @@
 | `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 | live/LiveView (AI 채팅 AskPanel) | 있음 |
+| `POST /api/trips/{id}/live/link-fit` | 링크로 찾은 장소를 남은 일정에 넣어 보기 (저장 안 함) | live/LiveView (LinkAddSheet), live/LinkFitView | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `POST /api/trips/{id}/live/apply` | 고른 대안을 일정에 반영 | live/AltTrimView, live/AltDropView, live/AltSwapView → live/AppliedView | 있음 |
 | `POST /api/trips/{id}/live/preview` | 직접 고친 남은 일정 계산 (저장 안 함) | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
@@ -176,6 +191,7 @@
 | people | number | 동행 인원 1~20 |
 | transports | string[] | 이동 수단 1개 이상: `bus`, `subway`, `walk`, `taxi`, `car` (DB에는 `"subway,bus,walk"` 문자열로 저장) |
 | status | string | `planned` / `ongoing` / `done`. 요청 값은 무시하고 start·finish로만 바뀜 |
+| archived | boolean | 보관함에 있는 여행 (`planned`인데 시작한 적 있음, `started_at`으로 구분) |
 | stopCount | number (null 가능) | **목록(`GET /api/trips`)에서만** 값이 있음: `skipped`가 아닌 일정 칸 수. 다른 응답에서는 `null` |
 | stops | Stop[] | 일정 칸 목록. 목록 응답에서는 항상 `[]`. 상세에서는 `day → time → id` 순 |
 
@@ -484,6 +500,16 @@
 
 **오류** 404 "여행을 찾을 수 없어요." · `POST /api/trips`의 여행 정보 오류(이름·날짜·기간·인원·수단) · 400 "줄인 날짜 밖에 일정이 있어요. 그 일정을 먼저 옮기거나 지워 주세요."
 
+### 휴지통 (11/04)
+`trip.deleted_at`에 값이 있으면 휴지통이에요 (`db/16_trash.sql`). 휴지통 일정은 다른 API에 안 나와요 (없는 일정처럼 404).
+- `DELETE /api/trips/{id}`: 지우지 않고 휴지통으로. 계정당 20개가 넘으면 가장 오래 전에 지운 것부터 영구 삭제. 응답은 그대로 `{ok:true}`
+- `GET /api/trips/trash`: 최근에 지운 순 `Trip[]`, `deletedAt`(yyyy-MM-ddTHH:mm:ss) 있음
+- `POST /api/trips/{id}/restore`: 원래 상태로 복원, 응답 `Trip`. 404 "휴지통에서 여행을 찾을 수 없어요." · 409 진행 중이던 여행인데 지금 다른 여행이 진행 중일 때
+- `DELETE /api/trips/{id}/trash`: 영구 삭제 `{ok:true}`. 404 같은 문장
+- `DELETE /api/trips/trash`: 휴지통 비우기 `{ok:true}`
+
+---
+
 ### `DELETE /api/trips/{id}`
 여행을 지워요. 일정·GPS·대화 기록도 함께 지워져요. · 로그인 필요 · 화면: trip/TripsView
 
@@ -502,6 +528,11 @@
 여행을 마쳐요 (status → `done`). 진행 중이 아니어도 막지 않아요. · 로그인 필요 · 화면: live/LiveView
 
 **요청** 경로 `id`, 본문 없음 · **응답** `Trip` (`status: "done"`) · **오류** 404 "여행을 찾을 수 없어요."
+
+### `POST /api/trips/{id}/archive`
+진행 중인 여행을 보관함으로 옮겨요 (지우지 않음, status → `planned`, `archived: true`). 다시 꺼낼 때는 `start`를 불러요. · 로그인 필요 · 화면: trip/TripDetailTodayView
+
+**요청** 경로 `id`, 본문 없음 · **응답** `Trip` · **오류** 404 "여행을 찾을 수 없어요." · 400 "진행 중인 여행만 보관할 수 있어요."
 
 ### `POST /api/trips/{id}/stops`
 일정 칸을 하나 추가해요. · 로그인 필요 · 화면: trip/PlanManualView, trip/PlanEditView
@@ -645,6 +676,11 @@
 
 **오류** 400 "lat 값이 필요해요." · 400 "lng 값이 필요해요."
 
+### `GET /api/places/photos`
+장소들의 사진 주소와 출처예요. 파일을 저장하지 않아요. DB 사진이 있으면 그것, 없으면 카카오 블로그 검색에서 제목에 가게 이름이 있는 글의 썸네일. 못 찾은 곳은 응답에서 빠져요. · 로그인 필요 · 화면: trip/PopularPlaces
+
+**요청** `?ids=naver-1,naver-2` (한 번에 12곳까지) · **응답** `[{ "placeId": "naver-1", "imageUrl": "https://...", "siteName": "블로그 이름", "linkUrl": "https://..." }]` (DB 사진이면 siteName·linkUrl은 `null`)
+
 ### `GET /api/places/popular`
 요즘 인기 장소예요. 신규 회원에게도 똑같이 보여요 (내 기록이 없으면 취향 반영만 빠짐). · 로그인 필요 · 화면: trip/MainView (11/03 추가)
 
@@ -718,6 +754,15 @@
 **응답** `{ "name": "현대백화점 천호점", "address": "서울 강동구 천호대로 1005", "category": "현재 위치", "lat": 37.538, "lng": 127.123 }` (건물 이름이 없으면 `name`도 주소)
 
 **오류** 404 "이 위치의 주소를 찾지 못했어요." · 502·503 `/areas`와 같아요
+
+### `GET /api/places/locations/hubs`
+"어디서 출발해요?" 추천이에요. 좌표 근처 지하철역 최대 4곳(3km 안)과 가까운 구청(10km 안)·시청(20km 안) 1곳씩을 가까운 순으로 줘요 (카카오 로컬). 좌표는 카카오에만 보내요. 저장하지 않아요. · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/04 추가)
+
+**요청** 쿼리 `lat`, `lng` (필수)
+
+**응답** `[{ "name": "문래역 2호선", "address": "서울 영등포구 당산로 28", "category": "수도권2호선", "lat": 37.518, "lng": 126.894, "distance": 450 }]`. `category`는 지하철 노선 이름 또는 `구청`·`시청`, `distance`는 m
+
+**오류** 502·503 `/areas`와 같아요
 
 ### `GET /api/places/{id}`
 장소 상세 (영업시간·리뷰). · 로그인 필요 · 화면: trip/PlaceView (일정 칸의 `placeId`로 이동)
@@ -832,7 +877,21 @@
 
 **오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "숙소 예약 정보를 읽지 못했어요. 숙소 이름과 체크인 날짜가 보이게 다시 찍어 주세요." · Gemini 공통 오류
 
-### `POST /api/plans/links`
+### `GET /api/plans/places`
+직접 고르기 지도에 보여 줄 장소예요. 기준점 3km 안, 종류별 평점 순. · 로그인 필요 · 화면: trip/PlanManualView
+
+**요청** `?lat=37.55&lng=126.92&kind=food` (`food`·`cafe`·`bar`·`culture`·`tour`) · **응답** 장소 카드 배열 (`tour`는 모자라면 카카오 관광명소로 보충: id가 `kakao-이름`이라 저장할 때 장소 연결 없이 이름·좌표만 남음)
+
+### `GET /api/plans/links/recommended`
+"가고 싶은 곳" 추천 게시물이에요. `backend/src/main/resources/plan/recommended-links.json` 파일 내용을 그대로 돌려줘요 (새 테이블 없음). 파일이 `[]`이면 화면은 이 칸을 숨겨요. · 로그인 필요 · 화면: plan/PlanAiView · 11/04 추가
+
+**파일·응답 모양** `[{ "platform": "instagram", "title": "문래동 맛집 모음", "area": "문래동", "url": "https://www.instagram.com/p/코드/", "imageUrl": null }]`. `platform`은 `instagram`·`youtube`·`threads`. 지금 장소 찾기는 인스타 링크만 되어서, 다른 플랫폼 칸은 눌러도 새 창으로 열리기만 해요. 실제로 있는 공개 게시물만 넣어요
+
+### `GET /api/plans/areas`
+"어디로 가요?" 추천 지역이에요. 우리 장소 DB(`retrip_place`)를 구·종류별로 세어 종류마다 리뷰 수가 많은 순으로 구 전부를 돌려줘요. · 로그인 필요 · 화면: plan/PlanAiView · 11/04 추가
+
+**응답** 배열 `[{ "kind": "cafe", "name": "마포구", "placeCount": 112, "reviewCount": 290743, "lat": 37.55, "lng": 126.92, "imageUrl": null }]`. `kind`는 `cafe`·`food`·`bar`·`tour`(문화시설 포함), `imageUrl`은 리뷰가 많은 장소의 사진, 없으면 `null`
+
 인스타 게시물·릴스 링크의 글에서 장소 이름을 뽑아 실제 장소로 찾아 줘요. **저장하지 않아요** — 화면에서 고른 곳의 이름을 조건의 `mustVisit`에 넣어요. · 로그인 필요 · 화면: plan/PlanAiView (WishLinks) (11/04 추가)
 
 **요청**
@@ -860,6 +919,21 @@
 
 **오류** 400 "인스타그램 게시물·릴스 링크만 찾을 수 있어요." · 400 "게시물 글은 2200자까지 붙여 넣을 수 있어요." · 422 "인스타에서 글을 읽지 못했어요. 게시물 글을 복사해 같이 붙여 넣어 주세요."
 
+### `POST /api/plans/dong-types`
+요청 `[{code, geometry(GeoJSON 글자)}]` (한 구의 행정동 전부) → 응답 `[{code, food, cafe, tour, type}]`. `retrip_place`를 ST_Within으로 세어서 입지계수(동의 종류 비율 / 서울 전체의 종류 비율) 기준: 카페·볼거리는 1.2 이상 + 그 종류 수가 구 안 상위 30%, 맛집은 1.05 이상이거나 구 안 상위 20% + 100곳 이상. 여러 개 맞으면 입지계수가 큰 쪽이 `type`. 세 종류 합이 10곳 미만이거나 1.2 넘는 게 없으면 `type` 없음. tour = 관광지·문화시설. 로그인 필요.
+
+---
+
+### `POST /api/plans/route-options`
+요청은 route-order와 같고 `transports`를 더 받아요 → 응답 `{currentMinutes, options: [{order, minutes, meters}]}` (시간 짧은 순, 최대 5개). `minutes`는 거리로 잰 어림값(외부 길찾기 안 부름). 지키는 규칙은 route-order와 같아요. 옮길 칸이 9곳 이상이면 가장 짧은 순서 하나만.
+
+---
+
+### `POST /api/plans/route-order`
+요청 `{stops: Stop[](시각 순), date, startLat, startLng}` → 응답 `{order: number[](자리마다 원래 번호), beforeMeters, afterMeters}`. 저장 안 함 · 로그인 필요. 시간 고정·숙소는 제자리, 식사는 점심 11:30~13:30·저녁 17:30~19:30 안에서, 술집은 17:30부터, 그 시각에 영업하는 곳만. · 오류 400 "일정이 없어요."
+
+---
+
 ### `POST /api/plans/generate`
 조건으로 일정 초안을 만들어요. 저장은 안 해요. · 로그인 필요 · 화면: plan/GeneratingView → trip/PlanCheckView
 
@@ -869,6 +943,8 @@
 |---|---|---|---|
 | conditions | object | 필수 | 읽는 키: `title`(기본 "새 여행"), `startDate`(기본 오늘), `endDate`(기본 startDate), `people`(기본 1), `transports`, `region`, `mustVisit`, `fixed`(AI 실패 때만). 11/03 추가(여행 정보 화면이 채움): `kinds`(food·cafe·bar·tour·culture·shop, 없으면 food·cafe) · `tags`(mood·quiet·value·no_wait·solo) · `areaLat`·`areaLng`·`areaType`(gu·dong·spot) · `originName`·`originLat`·`originLng` · `stays`[{name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime}]. 11/04 추가: `needs`(칩에 없는 장소 요청, 3개까지 확인 — 아래 "리뷰로 확인") · `wishVisit` · `mustKinds` · `avoidKinds` · `avoidVisit` · `finish` · `maxWalkMin` (아래 "꼭·가능하면·제한") |
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
+| conditions.keptStops | Stop[] | | 직접 고르기에서 담은 곳 (11/04). 순서·시각 그대로 두고 빈 시간만 채워요. 후보에서는 빠지고, 담은 식사가 있는 시간대엔 식사를 또 안 넣어요 |
+| conditions.startTime, endTime | string | | 하루 시작·끝 `HH:mm` (11/04). 있으면 첫 칸이 시작 시각, 마지막 칸이 끝 시각 안에 끝나고, 식사 칸은 점심 11:30~13:30·저녁 17:30~19:30에만 시작. 없으면 예전처럼 정해 둔 칸 |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
 **응답**
@@ -880,6 +956,7 @@
 | transports | 조건의 수단. **조건에 없으면 `[]`** (그대로 저장하면 400) |
 | stops | 초안 `Stop[]` (`day → time` 순). `id`·`tripId`·`mode`·`arrivedAt`·`departedAt`는 `null`. `memo`는 고른 이유 · 리뷰 근거 (예: "조용한 동네 카페 · 조용해요 · 리뷰 10개 중 4개", 없으면 `null`, 200자까지 — 저장하면 그대로 칸 메모로 남음), `state`는 `"todo"`, `stay` 10~600, DB 밖 장소면 `placeId`가 `null` |
 | notes | 안내 문구 `[{text, url}]` (없으면 `[]`). 예: "{이름}의 위치를 찾지 못해 뺐어요", "AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요 (...)", "AI가 고른 2곳이 고른 종류·영업시간과 맞지 않아 평점·거리로 다시 골랐어요", "고른 지역 근처에서 쇼핑 장소를 찾지 못해 일정에 못 넣었어요", "'4명이 앉을 자리' 리뷰 확인: 맞는 곳 2곳(…) · 뺀 곳 1곳(…(\"자리가 좁아요\"))" (11/04). `url`은 네이버 지도 검색 링크, AI 실패 안내는 `null` |
+| missed | 꼭 갈 곳(`mustVisit`)인데 일정에 못 넣은 곳. 장소 카드 목록(못 찾은 곳은 `name`만), 없으면 `[]` (11/04) |
 
 **오류** 400 "여행 조건이 없어요." · 422 "내 위치를 받지 못했어요. 브라우저 위치 권한을 허용하거나 지역 이름을 말해 주세요." · 422 "일정에 넣을 장소를 찾지 못했어요. 가고 싶은 곳을 조금 더 자세히 말해 주세요."
 
@@ -1063,6 +1140,23 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 **응답** `{ "trip": Trip, "message": "카페OO을(를) 다음 일정으로 넣었어요. 세종문화회관에는 12분 여유가 있어요." }`
 
 **오류** 공통 오류 · 404 "장소를 찾을 수 없어요."
+
+### `POST /api/trips/{id}/live/link-fit`
+여행 중 인스타 링크로 찾은 장소들을 남은 일정에 넣어 봐요. 한 곳씩 칸 사이마다 넣어 보고 방해가 가장 적은 자리를 골라요. **저장하지 않아요** — 고른 일정은 `/live/apply`로 저장해요. Gemini는 쓰지 않아요. · 로그인 필요 · 화면: live/LiveView (LinkAddSheet), live/LinkFitView · 11/04 추가
+
+**요청** `lat`, `lng`(지금 위치, 필수), `places`(필수, 1~5곳): `[{ placeId, name, category, address, lat, lng }]`. `name`·`lat`·`lng` 필수. 이미 남은 일정에 있는 곳은 빼고 넣어요
+
+**응답**
+
+| 필드 | 설명 |
+|---|---|
+| fits | `true`면 다른 칸을 안 바꾸고 넣어도 돼요: 고정 일정에 안 늦고, 문 닫은 곳이 안 늘고, 고정 일정이 없으면 30분 넘게 안 밀림 |
+| fixedName | 첫 고정 일정 이름, 없으면 `null` |
+| message | 한 줄 안내 |
+| best | 방해가 가장 적은 자리에 넣은 일정 (`/live/alternatives`의 대안 하나와 같은 모양) |
+| alternatives | 늦어지거나 2시간 안에 같은 종류(식당·카페)가 겹칠 때 고를 방법. 맨 앞이 추천(`recommended`). 바꾸기 · 둘 다 가되 시간 줄이기 · 한 곳 빼기 · 그대로 넣기. 고를 게 없으면 `[]` |
+
+**오류** 공통 오류 · 400 "넣을 장소를 골라 주세요." · 400 "한 번에 5곳까지 넣을 수 있어요." · 400 "넣을 장소의 위치를 알 수 없어요." · 400 "이미 남은 일정에 있어요."
 
 ### `POST /api/trips/{id}/live/alternatives`
 대안 A·B·C를 만들어요. · 로그인 필요 · 화면: live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView

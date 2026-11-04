@@ -2,7 +2,7 @@
 // S11-b 여행 상세 · 여행 날 (②): 오늘 여행의 일정, 미리 확인할 것(일정 점검), 챙길 것
 // 주소의 ?id= 여행, 없으면 진행 중·오늘 여행을 서버에서 읽어요. 둘 다 없으면 안내.
 import { onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import TripPage from '@/components/trip/TripPage.vue'
 import PackList from '@/components/trip/PackList.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
@@ -10,28 +10,19 @@ import TopBar from '@/components/common/TopBar.vue'
 import { useTripStore } from '@/stores/trip'
 import { useTripDetail } from '@/utils/useTripDetail'
 import { tripBadge } from '@/utils/tripView'
-import { startTrip } from '@/api/trips'
-import { showToast } from '@/utils/toast'
+import { useStartTrip } from '@/utils/useStartTrip'
+import StartConflictSheet from '@/components/trip/StartConflictSheet.vue'
 
 const route = useRoute()
-const router = useRouter()
 const store = useTripStore()
 const { saved, view, isLoading, error, load } = useTripDetail()
+const { conflict, start, retry } = useStartTrip()
 
 onMounted(async () => {
   const tripId = route.query.id || store.tripId || (await store.findOngoingTripId())
   await load(tripId)
 })
 
-// 여행 시작(POST /api/trips/{id}/start) → 여행 중 화면
-async function start() {
-  try {
-    await startTrip(saved.value.id)
-    router.replace('/live')
-  } catch (e) {
-    showToast(e.message)
-  }
-}
 </script>
 
 <template>
@@ -45,11 +36,14 @@ async function start() {
         <RouterLink v-if="saved.status === 'ongoing'" to="/live" class="btn btn--primary btn--lg btn--block">여행 이어가기</RouterLink>
         <div v-else class="cta__row">
           <RouterLink :to="'/plan/edit?id=' + view.id" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>편집</RouterLink>
-          <button type="button" class="btn btn--primary btn--lg" :disabled="!view.stops.length" @click="start">여행 시작</button>
+          <button type="button" class="btn btn--primary btn--lg" :disabled="!view.stops.length" @click="start(saved.id)">여행 시작</button>
         </div>
       </template>
     </TripPage>
-    <div v-else class="app">
+    <Teleport v-if="conflict" to=".scr-TripDetailToday .app">
+      <StartConflictSheet :trip="conflict" @done="retry" @cancel="conflict = null" />
+    </Teleport>
+    <div v-else-if="!view" class="app">
       <TopBar title="오늘 여행" back="/" />
       <div class="scroll">
         <PageMessage v-if="isLoading" is-loading title="여행을 불러오는 중이에요" />

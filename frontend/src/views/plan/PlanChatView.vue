@@ -8,6 +8,7 @@
 //   조건 카드의 [꼭]·[가능하면]을 누르면 서로 바뀌어요 (AI가 잘못 나눠도 사용자가 바로 고치게)
 //   칩 → Gemini 없이 바로 종류·분위기 조건에 더함 (일정 만들기에서 칸 종류·리뷰 태그 점수로 쓰임)
 //   조건 카드의 ×로 뺄 수 있어요. AI가 안 되면 정리는 못 하고, 한 말은 일정 만들 때 AI에게 그대로 넘겨요
+import ChipScroller from '@/components/common/ChipScroller.vue'
 import { computed, nextTick, ref } from 'vue'
 import TopBar from '@/components/common/TopBar.vue'
 import { chatPlan } from '@/api/trips'
@@ -214,11 +215,11 @@ async function send() {
       </div>
 
       <div class="pc-input">
-        <div class="chips noscroll pc-chips">
+        <ChipScroller class="pc-chips">
           <button v-for="chip in quickChips" :key="chip.type + chip.code" type="button" class="chip chip--sm" @click="sayChip(chip)">
             <i class="ic ic--s i-plus" aria-hidden="true"></i>{{ chip.text }}
           </button>
-        </div>
+        </ChipScroller>
         <form class="field__box" style="border-radius: var(--radius-full); padding-left: 16px" @submit.prevent="send">
           <label for="pc-msg" class="sr">메시지</label>
           <input id="pc-msg" v-model="draft" type="text" placeholder="예: 카페는 별로 안 가고 싶어" autocomplete="off" maxlength="300" />
@@ -235,7 +236,8 @@ async function send() {
 
 <style>
 .scr-PlanChat .pc-input{position:absolute;left:0;right:0;bottom:102px;padding:0 16px;display:flex;flex-direction:column;gap:10px}
-.scr-PlanChat .pc-chips{flex-wrap:nowrap;overflow-x:auto;margin:0 -16px;padding:0 16px}
+.scr-PlanChat .pc-chips{margin:0 -16px}
+.scr-PlanChat .pc-chips .chip-scroller__row{padding:0 16px}
 .scr-PlanChat .pc-sum{position:absolute;top:103px;left:16px;right:16px;display:flex;align-items:center;gap:6px;overflow:hidden;text-decoration:none;color:var(--ink);border-radius:var(--radius-md);padding:4px;margin:-4px;transition:background .15s}
 .scr-PlanChat .pc-sum .badge{flex-shrink:0;white-space:nowrap}
 .scr-PlanChat .pc-sum:hover{background:var(--navy-soft)}

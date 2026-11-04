@@ -11,6 +11,9 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { loadKakaoMap } from '@/utils/kakaoMap'
 
+const PIN_GAP_PX = 26 // 번호 핀끼리 이만큼은 떨어지게
+const SPREAD_DIRECTIONS = 8
+let pinItems = [] // 그린 번호 핀 { position, element }
 const props = defineProps({
   pins: { type: Array, default: () => [] }, // [{ key, lat, lng, text, icon, cls, label, route, fit }] 순서대로 동선을 이어요 (route: false면 동선에서 뺌, fit: false면 화면 맞출 때 뺌)
   me: { type: Object, default: null }, // 내 위치 { lat, lng }
@@ -26,7 +29,7 @@ const props = defineProps({
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
   padding: { type: Object, default: () => ({ top: 150, right: 40, bottom: 444, left: 40 }) },
 })
-const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready', 'move', 'zoom'])
+const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready', 'move', 'zoom', 'touch'])
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
@@ -41,6 +44,8 @@ let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 �
 let isMovingByCode = false // moveTo로 옮기는 중
 let hasFocusedMe = false // 길 안내(follow): 내 위치로 처음 확대했는지 (위치가 늦게 와도 한 번은 확대)
 let meOverlay = null // 지금 위치 점 (위치만 바뀌면 이것만 옮기고 나머지는 다시 안 그려요, 11/04)
+const FLY_PAN_MS = 450 // flyTo 옮기는 시간
+const FLY_ZOOM_MS = 300 // flyTo 확대·축소 시간
 const WALK_DOT_GAP_PX = 12 // 걷는 길 동그라미 점 사이 간격 (화면 px, 확대해도 같은 간격)
 const WALK_END_GAP_M = 30 // 대중교통 선 끝과 장소가 이보다 멀면 걷는 점으로 이어요
 let walkLegs = [] // 걷는 구간 좌표 목록 (확대·축소하면 점을 다시 찍음)
@@ -60,7 +65,10 @@ onMounted(async () => {
   kakao.maps.event.addListener(map, 'click', (e) => emit('map-click', { lat: e.latLng.getLat(), lng: e.latLng.getLng() }))
   // 사용자가 지도를 끌어 옮기고 손을 뗀 뒤 가운데 좌표 (pickCenter일 때만)
   kakao.maps.event.addListener(map, 'dragend', sendCenter)
+  kakao.maps.event.addListener(map, 'dragstart', () => emit('touch')) // 사용자가 지도를 만졌어요
+  box.value.addEventListener('wheel', () => emit('touch'), { passive: true })
   kakao.maps.event.addListener(map, 'zoom_changed', sendCenter)
+  kakao.maps.event.addListener(map, 'idle', spreadPins) // 화면이 정해지면 겹친 번호 핀을 띄움
   kakao.maps.event.addListener(map, 'zoom_changed', drawWalkDots) // 확대·축소하면 걷는 길 점 간격을 다시 맞춤
   kakao.maps.event.addListener(map, 'bounds_changed', () => emit('move')) // 보이는 영역이 바뀔 때마다 (끄는 동안에도 계속)
   kakao.maps.event.addListener(map, 'zoom_changed', () => emit('zoom', map.getLevel()))
@@ -84,6 +92,7 @@ watch(() => props.me, moveMe, { deep: true })
 function draw() {
   if (!map) return
   clear()
+  pinItems = []
   const allPoints = []
   const routePoints = []
   for (const pin of props.pins) {
@@ -91,8 +100,11 @@ function draw() {
     const position = new kakao.maps.LatLng(pin.lat, pin.lng)
     if (pin.fit !== false) allPoints.push(position)
     if (pin.route !== false) routePoints.push(position)
-    addOverlay(position, makePin(pin), 2)
+    const element = makePin(pin)
+    pinItems.push({ position, element })
+    addOverlay(position, element, (pin.cls || '').includes('pin--sel') ? 3 : 2) // 고른 핀은 겹쳐도 맨 위
   }
+  spreadPins()
   if (props.showRoute && routePoints.length > 1) addRoute(routePoints)
   if (props.path.length > 1) {
     const pathPoints = props.path.map((point) => new kakao.maps.LatLng(point[0], point[1]))
@@ -131,6 +143,28 @@ function clear() {
   meOverlay = null
   for (const dot of dotOverlays) dot.setMap(null)
   dotOverlays = []
+}
+
+// 번호 핀이 겹치면 살짝 띄워요: 앞 핀들과 PIN_GAP_PX보다 가까우면 둘레 8방향 중 빈 쪽으로 (좌표는 그대로, 화면에서만)
+function spreadPins() {
+  if (!map || !pinItems.length) return
+  const projection = map.getProjection()
+  const placed = []
+  for (const item of pinItems) {
+    const point = projection.containerPointFromCoords(item.position)
+    let x = point.x
+    let y = point.y
+    for (let k = 0; k < SPREAD_DIRECTIONS && isCrowded(placed, x, y); k++) {
+      const angle = (k * 2 * Math.PI) / SPREAD_DIRECTIONS
+      x = point.x + Math.cos(angle) * PIN_GAP_PX
+      y = point.y + Math.sin(angle) * PIN_GAP_PX
+    }
+    placed.push({ x, y })
+    item.element.style.translate = `${x - point.x}px ${y - point.y}px`
+  }
+}
+function isCrowded(placed, x, y) {
+  return placed.some((other) => Math.hypot(other.x - x, other.y - y) < PIN_GAP_PX)
 }
 
 function addOverlay(position, element, zIndex) {
@@ -250,6 +284,12 @@ function makePin(pin) {
   } else {
     button.textContent = pin.text
   }
+  if (pin.tag) { // 핀 옆 이름표
+    const tag = document.createElement('span')
+    tag.className = 'pin__tag'
+    tag.textContent = pin.tag
+    button.append(tag)
+  }
   // 누른 핀 + 그 핀이 지도 칸의 어디(px)인지 같이 보냄 (말풍선 위치에 씀)
   button.addEventListener('click', () => emit('pick', { ...pin, ...toScreenPoint(pin.lat, pin.lng) }))
   return button
@@ -351,7 +391,23 @@ function centerFor(position) {
   return projection.coordsFromContainerPoint(new kakao.maps.Point(point.x - shiftX, point.y - shiftY))
 }
 
-defineExpose({ focusMe, fitAll, pointOf, moveTo, focusAround })
+// 부드럽게 이 좌표로 옮기고(가려지지 않는 칸의 가운데), 그다음 그 자리를 기준으로 확대·축소
+function flyTo(lat, lng, level = null) {
+  if (!map) return
+  hasFitted = true
+  const position = new kakao.maps.LatLng(lat, lng)
+  map.panTo(centerFor(position))
+  if (level === null || level === map.getLevel()) return
+  setTimeout(() => {
+    if (map) map.setLevel(level, { anchor: position, animate: { duration: FLY_ZOOM_MS } }) // anchor: 이 점은 화면에서 안 움직임
+  }, FLY_PAN_MS)
+}
+
+function getLevel() {
+  return map ? map.getLevel() : null
+}
+
+defineExpose({ focusMe, fitAll, pointOf, moveTo, focusAround, flyTo, getLevel })
 
 // 내 위치가 지도 칸의 어디(px)인지 알려 줌 → 화장실 칩·AI 패널이 내 위치 옆에 붙어요
 function sendMePoint() {

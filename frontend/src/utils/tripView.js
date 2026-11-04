@@ -35,6 +35,7 @@ export function isTodayTrip(trip) {
 export function tripBadge(trip) {
   if (trip.status === 'ongoing') return { text: '여행 중', cls: 'badge--coral' }
   if (isTodayTrip(trip)) return { text: '오늘', cls: 'badge--coral' }
+  if (daysLeft(trip.endDate) < 0) return { text: '지난 일정', cls: 'badge--neutral' } // 안 떠나고 날짜가 지난 여행
   return { text: 'D-' + daysLeft(trip.startDate), cls: 'badge--navy' }
 }
 
@@ -114,6 +115,8 @@ function toViewStop(stop, position, memo = null) {
     placeId: stop.placeId ?? null,
     time: stop.time || stop.arrive || '',
     name: stop.name,
+    category: stop.category,
+    address: stop.address,
     dur: stay,
     img: imageFor(stop.category),
     meta: (stop.category ? stop.category + ' · ' : '') + toDuration(stay),

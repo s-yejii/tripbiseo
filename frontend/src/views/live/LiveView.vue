@@ -27,6 +27,7 @@ import LiveCards from '@/components/live/LiveCards.vue'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
+import LinkAddSheet from '@/components/live/LinkAddSheet.vue'
 import { useReplanStore } from '@/stores/replan'
 
 const MUTE_AGAIN_MIN = 10 // "그냥 갈게요" 뒤 이만큼 더 늦어지면 다시 알림
@@ -47,6 +48,7 @@ const status = computed(() => live.status.value)
 const isReady = computed(() => live.phase.value === 'ready' && status.value !== null)
 
 const selected = ref(null) // 고른 카드·핀 (칸 id)
+const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
 const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
@@ -58,6 +60,8 @@ const nearPickedId = ref(null)
 const mePoint = ref(null) // 지도 위 내 위치 px (AI 패널 위치에 씀)
 const isMapFailed = ref(false)
 const isFinishing = ref(false)
+const fabOpen = ref(false) // + 버튼 메뉴
+const linkOpen = ref(false) // 링크로 장소 추가
 
 // 여행 칸 (id → 칸): state(skipped)·arrivedAt·departedAt을 봐요
 const tripStopMap = computed(() => {
@@ -128,12 +132,6 @@ function distText(meters) {
 function isWarnReach(reach) {
   return reach === 'tight' || reach === 'no' || reach === 'closed' || reach === 'missed'
 }
-// 받침이 있으면 "을", 없으면 "를"
-function objectMark(name) {
-  const code = name.charCodeAt(name.length - 1) - 0xac00
-  if (code < 0 || code > 11171) return '을(를)'
-  return code % 28 ? '을' : '를'
-}
 
 // ------------------------------------------------------------ 지도 핀
 const mapPins = computed(() => {
@@ -142,7 +140,7 @@ const mapPins = computed(() => {
     const isFit = !(adding.value && nearPlaces.value.length) // 근처 찾기 결과가 있으면 결과·내 위치만 보이게 맞춤
     // 다녀온 곳·지금 있는 곳은 점선 동선에서 빼요 (지금 위치 → 다음 장소는 nextPath 진짜 길로)
     const isRoute = stop.reach !== 'done' && stop.reach !== 'here'
-    pins.push({ key: stop.id, id: stop.id, lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit, route: isRoute })
+    pins.push({ key: stop.id, id: stop.id, tag: previewId.value === stop.id ? stop.name : '', lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit, route: isRoute })
   }
   for (const place of nearPlaces.value) {
     const cls = ' pin--res' + (place.id === nearPickedId.value ? ' pin--sel' : '')
@@ -214,9 +212,9 @@ const head = computed(() => {
     const leaveAt = start + (current.stay || 0)
     const left = leaveAt - now
     if (left >= 0) {
-      return { cap: current.name + objectMark(current.name) + ' 떠나면 출발이 자동으로 기록돼요', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
+      return { cap: current.name + ' 출발', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
     }
-    return { cap: '다음 장소 출발 시간이 지났어요', big: '+' + -left + '분', small: toTime(leaveAt) + ' 출발 예정', cls: 'c-warning' }
+    return { cap: '출발 시간 지남', big: '+' + -left + '분', small: toTime(leaveAt) + ' 출발', cls: 'c-warning' }
   }
   const next = nextStop.value
   if (next) {
@@ -270,7 +268,42 @@ function pickStop(stop, point) {
   if (stop.reach === 'here') return locate()
   if (selected.value === stop.id && !stop.fixed) return router.push('/live/pin?id=' + live.tripId.value + '&stopId=' + stop.id)
   selected.value = stop.id
+  previewStop(stop)
 }
+
+// 카드를 옆으로 넘겼을 때도 그 곳을 잠깐 보여 줘요 (같은 카드면 다시 안 움직임)
+function onCardScrolled(id) {
+  if (selected.value === id) return
+  selected.value = id
+  const stop = stops.value.find((item) => item.id === id)
+  clearTimeout(scrollTimer)
+  if (stop && stop.reach !== 'done' && stop.reach !== 'here') scrollTimer = setTimeout(() => previewStop(stop), PREVIEW_SCROLL_WAIT_MS)
+}
+
+// 그 곳으로 부드럽게 가서 약 2초 보여 주고 지금 위치로 돌아옴. 그 사이 사용자가 지도를 만지면 안 돌아감
+function previewStop(stop) {
+  if (!mapRef.value || stop.lat == null || adding.value) return
+  clearTimeout(backTimer)
+  if (previewId.value === null) levelBefore = mapRef.value.getLevel()
+  previewId.value = stop.id
+  mapRef.value.flyTo(stop.lat, stop.lng, Math.min(levelBefore, PREVIEW_LEVEL))
+  backTimer = setTimeout(flyBack, PREVIEW_HOLD_MS)
+}
+function flyBack() {
+  previewId.value = null
+  if (!mapRef.value) return
+  const me = live.position.value
+  if (me) mapRef.value.flyTo(me.lat, me.lng, levelBefore)
+  else mapRef.value.fitAll() // 위치를 모르면 전체 일정이 보이게
+}
+function onMapTouched() {
+  clearTimeout(backTimer)
+  previewId.value = null
+}
+onUnmounted(() => {
+  clearTimeout(backTimer)
+  clearTimeout(scrollTimer)
+})
 function pickCard(card) {
   const stop = stops.value.find((item) => item.id === card.stopId)
   if (stop) pickStop(stop, null)
@@ -329,6 +362,23 @@ async function share() {
   }
 }
 
+// + 버튼 메뉴: 하나 누르면 메뉴를 닫고 실행
+function runFab(action) {
+  fabOpen.value = false
+  action()
+}
+function openToday() {
+  router.push('/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent(isDemo.value ? '/live?demo=1' : '/live'))
+}
+function openLink() {
+  linkOpen.value = true
+}
+async function onLinkAdded(message) {
+  linkOpen.value = false
+  showToast(message)
+  await live.refresh()
+}
+
 function openAsk() {
   asking.value = true
   adding.value = false
@@ -352,6 +402,12 @@ function onNearResults(result) {
 const nearRing = computed(() => (adding.value && nearRadius.value && live.position.value ? { ...live.position.value, radius: nearRadius.value } : null))
 const nearFitKey = computed(() => (nearPlaces.value.length ? nearPlaces.value.map((place) => place.id).join(',') + '|' + nearRadius.value : ''))
 const NEAR_MAP_PADDING = { top: 100, right: 40, bottom: 230, left: 40 } // 근처 찾기: 아래 검색 카드만큼 비움
+const PREVIEW_LEVEL = 3 // 카드를 눌러 볼 때 확대 단계 (겹친 핀이 벌어져 보이는 정도)
+const PREVIEW_HOLD_MS = 2300 // 이동·확대 포함, 보여 주는 시간
+const PREVIEW_SCROLL_WAIT_MS = 250 // 카드를 넘기다 멈춘 뒤에 움직임
+let backTimer = null
+let scrollTimer = null
+let levelBefore = null // 보여 주기 전 확대 단계
 const LIVE_MAP_PADDING = { top: 150, right: 70, bottom: 444, left: 40 }
 
 // 근처 찾기·AI 채팅에서 일정에 넣으면 지금 상황을 다시 받아요
@@ -420,10 +476,11 @@ function showDemo() {
           :fit-key="adding ? nearFitKey : ''"
           :padding="adding && nearPlaces.length ? NEAR_MAP_PADDING : LIVE_MAP_PADDING"
           @pick="onPickPin"
+          @touch="onMapTouched"
           @me-point="mePoint = $event"
           @fail="isMapFailed = true"
         />
-        <p v-else class="t-cap" style="position: absolute; top: 200px; left: 24px; right: 80px; text-align: center">지도를 불러오지 못했어요 · 카카오 지도 키를 확인해 주세요</p>
+        <p v-else class="t-cap" style="position: absolute; top: 200px; left: 24px; right: 80px; text-align: center">지도를 불러오지 못했어요</p>
 
         <!-- 다녀온 곳 정보창 -->
         <div v-if="info" class="payinfo" :style="{ left: Math.max(12, info.x - 30) + 'px', top: info.y - 24 + 'px', transform: 'translateY(-100%)' }" role="dialog" aria-label="다녀온 곳 정보">
@@ -445,7 +502,6 @@ function showDemo() {
             :warn="status.alert.level === 'danger' || isLate"
             icon="i-warning"
             :title="status.alert.title"
-            :body="status.alert.text"
             :to="alertLink"
             @close="notiOpen = false"
           />
@@ -455,17 +511,19 @@ function showDemo() {
         </template>
 
         <!-- 오른쪽 떠 있는 버튼 -->
-        <div v-if="!adding" class="live-side" data-sheet-follow>
-          <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent(isDemo ? '/live?demo=1' : '/live')" class="iconbtn iconbtn--float" :aria-label="`내 일정 보기 · ${doneCount}/${stops.length}곳`" title="내 일정" style="color: var(--navy)">
-            <i class="ic i-receipt" aria-hidden="true"></i>
-          </RouterLink>
-          <button type="button" class="iconbtn iconbtn--float" aria-label="같이 간 사람에게 공유" title="같이 간 사람에게 공유" style="color: var(--navy)" @click="share">
-            <i class="ic i-share" aria-hidden="true"></i>
-          </button>
-          <button type="button" class="iconbtn iconbtn--float" aria-label="내 위치로" style="color: var(--navy)" @click="locate">
-            <i class="ic i-locate" aria-hidden="true"></i>
-          </button>
+        <div v-if="fabOpen" class="live-fab-dim" @click="fabOpen = false"></div>
+        <div v-if="!adding && !asking" class="live-fab" data-sheet-follow>
+          <div v-if="fabOpen" class="live-fab__list" role="menu" aria-label="더 보기">
+            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openLink)"><span class="live-fab__text">링크 추가</span><span class="live-fab__ic live-fab__ic--link"><i class="ic i-link" aria-hidden="true"></i></span></button>
+            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openToday)"><span class="live-fab__text">내 일정 {{ doneCount }}/{{ stops.length }}</span><span class="live-fab__ic live-fab__ic--plan"><i class="ic i-calendar" aria-hidden="true"></i></span></button>
+            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(share)"><span class="live-fab__text">일정 공유</span><span class="live-fab__ic live-fab__ic--share"><i class="ic i-share" aria-hidden="true"></i></span></button>
+            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(locate)"><span class="live-fab__text">내 위치</span><span class="live-fab__ic live-fab__ic--me"><i class="ic i-locate" aria-hidden="true"></i></span></button>
+          </div>
+          <button type="button" class="live-fab__main" :class="{ 'is-open': fabOpen }" :aria-label="fabOpen ? '메뉴 닫기' : '메뉴 열기'" :aria-expanded="fabOpen" @click="fabOpen = !fabOpen"><i class="ic ic--l i-plus" aria-hidden="true"></i></button>
         </div>
+
+        <!-- 링크로 장소 추가 -->
+        <LinkAddSheet v-if="linkOpen" :trip-id="live.tripId.value" :position="live.position.value" @close="linkOpen = false" @added="onLinkAdded" />
 
         <!-- 근처 찾기 (⑤) -->
         <NearSearch
@@ -482,8 +540,8 @@ function showDemo() {
           <!-- AI 채팅(④) -->
           <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" />
           <div v-else class="quick live-quick" data-sheet-follow role="group" aria-label="AI 채팅과 근처 찾기">
-            <button type="button" class="chip chip--sm chip--add" @click="openAsk"><i class="ic ic--s i-sparkle" aria-hidden="true"></i>AI에게 묻기</button>
-            <button type="button" class="chip chip--sm chip--add" @click="openNear"><i class="ic ic--s i-search" aria-hidden="true"></i>근처 찾기</button>
+            <button type="button" class="chip chip--sm chip--add live-chip" @click="openAsk"><i class="ic ic--s i-sparkle" style="color: #7C3AED" aria-hidden="true"></i>AI에게 묻기</button>
+            <button type="button" class="chip chip--sm chip--add live-chip" @click="openNear"><i class="ic ic--s i-search" style="color: var(--coral)" aria-hidden="true"></i>근처 찾기</button>
           </div>
 
           <!-- 아래 시트: 오늘 일정 카드 -->
@@ -500,12 +558,9 @@ function showDemo() {
               <span v-if="fixedBadge" class="badge" :class="fixedBadge.cls"><i class="ic ic--s i-lock" aria-hidden="true"></i>{{ fixedBadge.text }}</span>
             </div>
 
-            <LiveCards :cards="cards" :selected="selected" @pick="pickCard" @seg="segCard = $event" @scrolled="selected = $event" />
+            <LiveCards :cards="cards" :selected="selected" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
 
-            <p v-if="status.hint" class="t-cap live-event c-warning"><i class="ic ic--s i-warning" aria-hidden="true"></i>{{ status.hint }}</p>
-            <p v-else-if="status.weather" class="t-cap live-event">
-              <i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비 소식{{ status.weather.outdoor.length ? ' · ' + status.weather.outdoor.join(', ') + '에서 우산을 챙겨요' : '' }}
-            </p>
+            <p v-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비</p>
           </BottomSheet>
 
           <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
@@ -529,7 +584,19 @@ function showDemo() {
 
 <style>
 .scr-Live .live-msg { padding-top: 96px; }
-.scr-Live .live-side { position: absolute; right: 16px; top: 228px; display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+.scr-Live .live-fab { position: absolute; right: 16px; top: 376px; z-index: 6; }
+.scr-Live .live-fab-dim { position: absolute; inset: 0; z-index: 5; background: rgba(24, 33, 58, .28); }
+.scr-Live .live-fab__main { width: 52px; height: 52px; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--navy); box-shadow: 0 6px 16px rgba(24, 33, 58, .3); cursor: pointer; transition: transform .18s, background .18s; }
+.scr-Live .live-fab__main.is-open { transform: rotate(45deg); background: var(--ink); }
+.scr-Live .live-fab__list { position: absolute; right: 0; bottom: calc(100% + 10px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.scr-Live .live-fab__item { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; white-space: nowrap; }
+.scr-Live .live-fab__text { padding: 7px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--ink); background: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .18); }
+.scr-Live .live-fab__ic { width: 44px; height: 44px; margin-right: 4px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .25); }
+.scr-Live .live-fab__ic--link { background: linear-gradient(135deg, #F58529, #DD2A7B 55%, #8134AF); }
+.scr-Live .live-fab__ic--plan { background: var(--navy); }
+.scr-Live .live-fab__ic--share { background: var(--success); }
+.scr-Live .live-fab__ic--me { background: #2F7BEA; }
+.scr-Live .live-chip { font-weight: 600; }
 .scr-Live .live-quick { position: absolute; top: 392px; left: 0; right: 70px; z-index: 2; }
 .scr-Live .live-sheet { top: 440px; padding: 8px 0 0; gap: 12px; }
 .scr-Live .live-head { display: flex; align-items: flex-end; gap: 12px; padding: 0 16px; }

@@ -1,5 +1,8 @@
 package com.tripbiseo.plan.service;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -8,6 +11,15 @@ import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
+import org.springframework.dao.DataAccessException;
+
+import com.tripbiseo.common.external.FoundLocation;
+import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.plan.dto.PlanArea;
+import com.tripbiseo.plan.dto.PlanConditions;
+import com.tripbiseo.plan.dto.PlanDong;
+import com.tripbiseo.plan.mapper.AreaStatMapper;
+import com.tripbiseo.common.external.LocationSearchClient;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.live.service.PlaceTagReader;
 import com.tripbiseo.trip.dto.Place;
@@ -35,12 +47,25 @@ public class PlanCandidateFinder {
     private static final int KIND_LIMIT = 25;       // 종류마다 후보 수 (평점 순)
     // 화면 태그 코드 → ④ PlaceTagReader가 리뷰에서 세는 태그 이름
     // 종류 코드 → 프롬프트·안내에 쓰는 이름 (PlaceMapper kindCase와 같은 코드)
+    private static final String TOUR_KIND = "tour";
+    // 들를 곳이 아닌 이름: 도로·길(둘레길·산책길·숲길은 뺌)·교차로·주차장·표지석 등
+    private static final Pattern NOT_SIGHT = Pattern.compile("명예도로|도로$|교차로|사거리|삼거리|나들목|IC$|주차장|표지석|기념비|(?<!둘레|산책|숲|하늘|순라|골목|올레)길$");
+    private static final Pattern GOOD_SIGHT = Pattern.compile("공원|시장|거리|골목|전망|전시|미술관|박물관|갤러리|둘레길|산책|숲|천$|강$|마을|창작촌|광장");
+    private static final int GOOD_SIGHT_ENOUGH = 3;
+    private static final int MAX_SHAPE_LENGTH = 50000; // 동 경계 글자 길이 상한
+    private static final int DONG_PLACE_LIMIT = 40;    // 동 하나에서 가져올 장소 수
+    private static final int SIGHT_ENOUGH = 6;     // 들를 곳이 이만큼 있으면 카카오를 안 부름
+    private static final int SIGHT_RADIUS_M = 3000;
     private static final Map<String, String> KIND_NAMES = Map.of("food", "밥집", "cafe", "카페", "bar", "술집", "tour", "관광·산책",
             "culture", "전시·문화", "shop", "쇼핑", "stay", "숙소", "etc", "기타");
     private static final Map<String, String> TAG_NAMES = Map.of("mood", "분위기", "quiet", "조용", "value", "가성비",
             "no_wait", "웨이팅없음", "solo", "혼밥");
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PlanCandidateFinder.class);
+
     private final PlaceService placeService;
+    private final AreaStatMapper areaStatMapper; // 고른 동 안의 장소
+    private final LocationSearchClient locationSearchClient; // 들를 곳 보충 (카카오)
     private final PlaceTagReader placeTagReader; // 리뷰 태그 세기 (④ 도우미를 같이 씀)
 
     /** "내 위치·여기·근처"라고 했거나 지역이 비어 있으면 내 위치 기준 */
@@ -80,6 +105,104 @@ public class PlanCandidateFinder {
         int radius = "gu".equals(areaType) ? GU_RADIUS_M : DONG_RADIUS_M;
         for (String kind : kinds) {
             addAll(candidates, placeService.getKindPlaceList(lat, lng, radius, kind, KIND_LIMIT), KIND_LIMIT);
+        }
+        if (kinds.contains(TOUR_KIND)) {
+            addSights(candidates, lat, lng);
+        }
+    }
+
+    /** 직접 고르기 지도에 보여 줄 장소: 종류별 평점 순. 들를 곳이 모자라면 카카오로 보충 */
+    public List<Place> findKindPlaces(double lat, double lng, String kind) {
+        Map<String, Place> found = newCandidates();
+        addKinds(found, lat, lng, "gu", List.of(kind));
+        return new ArrayList<>(found.values());
+    }
+
+    /** 지도에서 고른 구들: 구마다 후보를 모으고, 고른 동 안의 장소를 더해 표시해 둠 (점수를 더 줘서 먼저 들어가게) */
+    public void addAreas(Map<String, Place> candidates, PlanConditions conditions, List<String> kinds) {
+        Set<String> dongPlaceIds = new HashSet<>();
+        for (PlanArea area : conditions.getAreas()) {
+            addKinds(candidates, area.getLat(), area.getLng(), "gu", kinds);
+            for (PlanDong dong : area.getDongs() == null ? List.<PlanDong>of() : area.getDongs()) {
+                addDongPlaces(candidates, dong, dongPlaceIds);
+            }
+        }
+        conditions.setDongPlaceIds(dongPlaceIds);
+        keepInAreas(candidates, conditions.getAreas());
+    }
+
+    /** 반경으로 모으면 옆 구도 섞여서, 고른 구 주소인 곳만 남김 (꼭 갈 곳은 이 뒤에 따로 더해져서 안 빠짐) */
+    private void keepInAreas(Map<String, Place> candidates, List<PlanArea> areas) {
+        boolean hasAny = false;
+        for (Place place : candidates.values()) {
+            hasAny = hasAny || isInAreas(place, areas);
+        }
+        if (hasAny) { // 고른 구 주소인 곳이 하나도 없으면 주변이라도 남김 (0곳으로 실패하지 않게)
+            candidates.values().removeIf(place -> !isInAreas(place, areas)); // removeIf: 조건에 맞는 칸을 지움
+        }
+    }
+
+    private boolean isInAreas(Place place, List<PlanArea> areas) {
+        for (PlanArea area : areas) {
+            if (place.getAddress() != null && place.getAddress().contains(area.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void addDongPlaces(Map<String, Place> candidates, PlanDong dong, Set<String> dongPlaceIds) {
+        if (dong.getGeometry() == null || dong.getGeometry().length() > MAX_SHAPE_LENGTH) {
+            return;
+        }
+        try {
+            for (Place place : areaStatMapper.selectPlacesInShape(dong.getGeometry(), DONG_PLACE_LIMIT)) {
+                candidates.putIfAbsent(place.getId(), place);
+                dongPlaceIds.add(place.getId());
+            }
+        } catch (DataAccessException e) { // 경계 글자가 이상하면 그 동만 건너뜀
+            log.info("동 경계로 장소를 찾지 못함: {}", dong.getName());
+        }
+    }
+
+    /** 들를 만한 곳만: 도로·교차로·주차장 같은 곳은 빼고, 공원·시장·거리 같은 곳이 충분하면 그것만 */
+    private List<FoundLocation> pickGoodSights(List<FoundLocation> sights) {
+        List<FoundLocation> kept = new ArrayList<>();
+        List<FoundLocation> good = new ArrayList<>();
+        for (FoundLocation sight : sights) {
+            if (NOT_SIGHT.matcher(sight.getName()).find()) {
+                continue;
+            }
+            kept.add(sight);
+            if (GOOD_SIGHT.matcher(sight.getName()).find()) {
+                good.add(sight);
+            }
+        }
+        return good.size() >= GOOD_SIGHT_ENOUGH ? good : kept;
+    }
+
+    /** 들를 곳이 모자라면 카카오 관광명소로 보충 (우리 DB의 관광 데이터는 거의 종로구뿐). 저장할 때는 장소 연결 없이 이름·좌표만 남음 */
+    private void addSights(Map<String, Place> candidates, double lat, double lng) {
+        int count = 0;
+        for (Place place : candidates.values()) {
+            boolean isNear = place.getLat() != null && Geo.distanceMeters(lat, lng, place.getLat(), place.getLng()) <= SIGHT_RADIUS_M;
+            if (TOUR_KIND.equals(place.getKind()) && isNear) { // 여러 구면 이 구 근처만 셈
+                count++;
+            }
+        }
+        if (count >= SIGHT_ENOUGH) {
+            return;
+        }
+        for (FoundLocation found : pickGoodSights(locationSearchClient.searchSights(lat, lng, SIGHT_RADIUS_M))) {
+            Place place = new Place();
+            place.setId("kakao-" + found.getName());
+            place.setName(found.getName());
+            place.setCategory("관광지");
+            place.setKind(TOUR_KIND);
+            place.setAddress(found.getAddress());
+            place.setLat(found.getLat());
+            place.setLng(found.getLng());
+            candidates.putIfAbsent(place.getId(), place);
         }
     }
 

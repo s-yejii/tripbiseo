@@ -39,6 +39,7 @@ export const useReplanStore = defineStore('replan', () => {
   const plan = ref(null) // 적용한 계산 결과 (칸마다 이동 분 moveMin, 바뀐 일정 화면이 씀)
   const appliedAt = ref(0)
   const mutedLate = ref(null) // "그냥 갈게요"를 누른 때 늦는 분 (10분 더 늦어지면 다시 알림)
+  const linkFit = ref(null) // 링크로 넣어 본 결과 { place, result } (POST /live/link-fit, 링크 추가 화면이 씀)
   const isLoading = ref(false)
   const error = ref('')
   let loadedAt = 0
@@ -144,7 +145,7 @@ export const useReplanStore = defineStore('replan', () => {
   }
 
   return {
-    tripId, position, trip, status, options, base, trimPlan, before, applied, plan, mutedLate, isLoading, error,
+    tripId, position, trip, status, options, base, trimPlan, before, applied, plan, mutedLate, linkFit, isLoading, error,
     stops, lateMin, basisStop, currentStop, canUndo,
     load, findOption, preview, trimList, apply, undo,
   }

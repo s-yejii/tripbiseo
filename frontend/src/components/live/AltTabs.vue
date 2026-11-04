@@ -19,7 +19,7 @@ const TABS = [
 
 function slackText(tab) {
   const option = replan.findOption(tab.short)
-  if (!option) return '없음'
+  if (!option) return replan.stops.some((stop) => !stop.fixed && stop.importance !== 'must') ? '직접 고르기' : '모두 꼭'
   return option.slackMin < 0 ? -option.slackMin + '분 늦음' : '여유 ' + option.slackMin + '분'
 }
 </script>

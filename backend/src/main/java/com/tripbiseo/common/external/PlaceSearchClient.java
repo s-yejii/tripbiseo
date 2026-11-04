@@ -28,6 +28,14 @@ public class PlaceSearchClient {
 
     private final ExternalApi externalApi;
 
+    private static final double SAME_PLACE_M = 1000; // 이름이 맞아도 이보다 멀면 다른 곳 (공원·거리는 넓어서 1km)
+    private static final String TOUR_NEARBY_URL = "https://apis.data.go.kr/B551011/KorService2/locationBasedList2";
+    private static final List<String> SIGHT_TYPES = List.of("12", "14", "28"); // 관광지·문화시설·레포츠
+    private static final int NEARBY_ROWS = 30;
+    private static final int SAME_FOOD_M = 300;  // 가게는 300m 안이어야 같은 곳
+    private static final String FOOD_TYPE = "39";
+    private static final int MIN_CORE_LENGTH = 2;
+
     @Value("${TOUR_API_KEY:}")
     private String tourKey;
     @Value("${KMA_SERVICE_KEY:}")
@@ -50,6 +58,12 @@ public class PlaceSearchClient {
 
     // TourAPI 키워드 검색. 이름이 같은 곳 → 이름이 짧은 곳("N서울타워"가 "한쿡 N서울타워"보다 먼저) → 가까운 곳
     private FoundPlace searchTour(String name, Double lat, Double lng) {
+        JsonNode items = searchTourItems(name);
+        return items == null ? null : pickBest(items, name, lat, lng);
+    }
+
+    // TourAPI 키워드 검색 결과 칸들. 키가 없거나 실패하면 null
+    private JsonNode searchTourItems(String name) {
         String key = tourKey.isBlank() ? kmaKey : tourKey;
         if (key.isBlank()) {
             return null;
@@ -57,20 +71,118 @@ public class PlaceSearchClient {
         if (key.contains("%")) {
             key = URLDecoder.decode(key, StandardCharsets.UTF_8);
         }
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("serviceKey", key);
-        params.put("MobileOS", "ETC");
-        params.put("MobileApp", "tripbiseo");
-        params.put("_type", "json");
+        Map<String, Object> params = tourParams(key);
         params.put("numOfRows", 10);
-        params.put("pageNo", 1);
         params.put("keyword", name);
         try {
             JsonNode json = externalApi.getJson(externalApi.buildUrl(TOUR_URL, params), Map.of(), "TourAPI");
-            return pickBest(json.path("response").path("body").path("items").path("item"), name, lat, lng);
+            return json.path("response").path("body").path("items").path("item");
         } catch (ApiException e) {
             return null;
         }
+    }
+
+    /** TourAPI 대표 사진: 이름으로 찾아, 이름이 서로 포함되고 좌표가 1km 안인 곳의 firstimage. 없으면 null */
+    public String findTourImage(String name, double lat, double lng) {
+        JsonNode items = searchTourItems(name);
+        if (items == null) {
+            return null;
+        }
+        String wanted = normalizeName(name);
+        Iterable<JsonNode> list = items.isArray() ? items : List.of(items);
+        for (JsonNode item : list) {
+            String image = item.path("firstimage").asString("");
+            FoundPlace place = fromTour(item);
+            if (place == null || image.isBlank()) {
+                continue;
+            }
+            String found = normalizeName(place.getName());
+            boolean isSameName = found.contains(wanted) || wanted.contains(found);
+            if (isSameName && Geo.distanceMeters(lat, lng, place.getLat(), place.getLng()) <= SAME_PLACE_M) {
+                return image.replace("http://", "https://");
+            }
+        }
+        return null;
+    }
+
+    /** TourAPI 좌표 검색: 반경 1km 관광지·문화시설·레포츠 중 이름에 핵심어가 들어간 곳의 firstimage. 없으면 null */
+    public String findNearbyTourImage(String coreName, double lat, double lng) {
+        String key = tourKey.isBlank() ? kmaKey : tourKey;
+        if (key.isBlank()) {
+            return null;
+        }
+        Map<String, Object> params = tourParams(key);
+        params.put("numOfRows", NEARBY_ROWS);
+        params.put("mapX", lng);
+        params.put("mapY", lat);
+        params.put("radius", (int) SAME_PLACE_M);
+        try {
+            JsonNode items = externalApi.getJson(externalApi.buildUrl(TOUR_NEARBY_URL, params), Map.of(), "TourAPI").path("response").path("body").path("items").path("item");
+            Iterable<JsonNode> list = items.isArray() ? items : List.of(items);
+            for (JsonNode item : list) {
+                String image = item.path("firstimage").asString("");
+                boolean isSight = SIGHT_TYPES.contains(item.path("contenttypeid").asString(""));
+                if (isSight && !image.isBlank() && normalizeName(item.path("title").asString("")).contains(coreName)) {
+                    return image.replace("http://", "https://");
+                }
+            }
+            return null;
+        } catch (ApiException e) {
+            return null;
+        }
+    }
+
+    /** TourAPI 음식점(39) 좌표 검색: 반경 300m 안에서 정규화한 이름이 같은 곳의 firstimage (가게·지자체가 등록한 공식 사진). 없으면 null */
+    public String findFoodTourImage(String name, double lat, double lng) {
+        String key = tourKey.isBlank() ? kmaKey : tourKey;
+        if (key.isBlank()) {
+            return null;
+        }
+        Map<String, Object> params = tourParams(key);
+        params.put("numOfRows", NEARBY_ROWS);
+        params.put("mapX", lng);
+        params.put("mapY", lat);
+        params.put("radius", SAME_FOOD_M);
+        params.put("contentTypeId", FOOD_TYPE);
+        String wanted = normalizeName(name);
+        try {
+            JsonNode items = externalApi.getJson(externalApi.buildUrl(TOUR_NEARBY_URL, params), Map.of(), "TourAPI").path("response").path("body").path("items").path("item");
+            Iterable<JsonNode> list = items.isArray() ? items : List.of(items);
+            for (JsonNode item : list) {
+                String image = item.path("firstimage").asString("");
+                if (!image.isBlank() && normalizeName(item.path("title").asString("")).equals(wanted)) {
+                    return image.replace("http://", "https://");
+                }
+            }
+            return null;
+        } catch (ApiException e) {
+            return null;
+        }
+    }
+
+    /** 이름의 핵심어: 첫 낱말에서 "산책길·공원·거리" 같은 꼬리를 뗀 것 (고덕산산책길 → 고덕산). 너무 짧아지면 그대로 */
+    public static String coreName(String name) {
+        String first = name.trim().split("\\s+")[0].toLowerCase();
+        String core = first.replaceAll("(산책길|산책로|둘레길|테마거리|공원|거리|숲|길)$", "");
+        return core.length() < MIN_CORE_LENGTH ? first : core;
+    }
+
+    /** 이름 비교용: 공백·지점명·괄호 뺌 ("멘츠루 천호점" → "멘츠루") */
+    public static String normalizeName(String name) {
+        String compact = name.replaceAll("\\(.*?\\)", "").replaceAll("\\s+", "").toLowerCase();
+        String shortName = compact.replaceAll("(본점|[가-힣]{1,6}점)$", "");
+        return shortName.isEmpty() ? compact : shortName;
+    }
+
+    // TourAPI 공통 값
+    private Map<String, Object> tourParams(String rawKey) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("serviceKey", rawKey.contains("%") ? URLDecoder.decode(rawKey, StandardCharsets.UTF_8) : rawKey);
+        params.put("MobileOS", "ETC");
+        params.put("MobileApp", "tripbiseo");
+        params.put("_type", "json");
+        params.put("pageNo", 1);
+        return params;
     }
 
     // 공공데이터 API는 결과가 1건이면 배열이 아니라 객체 하나로 옴 → 그 경우도 한 칸짜리로 봄

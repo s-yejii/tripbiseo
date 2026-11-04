@@ -51,15 +51,17 @@ function recommendedFromId() {
     const replaced = swappable.find((stop) => !keptIds.includes(stop.id))
     if (replaced) return replaced.id
   }
-  return swappable.length ? swappable[0].id : null
+  if (swappable.length) return swappable[0].id
+  const notFixed = replan.stops.find((stop) => !stop.fixed) // 모두 꼭 갈 곳이면 그중 첫 칸
+  return notFixed ? notFixed.id : null
 }
 
 const fromStop = computed(() => replan.stops.find((stop) => stop.id === fromId.value) || null)
 const picked = computed(() => (candidates.value || []).find((place) => place.id === pickedId.value) || null)
 const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '마지막 일정'))
 const whyText = computed(() => {
-  if (replan.lateMin) return `지금 가면 ${basisName.value} 도착이 ${replan.lateMin}분 늦어요`
-  return `지금도 ${basisName.value}에 늦지 않아요 · 원하면 바꿔요`
+  if (replan.lateMin) return `${replan.lateMin}분 늦어요`
+  return '안 늦어요'
 })
 
 // 지도 핀: 후보 번호 (고른 곳 강조)
@@ -77,7 +79,7 @@ function slackText(place) {
   return place.slackMin < 0 ? -place.slackMin + '분 늦음' : '여유 ' + place.slackMin + '분'
 }
 function reasonText(place) {
-  return `${fromStop.value.name}에서 ${place.distance}m · ${place.eta} 도착할 때 영업 중 · 평점 ${place.rating}`
+  return `${place.distance}m · ${place.eta} 영업 중 · ★${place.rating}`
 }
 function toggleInfo(id) {
   openId.value = openId.value === id ? null : id
@@ -146,7 +148,7 @@ async function apply() {
 
         <p class="divlabel"><span class="badge badge--navy" style="height: 22px">추천 기준: 그 시간 영업 중 · 평점 있는 곳</span>가까운 순</p>
 
-        <p v-if="!candidates.length" class="t-cap">1.5km 안에 그 시간에 열려 있는 곳이 없어요</p>
+        <p v-if="!candidates.length" class="t-cap">근처에 연 곳이 없어요</p>
 
         <div class="group" role="radiogroup" aria-label="바꿀 장소">
           <template v-for="(place, i) in candidates" :key="place.id">

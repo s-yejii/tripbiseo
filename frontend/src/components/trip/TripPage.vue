@@ -5,11 +5,13 @@
 //   slot below : 일정 목록 아래 (예: 챙길 것)
 //   slot cta   : 맨 아래 버튼
 //   slot head  : 제목 아래 (예: 일차 고르기)
+//   simMe·activeStop: 이동 미리보기의 움직이는 점과 강조할 칸 (일정 점검, 11/04)
 //   reorderable: 목록 칸을 끌어 순서 바꾸기 → reorder 이벤트(원래 번호를 새 순서로 담은 목록) (11/04)
 //   지도: 점검 결과에 구간별 경로(trip.legs)가 있으면 진짜 길로, 없으면 장소끼리 점선
 import { computed, nextTick, ref, watch } from 'vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
+import TripBudget from '@/components/trip/TripBudget.vue'
 import TripTimeline from '@/components/trip/TripTimeline.vue'
 import CheckList from '@/components/trip/CheckList.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
@@ -22,6 +24,9 @@ const props = defineProps({
   rainSwap: { type: Boolean, default: false },
   reorderable: { type: Boolean, default: false },
   modeEditable: { type: Boolean, default: false }, // 이동 줄을 눌러 수단 고르기 (일정 점검 초안만)
+  showBudget: { type: Boolean, default: false }, // 1인 예상 금액 줄 (일정 점검)
+  simMe: { type: Object, default: null }, // 이동 미리보기의 점 { lat, lng }
+  activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
 })
 const emit = defineEmits(['reorder', 'change-mode'])
 const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
@@ -56,7 +61,7 @@ function pinClass(stop, i) {
   if (stop.isStay) cls += ' pin--stay'
   else if (stop.fixed) cls += ' pin--fixed'
   if (stop.warn) cls += ' pin--warn'
-  if (selected.value === i) cls += ' pin--sel'
+  if (selected.value === i || props.activeStop === i) cls += ' pin--sel'
   return cls
 }
 
@@ -177,6 +182,14 @@ watch(() => (tooltip.value ? tooltip.value.stop.name : null), async () => {
   if (element) tipWidth.value = element.offsetWidth
 })
 
+// 이동 미리보기가 어떤 칸에 머물면 목록에서 그 칸이 보이게
+watch(() => props.activeStop, async (i) => {
+  if (i === null) return
+  await nextTick()
+  const el = scrollBox.value && scrollBox.value.querySelector(`[data-stop="${i}"]`)
+  if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+})
+
 // 핀이나 목록을 누르면 같이 강조하고, 목록은 그 칸이 보이게 스크롤
 // 카카오 지도면 그 칸 핀을 가운데에 두고 앞뒤 경로가 보이게 확대, 고르기를 풀면 전체 보기로 (11/04)
 async function select(i) {
@@ -191,7 +204,7 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -238,10 +251,11 @@ async function select(i) {
         </div>
         <span v-if="trip.slack !== undefined" class="badge badge--success tn"><i class="ic ic--s i-check" aria-hidden="true"></i>예약 여유 {{ trip.slack }}분</span>
       </div>
+      <TripBudget v-if="showBudget && trip.stops.length" :stops="trip.stops" />
       <slot name="head"></slot>
       <div ref="scrollBox" class="trip-scroll">
         <CheckList :items="trip.checks" :rain-swap="rainSwap" />
-        <TripTimeline :stops="trip.stops" :selected="selected" :reorderable="reorderable" @select="pickRow" :mode-editable="modeEditable" @reorder="emit('reorder', $event)" @change-mode="(i, mode) => emit('change-mode', i, mode)" />
+        <TripTimeline :stops="trip.stops" :selected="activeStop !== null ? activeStop : selected" :reorderable="reorderable" @select="pickRow" :mode-editable="modeEditable" @reorder="emit('reorder', $event)" @change-mode="(i, mode) => emit('change-mode', i, mode)" />
         <p v-if="!trip.stops.length" class="t-cap" style="margin: 0; padding: 16px 0">아직 넣은 일정이 없어요. 일정 편집에서 장소를 넣어 주세요.</p>
         <slot name="below"></slot>
       </div>

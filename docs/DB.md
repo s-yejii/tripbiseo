@@ -16,6 +16,7 @@
 | `db/11_member.sql` | ① 테이블 | ① |
 | `db/12_trip.sql` | ② 테이블 (`trip_chat`) | ② |
 | `db/13_plan.sql` | ③ 테이블 | ③ |
+| `db/16_trash.sql` | 휴지통: `trip.deleted_at` 추가 (11/04, 이상재 확인 필요) | ③ |
 | `db/14_live.sql` | ④ 테이블 (`trip_track`) | ④ |
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |

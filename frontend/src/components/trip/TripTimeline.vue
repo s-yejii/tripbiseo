@@ -5,6 +5,7 @@
 // 메모가 있으면 카드 아래 한 줄 (AI 일정: 고른 이유 · 리뷰 근거 "조용해요 · 리뷰 10개 중 4개")
 // reorderable이면 카드 오른쪽 손잡이를 끌어 다른 칸에 놓으면 두 칸 자리가 바뀌어요 (고정·숙소 칸은 손잡이 없음) → reorder(새 순서의 원래 번호 목록) (11/04)
 //   고정 칸(예약) 위에 놓으면 그 앞(위로 끌 때)·뒤(아래로 끌 때)에 끼워 넣어요 → 예약 전에 다른 곳을 먼저 갈 수 있게
+import StopThumb from '@/components/trip/StopThumb.vue'
 import { onUnmounted, ref, watch } from 'vue'
 import { importance, modes } from '@/data/places'
 import { dropPlaceOf, orderAfterDrop } from '@/utils/draftEdit'
@@ -15,7 +16,7 @@ const props = defineProps({
   reorderable: { type: Boolean, default: false },
   modeEditable: { type: Boolean, default: false },
 })
-const emit = defineEmits(['select', 'reorder', 'change-mode'])
+const emit = defineEmits(['select', 'reorder', 'change-mode', 'remove'])
 const MODE_CHOICES = ['walk', 'transit', 'taxi'] // 고를 수 있는 수단 (서버 Stop.mode가 아는 값만)
 
 // 끌기: 다른 칸은 그대로 두고, 끄는 칸만 손가락을 따라 움직여요. 놓은 자리의 칸과 둘이 자리를 바꿔요 (11/04)
@@ -147,13 +148,15 @@ function pickMode(i, mode) {
         <button type="button" class="stop" :class="{ 'is-fixed': stop.fixed, 'is-sel': selected === i }" :data-stop="i" @click="emit('select', i)">
           <span class="stop__time">{{ stop.time }}</span>
           <span class="stop__card">
-            <img class="thumb" :src="stop.img" alt="" />
+            <StopThumb :src="stop.photo === undefined ? stop.img : stop.photo" :name="stop.name" :category="stop.category" />
             <span class="stop__body">
-              <span class="stop__name">{{ stop.name }}</span>
+              <span class="stop__name"><small v-if="stop.isAi" class="stop__ai">AI</small>{{ stop.name }}</span>
               <span class="stop__meta" :class="stop.metaCls"><i v-if="stop.metaIcon" class="ic ic--s" :class="stop.metaIcon" aria-hidden="true"></i>{{ stop.meta }}</span>
               <span v-if="stop.memo" class="stop__memo">{{ stop.memo }}</span>
             </span>
             <span class="stop__side">
+              <small v-if="stop.costText" class="stop__cost tn">{{ stop.costText }}</small>
+              <span v-if="stop.isAi" class="stop__ai-remove" role="button" tabindex="0" :aria-label="stop.name + ' 빼기'" @click.stop="emit('remove', i)" @keydown.enter.stop.prevent="emit('remove', i)">빼기</span>
               <span v-if="!stop.fixed && stop.imp" class="imp" :class="'imp--' + stop.imp">{{ importance[stop.imp] }}</span>
               <span v-if="stop.wx" class="stop__wx" :class="{ 'is-rain': stop.wx === 'rain' }"><i class="ic ic--s" :class="weather[stop.wx].icon" aria-hidden="true"></i>{{ weather[stop.wx].label }}</span>
             </span>
@@ -183,6 +186,9 @@ function pickMode(i, mode) {
 .tl .tl-row>.stop{flex:1;min-width:0}
 .tl .tl-grip{width:28px;flex:none;border:0;padding:0;background:none;color:var(--ink-subtle);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:grab}
 .tl .tl-row.is-drag{position:relative;z-index:5;pointer-events:none}
+.stop__ai{display:inline-block;margin-right:4px;padding:0 4px;border-radius:4px;background:var(--navy-soft);color:var(--navy);font-size:10px;line-height:16px;font-weight:700;vertical-align:1px}
+.stop__ai-remove{font-size:12px;line-height:16px;color:var(--ink-muted);text-decoration:underline;cursor:pointer}
+.stop__side .stop__cost{order:9;margin-top:auto;font-size:11px;line-height:14px;color:var(--ink-muted)}
 .tl .tl-row.is-drag .stop__card{border-color:var(--navy);background:#fff;box-shadow:0 8px 20px rgba(24,33,58,.22)}
 .tl .tl-row.is-target .stop__card{border:2px dashed var(--navy);background:var(--navy-soft)}
 /* 고정 칸 앞·뒤에 끼울 때: 카드 위(앞)·아래(뒤) 테두리를 굵게 → "여기 앞/뒤에 들어가요" */

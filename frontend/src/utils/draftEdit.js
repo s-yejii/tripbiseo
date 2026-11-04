@@ -107,6 +107,8 @@ export function toEditRow(stop) {
     movable: isMovable(stop),
     img: imageFor(stop.category),
     category: stop.category || '',
+    lat: stop.lat,
+    lng: stop.lng,
     imp: stop.importance || 'maybe',
   }
 }
