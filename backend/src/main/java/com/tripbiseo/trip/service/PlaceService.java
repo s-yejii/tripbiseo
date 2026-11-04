@@ -58,6 +58,9 @@ public interface PlaceService {
     /** GET /api/places/locations: 어디서 출발해요? 역·건물·주소 최대 15개 (카카오). lat·lng가 있으면 거리도 */
     List<FoundLocation> getLocationList(String query, Double lat, Double lng);
 
+    /** GET /api/places/locations/hubs: 좌표 근처 지하철역·구청·시청 (출발지 고르기, 카카오) */
+    List<FoundLocation> getLocationHubList(double lat, double lng);
+
     /** GET /api/places/locations/here: 내 좌표의 건물 이름·주소 (현재 위치로 출발) */
     FoundLocation getLocationHere(double lat, double lng);
 }
