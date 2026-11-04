@@ -67,7 +67,7 @@ public class InstagramMetaReader {
     // ---------------------------------------------------------------- 도우미
 
     /** GET 한 번. 200이 아니거나 연결이 안 되면 null */
-    private String fetchHead(String pageUrl) {
+    String fetchHead(String pageUrl) {
         HttpRequest request = HttpRequest.newBuilder(URI.create(pageUrl))
                 .timeout(TIMEOUT)
                 .header("User-Agent", USER_AGENT)
@@ -78,13 +78,13 @@ public class InstagramMetaReader {
             HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             try (InputStream body = response.body()) {
                 if (response.statusCode() != HTTP_OK) {
-                    log.info("인스타 페이지를 읽지 못함: 상태 {}", response.statusCode());
+                    log.info("링크 페이지를 읽지 못함: 상태 {}", response.statusCode());
                     return null;
                 }
                 return new String(body.readNBytes(MAX_PAGE_BYTES), StandardCharsets.UTF_8);
             }
         } catch (IOException e) {
-            log.info("인스타 페이지 연결 실패: {}", e.getClass().getSimpleName());
+            log.info("링크 페이지 연결 실패: {}", e.getClass().getSimpleName());
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); // 스레드를 멈추라는 신호를 지우지 않고 남겨 둠
@@ -92,8 +92,23 @@ public class InstagramMetaReader {
         }
     }
 
+    /** 리다이렉트 도착 주소만 물어봄 (따라가지는 않음). 없으면 null */
+    String fetchRedirect(String shortUrl) {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(shortUrl)).timeout(TIMEOUT).header("User-Agent", USER_AGENT).GET().build();
+        try {
+            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            return response.headers().firstValue("Location").orElse(null);
+        } catch (IOException e) {
+            log.info("짧은 링크 연결 실패: {}", e.getClass().getSimpleName());
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     /** <meta property="이름" content="값">의 값 (&quot; 같은 기호는 글자로 되돌림). 없으면 null */
-    private String findMetaContent(String html, String property) {
+    String findMetaContent(String html, String property) {
         Matcher tags = META_TAG.matcher(html);
         while (tags.find()) {
             String tag = tags.group();
