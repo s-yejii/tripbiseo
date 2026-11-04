@@ -42,6 +42,7 @@ public class RetroServiceImpl implements RetroService {
             }
             response.getStops().add(toRetroStop(stop));
         }
+        response.setVisited(visited); // 
         List<TrackPoint> track = trackService.getTrackList(tripId); // gps 점 기록 
         response.setTrack(track);
         response.setMovedMeters(sumMovedMeters(track));
@@ -52,7 +53,7 @@ public class RetroServiceImpl implements RetroService {
     // TODO: 4번 진짜 GPS가 들어오면 기록 간격을 보고, 걷기보다 빠른 구간은 빼서 "걸은 거리"로 바꿀지 정하기
     private static int sumMovedMeters(List<TrackPoint> track) {
         double total = 0;
-        for (int i = 1; i< track.size(); i++) {
+        for (int i = 1; i< track.size(); i++) { 
             TrackPoint before = track.get(i - 1);
             TrackPoint now = track.get(i);
             total += Geo.distanceMeters(before.getLat(), before.getLng(), now.getLat(), now.getLng());
