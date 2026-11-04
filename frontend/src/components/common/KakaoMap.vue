@@ -3,6 +3,8 @@
 // 키가 없거나 SDK를 못 받으면 fail을 보내요 → 부모 화면이 안내 문구를 보여 줘요.
 // 부모가 ref로 부를 수 있는 것: focusMe() 내 위치로 옮기기, fitAll() 모든 점이 보이게 다시 맞추기, moveTo(lat, lng, level) 가운데 옮기기,
 //   focusAround(center, points) center를 가운데에 두고 points(앞뒤 경로)가 다 보이게 확대 (11/04)
+// move: 지도가 움직이는 동안(끌기·확대·코드로 옮기기) 계속 보내요 → 부모가 핀 위 말풍선을 핀에 붙여 따라 옮겨요 (11/04)
+// 화면 좌표 { x, y, isInside }: isInside는 그 점이 지도 칸 안에 보이는지 (밖이면 말풍선을 숨기게)
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { loadKakaoMap } from '@/utils/kakaoMap'
 
@@ -19,7 +21,7 @@ const props = defineProps({
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
   padding: { type: Object, default: () => ({ top: 150, right: 40, bottom: 444, left: 40 }) },
 })
-const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready'])
+const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 'ready', 'move'])
 
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
@@ -51,6 +53,7 @@ onMounted(async () => {
   kakao.maps.event.addListener(map, 'dragend', sendCenter)
   kakao.maps.event.addListener(map, 'zoom_changed', sendCenter)
   kakao.maps.event.addListener(map, 'zoom_changed', drawWalkDots) // 확대·축소하면 걷는 길 점 간격을 다시 맞춤
+  kakao.maps.event.addListener(map, 'bounds_changed', () => emit('move')) // 보이는 영역이 바뀔 때마다 (끄는 동안에도 계속)
   draw()
   emit('ready') // 지도가 다 만들어졌어요 (부모가 moveTo 같은 걸 이때 부를 수 있음)
 })
@@ -291,7 +294,10 @@ function sendMePoint() {
 // 위도·경도 → 지도 칸 안의 px 위치 { x, y }
 function toScreenPoint(lat, lng) {
   const point = map.getProjection().containerPointFromCoords(new kakao.maps.LatLng(lat, lng))
-  return { x: Math.round(point.x), y: Math.round(point.y) }
+  const x = Math.round(point.x)
+  const y = Math.round(point.y)
+  const isInside = x >= 0 && y >= 0 && x <= box.value.clientWidth && y <= box.value.clientHeight
+  return { x, y, isInside }
 }
 </script>
 

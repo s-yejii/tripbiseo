@@ -30,7 +30,8 @@ const selected = ref(null)
 const scrollBox = ref(null)
 const mapRef = ref(null) // 카카오 지도 (칸을 고르면 그 칸 쪽으로 확대)
 const useRealMap = ref(true) // 카카오 지도를 못 쓰면(키 없음·불러오기 실패) false → 예전 지도 그림
-const pickedPoint = ref(null) // 카카오 지도에서 누른 핀의 화면 위치 { x, y } (말풍선 위치)
+const pickedPoint = ref(null) // 카카오 지도에서 누른 핀의 화면 위치 { x, y, isInside } (말풍선 위치)
+const isTipOnPin = ref(false) // 핀을 눌러 말풍선을 띄웠는지 (지도를 옮기면 말풍선이 핀을 따라가요)
 const TRIP_MAP_PADDING = { top: 110, right: 40, bottom: 40, left: 40 } // 핀이 위 버튼에 가리지 않게
 const FOCUS_RADIUS_M = 400 // 칸을 고르면 핀에서 이만큼(m)까지의 앞뒤 경로만 보이게 확대 (지하철처럼 긴 길도 좁게)
 
@@ -61,9 +62,17 @@ function pinClass(stop, i) {
 // 카카오 지도 핀을 누름: 그 칸 쪽으로 옮긴 뒤, 옮긴 자리의 핀 위에 말풍선
 function pickPin(pin) {
   select(pin.index)
-  const stop = props.trip.stops[pin.index]
-  const point = mapRef.value && selected.value !== null ? mapRef.value.pointOf(stop.lat, stop.lng) : null
-  pickedPoint.value = point || { x: pin.x, y: pin.y }
+  isTipOnPin.value = selected.value !== null
+  pickedPoint.value = { x: pin.x, y: pin.y }
+  followPin()
+}
+
+// 지도가 움직일 때마다 말풍선을 고른 핀의 지금 화면 위치로 (핀을 눌러 띄운 말풍선만)
+function followPin() {
+  if (!isTipOnPin.value || selected.value === null || !mapRef.value) return
+  const stop = props.trip.stops[selected.value]
+  const point = mapRef.value.pointOf(stop.lat, stop.lng)
+  if (point) pickedPoint.value = point
 }
 
 // 고른 칸 쪽으로 지도 맞추기: 들어오는 길(legs[i-1])·나가는 길(legs[i]) 중 핀에서 FOCUS_RADIUS_M 안쪽만
@@ -121,6 +130,7 @@ function metersBetween(a, b) {
 // 목록을 누름: 카카오 지도에서는 핀 화면 위치를 몰라 말풍선 없이 핀만 강조
 function pickRow(i) {
   pickedPoint.value = null
+  isTipOnPin.value = false
   select(i)
 }
 
@@ -132,7 +142,7 @@ const tooltip = computed(() => {
   if (selected.value === null) return null
   const stop = props.trip.stops[selected.value]
   const point = isKakao.value ? pickedPoint.value : stop
-  if (!point) return null
+  if (!point || point.isInside === false) return null // 핀이 지도 밖으로 나가면 말풍선도 숨김
   return {
     stop,
     x: Math.min(Math.max(point.x, 110), 280),
@@ -154,7 +164,7 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" style="bottom: 404px" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" @move="followPin" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" style="bottom: 404px" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true" style="bottom: 404px"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
