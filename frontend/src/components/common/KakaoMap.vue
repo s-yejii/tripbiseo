@@ -18,7 +18,7 @@ const props = defineProps({
   paths: { type: Array, default: () => [] }, // 구간별 진짜 길 [{ coords: [[위도, 경도], ...], mode, from, to }] (일정 점검, 11/04). 도보는 동그라미 점
   //   from·to(앞뒤 장소 [위도, 경도])가 있으면, 대중교통 선이 역·정류장에서 끝날 때 장소까지 걷는 점으로 이어요
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
-  follow: { type: Boolean, default: false }, // 내 위치가 바뀌면 지도를 따라 옮김 (길 안내)
+  follow: { type: Boolean, default: false }, // 길 안내: 처음부터 내 위치를 크게 확대해서 가운데에 두고, 내 위치가 바뀌면 지도가 따라감
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
   pickCenter: { type: Boolean, default: false }, // 배민 주소 등록처럼: 지도를 움직이면 멈춘 자리의 가운데 좌표를 center로 알려 줌
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
@@ -29,6 +29,7 @@ const emit = defineEmits(['pick', 'fail', 'me-point', 'map-click', 'center', 're
 const START_CENTER = { lat: 37.5385, lng: 127.1238 } // 핀을 그리기 전 잠깐 보이는 중심 (천호역)
 const SINGLE_POINT_SPAN = 0.003 // 점이 하나뿐일 때 주변으로 넓혀 보여 줄 범위(도)
 const CLOSEST_LEVEL = 3 // focusAround로 이보다 더 가까이 확대하지 않음 (골목 몇 개만 보이지 않게)
+const FOLLOW_LEVEL = 3 // 길 안내(follow) 처음 확대 단계 (작을수록 가까이, 3 ≈ 골목·건물이 보이는 정도). 그 뒤엔 사용자가 바꾼 단계 유지
 
 const box = ref(null)
 let kakao = null
@@ -36,6 +37,7 @@ let map = null
 let overlays = [] // 지금 지도에 올린 핀·선 (다시 그릴 때 지움)
 let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 뒤엔 사용자가 옮긴 화면을 유지)
 let isMovingByCode = false // moveTo로 옮기는 중
+let hasFocusedMe = false // 길 안내(follow): 내 위치로 처음 확대했는지 (위치가 늦게 와도 한 번은 확대)
 const WALK_DOT_GAP_PX = 12 // 걷는 길 동그라미 점 사이 간격 (화면 px, 확대해도 같은 간격)
 const WALK_END_GAP_M = 30 // 대중교통 선 끝과 장소가 이보다 멀면 걷는 점으로 이어요
 let walkLegs = [] // 걷는 구간 좌표 목록 (확대·축소하면 점을 다시 찍음)
@@ -111,7 +113,8 @@ function draw() {
     allPoints.push(mePosition)
     addOverlay(mePosition, makeMe(), 3)
   }
-  fitOnce(allPoints)
+  if (props.follow && props.me) focusMeFirst()
+  else fitOnce(allPoints)
   drawWalkDots()
   sendMePoint()
 }
@@ -259,6 +262,15 @@ function focusMe() {
   if (!map || !props.me) return false
   map.panTo(centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng)))
   return true
+}
+
+// 길 안내 처음 한 번: 경로 전체 대신 내 위치를 크게 확대해서 (시트에 안 가리는 칸) 가운데에 둠 (11/04)
+function focusMeFirst() {
+  if (hasFocusedMe) return
+  hasFocusedMe = true
+  hasFitted = true // 그 뒤엔 핀 다시 그리기가 화면을 덮어쓰지 않게 (위치가 바뀌면 focusMe가 따라감)
+  map.setLevel(FOLLOW_LEVEL)
+  map.setCenter(centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng)))
 }
 
 // 모든 핀·경로·내 위치가 보이게 다시 맞춤
