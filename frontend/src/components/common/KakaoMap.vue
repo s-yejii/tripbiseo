@@ -39,6 +39,7 @@ let overlays = [] // 지금 지도에 올린 핀·선 (다시 그릴 때 지움)
 let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 뒤엔 사용자가 옮긴 화면을 유지)
 let isMovingByCode = false // moveTo로 옮기는 중
 let hasFocusedMe = false // 길 안내(follow): 내 위치로 처음 확대했는지 (위치가 늦게 와도 한 번은 확대)
+let meOverlay = null // 지금 위치 점 (위치만 바뀌면 이것만 옮기고 나머지는 다시 안 그려요, 11/04)
 const WALK_DOT_GAP_PX = 12 // 걷는 길 동그라미 점 사이 간격 (화면 px, 확대해도 같은 간격)
 const WALK_END_GAP_M = 30 // 대중교통 선 끝과 장소가 이보다 멀면 걷는 점으로 이어요
 let walkLegs = [] // 걷는 구간 좌표 목록 (확대·축소하면 점을 다시 찍음)
@@ -67,15 +68,14 @@ onMounted(async () => {
 
 onUnmounted(clear)
 
-// 핀(상태·선택)이나 내 위치가 바뀌면 다시 그림
-watch(() => [props.pins, props.me, props.path, props.paths, props.ring], draw, { deep: true })
+// 핀(상태·선택)·선·원이 바뀌면 전부 다시 그림
+watch(() => [props.pins, props.path, props.paths, props.ring], draw, { deep: true })
 watch(() => props.fitKey, () => {
   hasFitted = false
   draw()
 })
-watch(() => props.me, () => {
-  if (props.follow) focusMe()
-}, { deep: true })
+// 내 위치만 바뀌면 (GPS는 휴대폰에서 거의 1초마다) 내 위치 점만 옮김 → 핀·선을 매번 지웠다 그리지 않아서 버벅이지 않아요
+watch(() => props.me, moveMe, { deep: true })
 
 // 핀·동선·내 위치를 지우고 새로 그림
 function draw() {
@@ -114,7 +114,7 @@ function draw() {
   if (props.me) {
     const mePosition = new kakao.maps.LatLng(props.me.lat, props.me.lng)
     allPoints.push(mePosition)
-    addOverlay(mePosition, makeMe(), 3)
+    meOverlay = addOverlay(mePosition, makeMe(), 3)
   }
   if (props.follow && props.me) focusMeFirst()
   else fitOnce(allPoints)
@@ -125,6 +125,7 @@ function draw() {
 function clear() {
   for (const overlay of overlays) overlay.setMap(null)
   overlays = []
+  meOverlay = null
   for (const dot of dotOverlays) dot.setMap(null)
   dotOverlays = []
 }
@@ -134,6 +135,20 @@ function addOverlay(position, element, zIndex) {
   const overlay = new kakao.maps.CustomOverlay({ position, content: element, zIndex, clickable: true })
   overlay.setMap(map)
   overlays.push(overlay)
+  return overlay
+}
+
+// 내 위치가 바뀜: 점이 이미 있으면 그 점만 옮기고(setPosition), 처음 생기거나 사라질 때만 전부 다시 그림
+// 길 안내(follow)면 지도도 내 위치로 따라감
+function moveMe() {
+  if (!map) return
+  if (!props.me || !meOverlay) {
+    draw()
+  } else {
+    meOverlay.setPosition(new kakao.maps.LatLng(props.me.lat, props.me.lng))
+    sendMePoint()
+  }
+  if (props.follow) focusMe()
 }
 
 function addRoute(points) {

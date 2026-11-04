@@ -153,17 +153,22 @@ const mapPins = computed(() => {
 
 // 지금 위치 → 다음 장소 진짜 길 (KakaoMap paths 모양). 다음 장소가 없거나 길이 없으면 []
 //   status.next.source가 estimate면 길찾기를 못 해서 직선으로 추정한 것 → isGuess (점선으로)
+//   from(출발 쪽 걷는 점)은 상황을 받은 그때의 내 위치로 고정 → GPS가 바뀔 때마다 길을 다시 그리지 않게 (30초마다 상황이 오면 바뀜)
+const statusFrom = ref(null)
+watch(status, () => {
+  const position = live.position.value
+  statusFrom.value = position ? [position.lat, position.lng] : null
+}, { immediate: true })
 const nextPath = computed(() => {
   const next = isReady.value ? status.value.next : null
-  const position = live.position.value
-  if (!next || !position || !next.coords || next.coords.length < 2) return []
+  if (!next || !statusFrom.value || !next.coords || next.coords.length < 2) return []
   const stop = stops.value.find((item) => item.id === next.id)
   if (!stop) return []
   return [{
     coords: next.coords,
     mode: stop.moveMode || 'walk',
     isGuess: next.source === 'estimate',
-    from: [position.lat, position.lng],
+    from: statusFrom.value,
     to: [stop.lat, stop.lng],
   }]
 })
