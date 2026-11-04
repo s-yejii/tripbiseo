@@ -6,24 +6,27 @@ import PhotoCard from '@/components/common/PhotoCard.vue'
 import TabBar from '@/components/common/TabBar.vue'
 import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
-import { getTripList } from '@/api/trips'
+import { getArchivedTrips, getTripList } from '@/api/trips'
 import { daysLeft, toShortDate, tripDetailLink } from '@/utils/tripView'
 
 const serverTrips = ref(null) // null: 아직 못 읽음
 const error = ref('')
+const archivedCount = ref(0) // 보관함 여행 수 (있을 때만 맨 아래 한 줄)
 onMounted(load)
 
 async function load() {
   error.value = ''
   try {
     serverTrips.value = await getTripList()
+    archivedCount.value = (await getArchivedTrips()).length
   } catch (e) {
     error.value = e.message
   }
 }
 const ongoing = computed(() => (serverTrips.value || []).find((trip) => trip.status === 'ongoing') || null)
-const planned = computed(() => (serverTrips.value || []).filter((trip) => trip.status === 'planned'))
-const done = computed(() => (serverTrips.value || []).filter((trip) => trip.status === 'done'))
+// 다가오는 여행: 끝 날짜가 안 지난 것만. 안 떠나고 날짜가 지난 여행은 지난 여행으로
+const planned = computed(() => (serverTrips.value || []).filter((trip) => trip.status === 'planned' && daysLeft(trip.endDate) >= 0))
+const done = computed(() => (serverTrips.value || []).filter((trip) => trip.status === 'done' || (trip.status === 'planned' && daysLeft(trip.endDate) < 0)))
 </script>
 
 <template>
@@ -68,7 +71,7 @@ const done = computed(() => (serverTrips.value || []).filter((trip) => trip.stat
         <section aria-labelledby="t-past" class="trips-sec">
           <h2 id="t-past" class="t-strong muted">지난 여행 {{ done.length }}</h2>
           <div class="group">
-            <RouterLink v-for="trip in done" :key="trip.id" :to="'/retro?id=' + trip.id" class="row">
+            <RouterLink v-for="trip in done" :key="trip.id" :to="trip.status === 'done' ? '/retro?id=' + trip.id : tripDetailLink(trip)" class="row">
               <img class="thumb" src="/img/euljiro.jpg" alt="" />
               <span class="row__body"><span class="row__title">{{ trip.title }}</span><span class="row__meta">{{ toShortDate(trip.startDate) }} · {{ trip.stopCount }}곳</span></span>
               <i class="ic i-next subtle" aria-hidden="true"></i>
@@ -76,6 +79,7 @@ const done = computed(() => (serverTrips.value || []).filter((trip) => trip.stat
           </div>
           <p v-if="!done.length" class="t-cap">아직 다녀온 여행이 없어요</p>
         </section>
+        <RouterLink v-if="archivedCount" to="/trips/archive" class="textlink tn" style="align-self: center">보관함 {{ archivedCount }}</RouterLink>
         </template>
       </div>
 
