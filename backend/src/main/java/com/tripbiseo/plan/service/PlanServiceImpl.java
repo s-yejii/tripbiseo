@@ -39,6 +39,7 @@ import lombok.RequiredArgsConstructor;
  *       ③ 서버가 id를 다시 확인(후보 밖이면 이름으로 실제 장소 찾기, 못 찾으면 notes에 적고 뺌).
  * Gemini가 실패하면 규칙(PlanRuleMaker: 고른 종류·평점·거리)으로 초안 (오류 내지 않음). 좌표·회원 정보는 프롬프트에 넣지 않음.
  * 11/03: 여행 정보 화면의 지역 좌표·장소 종류·분위기 태그·출발지·숙소를 조건으로 받아 반영.
+ * 11/04: 칩으로 못 고르는 요청(needs: "4명이 앉을 자리")은 ReviewNeedChecker가 후보 리뷰로 확인해 점수·후보에 반영.
  * 예전 코드: git show backend-v0:backend/src/main/java/com/tripbiseo/service/PlanService.java (chat/generate/fallback)
  */
 @Service
@@ -62,11 +63,14 @@ public class PlanServiceImpl implements PlanService {
     private static final int FIXED_STAY_MIN = 120;
     private static final int MIN_STAY = 10;
     private static final int MAX_STAY = 600;
+    private static final int MAX_NEEDS = 3;          // 칩에 없는 요청은 3개까지 (리뷰 확인이 요청마다 Gemini를 불러서)
+    private static final int MAX_NEED_LENGTH = 20;
 
     private final AiService aiService;
     private final PlaceService placeService;
     private final PlanCandidateFinder planCandidateFinder; // 후보 장소 찾기 (RAG의 찾기)
     private final PlanRuleMaker planRuleMaker;             // AI가 안 될 때 규칙으로 일정 + 숙소 칸 (11/03)
+    private final ReviewNeedChecker reviewNeedChecker;     // 칩에 없는 요청을 후보 리뷰로 확인 (11/04)
 
     /** 사용자 말 → 여행 조건. 보낸 조건은 남기고 Gemini가 새로 뽑은 값만 덮어씀. Gemini 실패는 오류 그대로 (API.md) */
     @Override
@@ -105,6 +109,7 @@ public class PlanServiceImpl implements PlanService {
         Map<String, PlaceTagCount> tagCounts = planCandidateFinder.countTags(found);
         Map<String, Double> scores = planCandidateFinder.scoreOf(found, tagCounts, conditions.getTags());
         Map<String, List<String>> reasons = planCandidateFinder.reasonsOf(found, tagCounts, conditions.getTags());
+        reviewNeedChecker.check(conditions, found, scores, reasons, response.getNotes()); // 안 맞는 곳은 빼고, 맞는 곳은 점수·리뷰 근거 (11/04)
         Map<String, Place> candidates = planCandidateFinder.sortByScore(found, scores); // 고른 태그가 많은 곳부터
         List<AiDraftStop> picks = pickStops(conditions, request.getMessages(), candidates, reasons, days, response);
         List<String> warnings = new ArrayList<>();
@@ -139,10 +144,11 @@ public class PlanServiceImpl implements PlanService {
              + "{\"reply\": \"조건을 정리했다는 한두 문장 + 확인 부탁\", \"title\": \"여행 이름(15자 이내)\", \"region\": \"지역(예: 서울 종로)\", "
              + "\"startDate\": \"YYYY-MM-DD\", \"endDate\": \"YYYY-MM-DD\", \"people\": 정수, \"transports\": [\"bus\"|\"subway\"|\"walk\"|\"taxi\"|\"car\"], "
              + "\"mustVisit\": [\"이번 말에서 새로 나온 꼭 갈 장소\"], \"fixed\": [{\"name\": \"이번 말에서 새로 나온 시간이 정해진 일정\", \"time\": \"HH:mm\"}], "
-             + "\"kinds\": [\"새로 원한 장소 종류 코드\"], \"tags\": [\"새로 원한 분위기 코드\"], \"style\": \"여행 스타일 한 줄\"}\n"
-             + "mustVisit·fixed·kinds·tags는 이번 말에서 새로 나온 것만 적어(이전 것은 서버가 남겨 둬). 상호명은 사용자가 말한 그대로.\n"
+             + "\"kinds\": [\"새로 원한 장소 종류 코드\"], \"tags\": [\"새로 원한 분위기 코드\"], \"needs\": [\"새로 말한 장소 요청\"], \"style\": \"여행 스타일 한 줄\"}\n"
+             + "mustVisit·fixed·kinds·tags·needs는 이번 말에서 새로 나온 것만 적어(이전 것은 서버가 남겨 둬). 상호명은 사용자가 말한 그대로.\n"
              + "kinds 코드: food 밥집, cafe 카페·디저트, bar 술집, tour 관광·산책, culture 전시·문화, shop 쇼핑. 그 종류에 가고 싶다고 했을 때만.\n"
-             + "tags 코드: mood 분위기 좋은, quiet 조용한, value 가성비, no_wait 웨이팅 없는(웨이팅 싫다 포함), solo 혼밥. 그런 곳을 원한다고 했을 때만.";
+             + "tags 코드: mood 분위기 좋은, quiet 조용한, value 가성비, no_wait 웨이팅 없는(웨이팅 싫다 포함), solo 혼밥. 그런 곳을 원한다고 했을 때만.\n"
+             + "needs: kinds·tags 코드로 못 담는 장소 조건을 15자 이내 짧은 말로 (예: 4명이 앉을 자리, 주차되는 곳, 아이랑 가기 좋은). 장소 이름·시각·이동 수단·걷는 시간은 넣지 마.";
     }
 
     /** 조건 → 프롬프트용 글 */
@@ -163,6 +169,7 @@ public class PlanServiceImpl implements PlanService {
         appendLine(text, "style", conditions.getStyle());
         appendLine(text, "kinds(이 종류 위주로, 하루 칸에 이미 반영)", conditions.getKinds() == null ? null : toKindNames(conditions.getKinds()));
         appendLine(text, "tags(이런 곳 우선)", String.join(",", planCandidateFinder.toTagNames(conditions.getTags())));
+        appendLine(text, "needs(장소 요청, 서버가 리뷰로 확인함)", conditions.getNeeds() == null ? null : String.join(",", conditions.getNeeds()));
         appendLine(text, "origin(1일차 출발지)", conditions.getOriginName());
         if (conditions.getStays() != null) {
             for (PlanStay stay : conditions.getStays()) {
@@ -224,6 +231,7 @@ public class PlanServiceImpl implements PlanService {
         conditions.setMustVisit(addNew(conditions.getMustVisit(), answer.getMustVisit(), null));
         conditions.setKinds(addNew(conditions.getKinds(), answer.getKinds(), KIND_CODES));
         conditions.setTags(addNew(conditions.getTags(), answer.getTags(), TAG_CODES));
+        conditions.setNeeds(cutNeeds(addNew(conditions.getNeeds(), answer.getNeeds(), null)));
         if (answer.getFixed() != null) {
             List<FixedVisit> fixedList = conditions.getFixed() == null ? new ArrayList<>() : new ArrayList<>(conditions.getFixed());
             for (FixedVisit fixed : answer.getFixed()) {
@@ -233,6 +241,20 @@ public class PlanServiceImpl implements PlanService {
             }
             conditions.setFixed(fixedList);
         }
+    }
+
+    /** 칩에 없는 요청은 3개·20자까지 (넘는 건 버림) */
+    private List<String> cutNeeds(List<String> needs) {
+        if (needs == null) {
+            return null;
+        }
+        List<String> result = new ArrayList<>();
+        for (String need : needs) {
+            if (result.size() < MAX_NEEDS) {
+                result.add(cut(need, MAX_NEED_LENGTH));
+            }
+        }
+        return result;
     }
 
     /** 같은 지역인지: Gemini가 "성수동"처럼 이전 지역을 줄여 다시 적어도 바뀐 걸로 보지 않음 (한쪽이 다른 쪽을 포함하면 같음) */
@@ -364,6 +386,7 @@ public class PlanServiceImpl implements PlanService {
              + "규칙:\n"
              + "- 칸마다 후보 목록에서 그 칸 종류에 맞는 곳 하나를 골라 id를 그대로 적어. 같은 곳을 두 번 쓰지 마.\n"
              + "- tags(이런 곳 우선)가 있으면 리뷰 근거에 그 태그가 있는 곳을 먼저 골라.\n"
+             + "- needs(장소 요청)가 있으면 리뷰 근거에 그 요청이 적힌 곳을 먼저 골라.\n"
              + "- 앞 칸 장소와 주소(구·동)가 가까운 곳으로 이어서 동선이 짧게.\n"
              + "- 꼭 갈 곳과 시간 고정 일정은 slot을 null로, time은 고정 시각(꼭 갈 곳은 알맞은 시각)으로 넣어. 그 시간과 겹치는 칸은 비워.\n"
              + "- reason은 왜 골랐는지 30자 이내. 후보 목록에 있는 정보(종류·평점·리뷰 근거·위치)만 근거로 써.\n"

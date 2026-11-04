@@ -32,4 +32,6 @@ public class PlanConditions {
     private Double originLat;
     private Double originLng;
     private List<PlanStay> stays;       // 담은 숙소 (그날 마지막 일정 = 숙소, 다음 날은 여기서 출발)
+    // ---- 11/04 칩으로 못 고르는 요청 (Gemini가 말에서 뽑음 → ReviewNeedChecker가 후보 리뷰로 확인)
+    private List<String> needs;         // 예: "4명이 앉을 자리", "주차되는 곳" (3개까지)
 }
