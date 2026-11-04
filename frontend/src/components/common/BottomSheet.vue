@@ -4,9 +4,20 @@
 //     놓으면 펼침 / 손잡이만 남기기 중 가까운 쪽으로 붙어요
 //   - 손잡이를 누르거나(Enter) 머리 위에서 휠을 굴려도 펼치고 내려요
 //   - 같은 화면(.app)의 data-sheet-follow 붙은 것(지도 위 버튼·칩)은 시트와 같이 움직여요
+//   - closable: 내려서 닫는 시트. 끌어 내리거나 손잡이·바깥 어두운 막을 누르면 닫혀요 (onClose가 없으면 뒤로 가기)
 // 예) <BottomSheet class="sheet--peek" style="top: 440px"> <div data-drag>머리</div> 내용 </BottomSheet>
 //     내용이 짧은 시트는 <BottomSheet data-drag>처럼 시트 자체에 붙이면 어디를 잡아도 끌려요 (버튼·링크는 그대로 눌림)
-import { onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { goBack } from '@/utils/back'
+
+const props = defineProps({
+  closable: { type: Boolean, default: false },
+  onClose: { type: Function, default: null },
+})
+const route = useRoute()
+const CLOSE_DRAG_PX = 80 // 이만큼 넘게 내리면 닫힘
+const CLOSE_MS = 220
 
 const HANDLE_LEFT_PX = 34 // 내렸을 때 남겨 둘 손잡이 높이
 const MOVE_START_PX = 6 // 이만큼 움직여야 끌기로 봄 (그 전엔 누르기)
@@ -20,8 +31,28 @@ const sheet = ref(null)
 const isCollapsed = ref(false)
 let drag = null // 끄는 중: { startY, scale, base, offset, max, isMoved, isHandle }
 
+// 아래로 내보낸 뒤 닫기
+function closeSheet() {
+  setOffset(sheet.value.offsetHeight, true)
+  setTimeout(() => {
+    if (props.onClose) props.onClose()
+    else goBack(route.meta.parent || '/')
+  }, CLOSE_MS)
+}
+
+let dimElement = null
+onMounted(() => {
+  if (!props.closable) return
+  dimElement = sheet.value.parentElement.querySelector(':scope > .dim')
+  if (dimElement) dimElement.addEventListener('click', closeSheet)
+})
+onUnmounted(() => {
+  if (dimElement) dimElement.removeEventListener('click', closeSheet)
+})
+
 // 가장 많이 내릴 수 있는 거리(px): 아래 버튼 줄(.cta)이 있으면 그 위까지
 function maxOffset() {
+  if (props.closable) return sheet.value.offsetHeight
   const app = sheet.value.parentElement
   const cta = app.querySelector(':scope > .cta')
   const bottom = cta ? cta.offsetTop : app.offsetHeight
@@ -55,6 +86,7 @@ function setCollapsed(collapsed) {
 }
 
 function toggle() {
+  if (props.closable) return closeSheet()
   setCollapsed(!isCollapsed.value)
 }
 
@@ -91,7 +123,12 @@ function onPointerUp() {
     return
   }
   const limit = done.base ? done.max * SNAP_FROM_CLOSED : done.max * SNAP_FROM_OPEN
-  setCollapsed(done.offset > limit)
+  if (props.closable) {
+    if (done.offset > CLOSE_DRAG_PX) closeSheet()
+    else setOffset(0, true) // 덜 내리면 되돌아옴
+  } else {
+    setCollapsed(done.offset > limit)
+  }
   // 끌기를 끝낸 순간 손가락 밑 카드가 눌리지 않게 잠깐 막음
   const block = (event) => {
     event.stopPropagation()
@@ -103,7 +140,7 @@ function onPointerUp() {
 
 // 머리 위에서 휠: 아래로 굴리면 내리고, 위로 굴리면 펼침
 function onWheel(e) {
-  if (!e.target.closest(GRAB_AREA)) return
+  if (!e.target.closest(GRAB_AREA) || props.closable) return
   if (e.deltaY > 0 && !isCollapsed.value) setCollapsed(true)
   else if (e.deltaY < 0 && isCollapsed.value) setCollapsed(false)
 }

@@ -43,6 +43,13 @@ export const useTripStore = defineStore('trip', () => {
   const planMoves = ref([])
   const planStartDate = ref(today())
   const planEndDate = ref(null)
+  const planStartTime = ref(null) // 직접 고르기: 첫날 시작 시각
+  const planFromTime = ref(null) // 여행 정보: 하루 시작 시각 'HH:mm'
+  const planToTime = ref(null) // 여행 정보: 하루 끝 시각 'HH:mm'
+  const planAreas = ref([]) // 서울 구 지도에서 고른 구 [{ name, lat, lng, dongs: [{ name, code, geometry }] }]
+  const planStep = ref(0) // 여행 정보에서 지금 묻는 칸 번호 (장소 검색에 다녀와도 그대로)
+  const planAutoNext = ref(false) // 검색에서 고르고 돌아오면 다음 칸으로 넘길지
+  const replanFrom = ref(null) // 다시 짜는 원래 여행 { id, title } (저장할 때 바꿀지 물어봄)
 
   // 초안에 장소 카드 하나 추가 (time은 비워 두면 일정 점검이 앞 일정에 이어서 정해 줌, day는 며칠째 · 기본 1일차)
   function addDraftPlace(place, isFixed = false, time = null, day = 1) {
@@ -80,6 +87,13 @@ export const useTripStore = defineStore('trip', () => {
     planMoves.value = []
     planStartDate.value = today()
     planEndDate.value = null
+    planStep.value = 0
+    planAreas.value = []
+    planStartTime.value = null
+    planFromTime.value = null
+    planToTime.value = null
+    planAutoNext.value = false
+    replanFrom.value = null
   }
 
   // 서버의 초안(③ generate 응답)을 그대로 초안으로
@@ -100,5 +114,5 @@ export const useTripStore = defineStore('trip', () => {
     return tripId.value
   }
 
-  return { draft, tripId, editTrip, position, applied, planConditions, planMessages, planArea, planOrigin, planStays, planStartDate, planEndDate, planKinds, planTags, planPeople, planCompanion, planMoves, addDraftPlace, resetDraft, resetPlan, setDraft, findOngoingTripId }
+  return { draft, tripId, editTrip, position, applied, planConditions, planMessages, planArea, planAreas, planStartTime, planFromTime, planToTime, planOrigin, planStays, planStartDate, planEndDate, planKinds, planTags, planPeople, planCompanion, planMoves, planStep, planAutoNext, replanFrom, addDraftPlace, resetDraft, resetPlan, setDraft, findOngoingTripId }
 })

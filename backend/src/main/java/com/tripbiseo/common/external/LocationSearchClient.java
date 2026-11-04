@@ -3,6 +3,7 @@ package com.tripbiseo.common.external;
 import static com.tripbiseo.common.exception.ApiException.fail;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,7 +25,15 @@ public class LocationSearchClient {
     private static final String ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json";
     private static final String KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json";
     private static final String COORD_URL = "https://dapi.kakao.com/v2/local/geo/coord2address.json";
+    private static final String CATEGORY_URL = "https://dapi.kakao.com/v2/local/search/category.json";
     private static final String LABEL = "카카오 로컬";
+    private static final String SUBWAY_CODE = "SW8";          // 카카오 분류: 지하철역
+    private static final int SUBWAY_RADIUS_M = 3000;
+    private static final int SUBWAY_COUNT = 4;
+    private static final String OFFICE_CODE = "PO3";          // 카카오 분류: 공공기관 (같은 이름의 가게를 빼려고)
+    private static final String OFFICE_NAME = "\\S*(구청|시청)"; // "구로구청 별관" 같은 곳은 뺌
+    private static final String SIGHT_CODE = "AT4";           // 카카오 분류: 관광명소 (공원·거리·전망대 등)
+    private static final int SIGHT_COUNT = 15;
     private static final String SEOUL = "서울";             // 시범 지역: 지역 검색은 서울만
     private static final double SEOUL_LAT = 37.5665;         // 서울시청 (키워드 보충 검색의 중심)
     private static final double SEOUL_LNG = 126.9780;
@@ -78,6 +87,71 @@ public class LocationSearchClient {
             }
         }
         return locations;
+    }
+
+    /** 근처 관광명소 (일정에 넣을 들를 곳이 우리 DB에 없을 때), 가까운 순 */
+    public List<FoundLocation> searchSights(double lat, double lng, int radius) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("category_group_code", SIGHT_CODE);
+        params.put("x", lng);
+        params.put("y", lat);
+        params.put("radius", radius);
+        params.put("sort", "distance");
+        params.put("size", SIGHT_COUNT);
+        List<FoundLocation> sights = new ArrayList<>();
+        for (JsonNode doc : getDocuments(CATEGORY_URL, params)) {
+            sights.add(toLocation(doc));
+        }
+        return sights;
+    }
+
+    /** 출발지로 고르기 좋은 곳: 가까운 지하철역 4곳 + 가까운 구청·시청 1곳씩, 가까운 순 */
+    public List<FoundLocation> searchHubs(double lat, double lng) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("category_group_code", SUBWAY_CODE);
+        params.put("x", lng);
+        params.put("y", lat);
+        params.put("radius", SUBWAY_RADIUS_M);
+        params.put("sort", "distance");
+        params.put("size", SUBWAY_COUNT);
+        List<FoundLocation> hubs = new ArrayList<>();
+        for (JsonNode doc : getDocuments(CATEGORY_URL, params)) {
+            hubs.add(toLocation(doc));
+        }
+        addOffices(hubs, lat, lng);
+        hubs.sort(Comparator.comparingInt((FoundLocation hub) -> hub.getDistance() == null ? Integer.MAX_VALUE : hub.getDistance()));
+        return hubs;
+    }
+
+    /** 지금 좌표의 주소("서울 영등포구 …")로 그 지역의 구청·시청을 찾아 더함 */
+    private void addOffices(List<FoundLocation> hubs, double lat, double lng) {
+        FoundLocation here = findAddress(lat, lng);
+        if (here == null) {
+            return;
+        }
+        String[] words = here.getAddress().split(" ");
+        if (words.length >= 2) {
+            addOffice(hubs, words[1] + "청", "구청", lat, lng); // 영등포구 → 영등포구청, 성남시 → 성남시청
+            addOffice(hubs, words[0] + "시청", "시청", lat, lng); // 서울 → 서울시청
+        }
+    }
+
+    /** 공공기관 중 이름이 맞는 첫 곳을 더함. 분류 글자는 "구청"·"시청"으로 */
+    private void addOffice(List<FoundLocation> hubs, String query, String category, double lat, double lng) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("query", query);
+        params.put("category_group_code", OFFICE_CODE);
+        params.put("x", lng);
+        params.put("y", lat);
+        params.put("size", KEYWORD_SIZE);
+        for (JsonNode doc : getDocuments(KEYWORD_URL, params)) {
+            FoundLocation location = toLocation(doc);
+            if (location.getName().matches(OFFICE_NAME)) {
+                location.setCategory(category);
+                hubs.add(location);
+                return;
+            }
+        }
     }
 
     /** 좌표 → 주소 ("현재 위치로"). 건물 이름이 있으면 그 이름, 없으면 도로명 주소. 못 찾으면 null */
