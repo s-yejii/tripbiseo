@@ -91,6 +91,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         Leg leg = new Leg();
         leg.setMinutes(route.getMinutes());
         leg.setMeters(route.getMeters());
+        leg.setWalkMinutes(route.getWalkMinutes());
         leg.setMode(route.getMode());
         leg.setSource(route.getSource());
         leg.setDetail(route.getDetail());
@@ -217,6 +218,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         Leg copy = new Leg();
         copy.setMinutes(leg.getMinutes());
         copy.setMeters(leg.getMeters());
+        copy.setWalkMinutes(leg.getWalkMinutes());
         copy.setMode(leg.getMode());
         copy.setSource(leg.getSource());
         copy.setDetail(leg.getDetail());

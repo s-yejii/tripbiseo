@@ -255,6 +255,7 @@
 |---|---|---|
 | minutes | number | 이동 시간(분) |
 | meters | number | 이동 거리(m) |
+| walkMinutes | number | 그중 걷는 시간(분). 대중교통이면 역·정류장까지·갈아탈 때 걷는 시간(TMAP·ODsay 값, 없으면 걷는 거리 ÷ 4.5km/h), 도보면 `minutes`와 같음. `minutes`에 포함 (11/04) |
 | mode | string | `walk` / `transit` / `car` (**Stop.mode의 `taxi`는 여기서 `car`로 바뀜**) |
 | source | string | 계산 출처 `tmap` / `odsay` / `estimate`(키가 없거나 실패해 거리로 추정) |
 | detail | string (null 가능) | 탈 노선 설명 (대중교통만). 예: `"버스 6513 구로디지털단지→대림 3정거장"` |
