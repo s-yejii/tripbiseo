@@ -7,6 +7,9 @@
 //   planConditions·planMessages : AI 일정 대화로 모은 조건과 사용자가 한 말 (③ 일정 만들기가 씀)
 //   planStartDate·planEndDate : 여행 정보 달력에서 고른 날짜 '2026-11-14' (당일치기면 planEndDate는 null)
 //   planKinds·planTags : 여행 정보의 "어디 위주로"(food·cafe·bar) · "이런 곳이면 더 좋아요"(mood·quiet·value·no_wait·solo) 코드
+//                        (11/04: 처음엔 아무것도 안 골라진 상태. 사용자가 직접 골라요)
+//   planPeople·planCompanion·planMoves : 여행 정보의 인원 · 동행(혼자·친구… 처음엔 null) · 이동 수단 이름 목록(['지하철','도보'], 처음엔 [])
+//                        화면 안에만 두면 장소 검색에 다녀올 때마다 처음 값으로 돌아가서 저장소에 둬요 (11/04)
 //   planStays : 여행 정보에서 담은 숙소 목록 [{ name, address, lat, lng, checkInDate, checkInTime, checkOutDate, checkOutTime }] (체크인 순)
 //   planArea·planOrigin : 여행 정보에서 고른 지역 { name, fullName, type, lat, lng } · 출발지 { name, address, category, lat, lng } (없으면 null)
 import { defineStore } from 'pinia'
@@ -33,8 +36,11 @@ export const useTripStore = defineStore('trip', () => {
   const planArea = ref(null)
   const planOrigin = ref(null)
   const planStays = ref([])
-  const planKinds = ref(['food', 'cafe'])
+  const planKinds = ref([])
   const planTags = ref([])
+  const planPeople = ref(2)
+  const planCompanion = ref(null)
+  const planMoves = ref([])
   const planStartDate = ref(today())
   const planEndDate = ref(null)
 
@@ -67,8 +73,11 @@ export const useTripStore = defineStore('trip', () => {
     planArea.value = null
     planOrigin.value = null
     planStays.value = []
-    planKinds.value = ['food', 'cafe']
+    planKinds.value = []
     planTags.value = []
+    planPeople.value = 2
+    planCompanion.value = null
+    planMoves.value = []
     planStartDate.value = today()
     planEndDate.value = null
   }
@@ -91,5 +100,5 @@ export const useTripStore = defineStore('trip', () => {
     return tripId.value
   }
 
-  return { draft, tripId, editTrip, position, applied, planConditions, planMessages, planArea, planOrigin, planStays, planStartDate, planEndDate, planKinds, planTags, addDraftPlace, resetDraft, resetPlan, setDraft, findOngoingTripId }
+  return { draft, tripId, editTrip, position, applied, planConditions, planMessages, planArea, planOrigin, planStays, planStartDate, planEndDate, planKinds, planTags, planPeople, planCompanion, planMoves, addDraftPlace, resetDraft, resetPlan, setDraft, findOngoingTripId }
 })

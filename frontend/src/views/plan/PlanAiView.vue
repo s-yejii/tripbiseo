@@ -1,7 +1,10 @@
 <script setup>
 // S06 여행 정보 입력 (③): 지역·날짜(달력)·출발지·인원·취향·이동 수단·꼭 지킬 시간·가고 싶은 곳
 // 주소: /plan/info (AI로 짜기) · /plan/info?method=me (직접 고르기)
-import { computed, ref } from 'vue'
+// 11/04: 칩은 처음에 아무것도 안 골라져 있어요. "다음"을 누를 때 지역·출발지·동행·어디 위주로·이동 수단 중
+//   안 고른 게 있으면 넘어가지 않고, 그 칸으로 스크롤 + "○○를 골라 주세요" 안내
+//   인원·동행·이동 수단은 저장소(store.planPeople·planCompanion·planMoves)에 둬서 장소 검색에 다녀와도 그대로예요
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import RangeCalendar from '@/components/plan/RangeCalendar.vue'
@@ -17,9 +20,6 @@ const router = useRouter()
 const byMe = route.query.method === 'me'
 const store = useTripStore() // 고른 지역·출발지 (planArea · planOrigin)
 
-const people = ref(2)
-const companion = ref('친구')
-const moves = ref({ 지하철: true, 도보: true })
 // 꼭 지킬 시간: 장소 검색·예약 캡처가 store.planConditions.fixed 에 넣은 { name, time } 목록
 const fixedList = computed(() => store.planConditions?.fixed || [])
 
@@ -39,21 +39,25 @@ function isOutside(stay) {
   const tripEnd = store.planEndDate || store.planStartDate
   return stay.checkInDate < store.planStartDate || stay.checkOutDate > tripEnd
 }
-const noKind = computed(() => store.planKinds.length === 0) // 어디 위주로는 1개 이상
+// 다음으로 가기 전에 꼭 골라야 하는 것 (위에서부터 순서대로, 안 고른 것만) → [{ id: 칸 id, text: 안내 }]
+const missingList = computed(() => {
+  const list = []
+  if (!store.planArea) list.push({ id: 'pa-where', text: '어디로 가요?를 골라 주세요' })
+  if (!store.planOrigin) list.push({ id: 'pa-from', text: '어디서 출발해요?를 골라 주세요' })
+  if (!store.planCompanion) list.push({ id: 'pa-who', text: '누구랑 가요?를 골라 주세요' })
+  if (store.planKinds.length === 0) list.push({ id: 'pa-style', text: '어디 위주로 갈지 하나 이상 골라 주세요' })
+  if (store.planMoves.length === 0) list.push({ id: 'pa-move', text: '무엇으로 다닐지 하나 이상 골라 주세요' })
+  return list
+})
 
 function changePeople(diff) {
-  people.value = Math.max(1, Math.min(10, people.value + diff))
-  if (people.value === 1) companion.value = '혼자'
-  else if (companion.value === '혼자') companion.value = '친구'
+  store.planPeople = Math.max(1, Math.min(10, store.planPeople + diff))
+  if (store.planPeople === 1) store.planCompanion = '혼자'
+  else if (store.planCompanion === '혼자') store.planCompanion = null // 2명 이상이면 누구랑인지 다시 고르게
 }
 function pickCompanion(name) {
-  companion.value = name
-  people.value = name === '혼자' ? 1 : Math.max(2, people.value)
-}
-function toggleMove(name) {
-  const next = { ...moves.value, [name]: !moves.value[name] }
-  if (!Object.values(next).some(Boolean)) return showToast('이동 수단을 하나는 골라 주세요')
-  moves.value = next
+  store.planCompanion = name
+  store.planPeople = name === '혼자' ? 1 : Math.max(2, store.planPeople)
 }
 // 담은 숙소의 박 수 합 (체크인~체크아웃 날짜 차이). 여행 박 수만큼 다 담으면 "숙소 더 담기"를 숨김
 const stayNights = computed(() => {
@@ -80,7 +84,7 @@ function toggleCode(list, code) {
 function saveConditions() {
   const transports = []
   for (const m of moveList) {
-    if (moves.value[m.label]) transports.push(MOVE_CODES[m.label])
+    if (store.planMoves.includes(m.label)) transports.push(MOVE_CODES[m.label])
   }
   const area = store.planArea
   const origin = store.planOrigin
@@ -92,7 +96,7 @@ function saveConditions() {
     areaType: area?.type ?? null,
     startDate: store.planStartDate,
     endDate: store.planEndDate || store.planStartDate,
-    people: people.value,
+    people: store.planPeople,
     transports,
     kinds: store.planKinds,
     tags: store.planTags,
@@ -103,7 +107,14 @@ function saveConditions() {
   }
 }
 
+// 다음: 안 고른 게 있으면 첫 번째 칸으로 스크롤하고 안내만 (넘어가지 않음)
 function goNext() {
+  const missing = missingList.value[0]
+  if (missing) {
+    document.getElementById(missing.id)?.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    showToast(missing.text)
+    return
+  }
   saveConditions()
   router.push(byMe ? '/plan/manual' : '/plan/chat')
 }
@@ -114,7 +125,7 @@ function goNext() {
     <div class="app">
       <TopBar title="여행 정보" back="/new"><span class="topbar__side tn">{{ byMe ? '2 / 3' : '2 / 4' }}</span></TopBar>
 
-      <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 102px">
+      <div class="scroll" style="padding-top: 4px; gap: 12px" :style="{ bottom: missingList.length ? '124px' : '102px' }">
         <section class="card card--pad pa-sec" aria-labelledby="pa-where">
           <h2 id="pa-where" class="t-sub">어디로 가요?</h2>
           <RouterLink to="/plan/search?mode=area" class="field__box pickbox"><i class="ic i-pin subtle" aria-hidden="true"></i><span class="val" :class="{ 'is-empty': !store.planArea }">{{ store.planArea ? store.planArea.fullName : '동·구 이름으로 찾기' }}</span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
@@ -155,12 +166,12 @@ function goNext() {
             <h2 id="pa-who" class="t-sub">누구랑 가요?</h2>
             <span style="display: flex; align-items: center; gap: 4px">
               <button type="button" class="iconbtn iconbtn--soft pa-step" aria-label="인원 줄이기" @click="changePeople(-1)"><i class="ic ic--s i-minus" aria-hidden="true"></i></button>
-              <b class="tn" style="min-width: 32px; text-align: center" aria-live="polite">{{ people }}명</b>
+              <b class="tn" style="min-width: 32px; text-align: center" aria-live="polite">{{ store.planPeople }}명</b>
               <button type="button" class="iconbtn iconbtn--soft pa-step" aria-label="인원 늘리기" @click="changePeople(1)"><i class="ic ic--s i-plus" aria-hidden="true"></i></button>
             </span>
           </div>
           <div class="chips" role="radiogroup" aria-label="동행">
-            <button v-for="name in companions" :key="name" type="button" class="chip chip--sm" :class="{ 'is-on': companion === name }" :aria-pressed="companion === name" @click="pickCompanion(name)">{{ name }}</button>
+            <button v-for="name in companions" :key="name" type="button" class="chip chip--sm" :class="{ 'is-on': store.planCompanion === name }" :aria-pressed="store.planCompanion === name" @click="pickCompanion(name)">{{ name }}</button>
           </div>
         </section>
 
@@ -169,7 +180,7 @@ function goNext() {
           <div class="chips">
             <button v-for="chip in KIND_CHIPS" :key="chip.code" type="button" class="chip chip--sm" :class="{ 'is-on': store.planKinds.includes(chip.code) }" :aria-pressed="store.planKinds.includes(chip.code)" @click="store.planKinds = toggleCode(store.planKinds, chip.code)">{{ chip.label }}</button>
           </div>
-          <p class="t-cap">{{ noKind ? '하나 이상 골라 주세요' : '고른 곳 위주로 일정을 짜요' }}</p>
+          <p class="t-cap">{{ store.planKinds.length ? '고른 곳 위주로 일정을 짜요' : '하나 이상 골라 주세요' }}</p>
         </section>
 
         <section class="card card--pad pa-sec" aria-labelledby="pa-tag">
@@ -183,7 +194,7 @@ function goNext() {
         <section class="card card--pad pa-sec" aria-labelledby="pa-move">
           <div class="sec-h"><h2 id="pa-move" class="t-sub">무엇으로 다녀요?</h2><span class="t-cap">여러 개</span></div>
           <div class="chips">
-            <button v-for="m in moveList" :key="m.label" type="button" class="chip chip--sm" :class="{ 'is-on': moves[m.label] }" :aria-pressed="!!moves[m.label]" @click="toggleMove(m.label)">
+            <button v-for="m in moveList" :key="m.label" type="button" class="chip chip--sm" :class="{ 'is-on': store.planMoves.includes(m.label) }" :aria-pressed="store.planMoves.includes(m.label)" @click="store.planMoves = toggleCode(store.planMoves, m.label)">
               <i class="ic ic--s" :class="m.icon" aria-hidden="true"></i>{{ m.label }}
             </button>
           </div>
@@ -212,7 +223,8 @@ function goNext() {
       </div>
 
       <div class="cta">
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="noKind" @click="goNext">다음</button>
+        <p v-if="missingList.length" class="t-cap pa-left">{{ missingList.length }}개 더 골라야 다음으로 갈 수 있어요</p>
+        <button type="button" class="btn btn--primary btn--lg btn--block" :class="{ 'is-wait': missingList.length }" @click="goNext">다음</button>
       </div>
     </div>
   </div>
@@ -228,5 +240,7 @@ function goNext() {
 .scr-PlanAI .stayrow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-lg);border:1.5px dashed var(--line-strong);text-decoration:none;color:var(--ink);transition:border-color .15s,background .15s}
 .scr-PlanAI .stayrow:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .stayrow.is-set{border-style:solid;border-color:var(--line)}
+.scr-PlanAI .pa-left{text-align:center;margin:0 0 6px}
+.scr-PlanAI .btn.is-wait{opacity:.5}
 .scr-PlanAI .stays{display:flex;flex-direction:column;gap:8px;padding-top:4px}
 </style>
