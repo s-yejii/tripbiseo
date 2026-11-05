@@ -23,7 +23,7 @@ const info = computed(() => visited.value.find((v) => v.no === infoNo.value))
 const me = computed(() => {
   const points = trackPoints.value
   if (points.length < 2) return { x: -100, y: -100 } // 선이 없으면 점을 화면 밖에 두게 함
-  const now = startMinutes.value + (progress.value / 100) * (endMinutes.value - startMinutes.value) // 지금 시각(분). 막대 시각과 같은 계산
+  const now = nowMinutes.value // 지금 시각(분). 막대 시각과 같은 계산
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]
     const b = points[i + 1]
@@ -37,7 +37,7 @@ const me = computed(() => {
   const last = points[points.length - 1] // 끝까지 못 찾으면 마지막 점
   return { x: last.x, y: last.y }
 })
-const nowText = computed(() => toTime(startMinutes.value + Math.round((progress.value / 100) * (endMinutes.value - startMinutes.value))) + (playing.value ? ' · 4배속' : ''))
+const nowText = computed(() =>  toTime(Math.round(nowMinutes.value)) + (playing.value ? ' · 4배속' : ''))
 const movedText = computed(() => {
   if(!retro.value) return '' // 응답이 없다면 빈글자
   const meters = retro.value.movedMeters
@@ -64,6 +64,28 @@ const endMinutes = computed(() => {
   if (trackPoints.value.length === 0) return 0
   return toMinutes(trackPoints.value[ trackPoints.value.length - 1].time)
 })
+
+// 재생 위치(%)를 지금 시각 (분)으로 바꿈 예 50% -> 770 + 0.5 *270분 = 905분
+const nowMinutes = computed(() => {
+  return startMinutes.value + (progress.value / 100) * (endMinutes.value - startMinutes.value) // 지금 시각(분). 막대 시각과 같은 계산
+})
+// 재생 중 지금 머물고 있는 장소 번호. 예: 800분(13:20) → 경복궁(780~860) 안이라 1. 이동 중이면 null
+
+const currentNo = computed(() => {
+  if (retro.value === null) return null
+
+  const stops = retro.value.stops
+  for (let i = 0; i<stops.length; i++) {
+    if (stops[i].actualArrive === null || stops[i].actualStay === null) continue
+
+    const arrive = toMinutes(stops[i].actualArrive)
+    const leave = (arrive + stops[i].actualStay)
+
+    if(arrive <= nowMinutes.value && nowMinutes.value < leave) return i + 1
+  }
+  return null
+})
+
 
 function togglePlay() {
   if (playing.value) return stop()
@@ -144,6 +166,7 @@ function toTimeRange(place) { // 실제 시각 ~ 떠난 시각 글자 : 예 : 13
   if(place.actualArrive === null) return '기록 없음' // 안 간 곳
   if(place.actualStay === null) return place.actualArrive + ' 떠난 시간이 없어요'
   const leave = toMinutes(place.actualArrive) + place.actualStay
+
   return place.actualArrive + ' ~ ' + toTime(leave) // 도착  + 머문시간
 }
 
@@ -376,7 +399,8 @@ function toggleMapType() {
             <!-- template: 화면에 안 그려지는 묶음. 한 번 돌 때 장소 줄 또는 이동 줄 중 하나를 고르려고 씀 -->
             <template v-for="(row, index) in timeline" :key="index">
               <!-- 장소 줄 -->
-              <div v-if="row.type === 'place'" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no }" @click="toggleInfo(row.no); moveToPlace(row.no)">
+              <div v-if="row.type === 'place'" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no, 'is-now': currentNo === row.no }"
+@click="toggleInfo(row.no); moveToPlace(row.no)">
                 <span class="retro-tl__num">{{ row.no }}</span>
                 <span class="retro-tl__body">
                   <b>{{ row.name }}</b>
@@ -431,6 +455,9 @@ function toggleMapType() {
 .scr-Retro .retro-tl::before{content:"";position:absolute;left:13px;top:16px;bottom:16px;border-left:2px dashed var(--line-strong);opacity:.5}
 .scr-Retro .retro-tl__place{display:flex;align-items:center;gap:12px;min-height:52px;margin:0 -8px;padding:0 8px;border-radius:10px;cursor:pointer;transition:background-color .2s}
 .scr-Retro .retro-tl__place.is-sel{background:var(--navy-soft)}
+/* 재생 중 지금 머물고 있는 장소: 번호 원을 주황으로, 바깥에 옅은 테두리 */
+.scr-Retro .retro-tl__place.is-now .retro-tl__num{background:var(--coral);box-shadow:0 0 0 4px var(--coral-soft)}
+.scr-Retro .retro-tl__place.is-now b{color:var(--coral-ink)}
 .scr-Retro .retro-tl__num{position:relative;z-index:1;width:28px;height:28px;flex:none;border-radius:50%;background:var(--navy);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(24,33,58,.25)}
 .scr-Retro .retro-tl__body{flex:1;display:flex;flex-direction:column}
 .scr-Retro .retro-tl__tag{font-size:12px;font-weight:600;color:var(--ink-subtle);background:var(--surface-sunken);padding:2px 8px;border-radius:999px}
