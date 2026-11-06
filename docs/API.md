@@ -132,7 +132,10 @@
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
 | `GET·POST /api/trips/{id}/payments` | 장소 핀에 결제 금액·누가 냈는지 적기 | after/PayMemoView, member/LockPayView | 확인 필요 |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
-| `GET·POST /api/trips/{id}/photos` | 여행 앨범 사진 | after/AlbumView | 확인 필요 |
+| `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
+| `GET /api/trips/{id}/photos` | 한 여행의 사진·영상 전체 (찍은 순) | after/RetroView, after/AlbumView(더보기) | 있음 (11/06) |
+| `POST /api/photos` | 사진·영상 여러 개 올리기 → 찍은 시각으로 여행·장소 자동 분류 | after/AlbumView | 있음 (11/06) |
+| `GET /api/photos/{photoId}/file` | 사진·영상 파일 (`<img>`·`<video>` 주소) | after/AlbumView, after/RetroView | 있음 (11/06) |
 | `GET /api/route` | 길 안내: 경로선 + 단계별 안내 (도보·버스·지하철·택시) | after/RouteGuideView | 있음 |
 | `GET /api/amenities/nearby?kind=` | 근처 화장실·쓰레기통 | after/RouteGuideView, live/LiveView (AmenityChips) | 확인 필요 |
 | `POST /api/trips/{id}/visits` | 일정에 없던 곳 "들렀어요" 기록 | live/LiveView (VisitedPin), member/LockStayView | 확인 필요 |
@@ -1303,6 +1306,68 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ```
 
 **오류** 404 "여행을 찾을 수 없어요."
+
+### 사진·영상 공통: Photo
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| id | number | 사진 번호 |
+| stopId | number (null 가능) | 찍은 일정 칸. `null`이면 이동 중에 찍은 것 |
+| mediaType | string | `photo` / `video` |
+| url | string | 파일 주소 `/api/photos/{id}/file` |
+| durationSec | number (null 가능) | 영상 길이(초). 사진이면 `null` |
+| day | number | 몇째 날 (찍은 날짜 − 시작 날짜 + 1) |
+| takenAt | string | 찍은 시각 `HH:mm` |
+
+### `GET /api/albums`
+앨범: 내 지난 여행(`status`가 `done`, 휴지통 제외)을 최근 순으로, 여행마다 사진 앞 8장. · 로그인 필요 · 화면: after/AlbumView · 11/06 추가
+
+**응답** 배열
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| tripId, title, startDate, endDate | | 여행 정보 |
+| placeCount | number | 일정 칸 수 (건너뛴 곳 빼고) |
+| photoCount, videoCount | number | 사진·영상 수 |
+| photos[] | Photo[] | 찍은 순 앞 8개. 없으면 `[]` |
+
+```json
+[ { "tripId": 12, "title": "종로 하루 여행", "startDate": "2026-11-01", "endDate": "2026-11-01",
+    "placeCount": 3, "photoCount": 8, "videoCount": 1,
+    "photos": [ { "id": 5, "stopId": 101, "mediaType": "video", "url": "/api/photos/5/file", "durationSec": 12, "day": 1, "takenAt": "10:20" } ] } ]
+```
+
+### `GET /api/trips/{id}/photos`
+한 여행의 사진·영상 전체 (찍은 순). · 로그인 필요 · 화면: after/RetroView, after/AlbumView · 11/06 추가
+
+**응답** Photo 배열 · **오류** 404 "여행을 찾을 수 없어요."
+
+### `POST /api/photos`
+사진·영상 여러 개를 한 번에 올려요. 찍은 시각으로 여행과 일정 칸을 찾아 분류해요. · 로그인 필요 · 화면: after/AlbumView · 11/06 추가
+
+**요청** `multipart/form-data`
+
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| files | O | 파일 여러 개 (JPG·PNG·WEBP·HEIC 사진, MP4·MOV 영상) |
+| takenAts | O | 파일 순서대로 찍은 시각 `yyyy-MM-ddTHH:mm` (브라우저가 읽은 파일 수정 시각) |
+| durations | O | 파일 순서대로 영상 길이(초). 사진은 `0` |
+| tripId | | 있으면 이 여행에 넣어요(이날 사진 불러오기). 없으면 찍은 날짜가 기간 안에 드는 내 여행을 찾아요 |
+
+**분류 규칙**
+1. 여행: `tripId`가 있으면 그 여행, 없으면 찍은 날짜가 `startDate ~ endDate` 안인 내 여행. 못 찾은 파일은 저장하지 않고 `unmatchedCount`에 세요.
+2. 일정 칸: 그날(`day`)의 칸 중 `시작 ≤ 찍은 시각 < 끝`인 칸. 시작·끝은 실제 도착·출발 시각, 없으면 계획 시각(`time`, `time + stay`). 맞는 칸이 없으면 `stopId = null`(이동 중).
+
+**응답** `{ "savedCount": 9, "unmatchedCount": 1 }`
+
+**오류** 400 "사진이나 영상을 올려 주세요." · 400 "사진·영상 파일만 올릴 수 있어요." · 400 "파일은 100MB까지예요." · 400 "찍은 시각 개수가 파일 개수와 달라요." · 400 "날짜 형태를 잘못가져왔어요. 찍은 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 500 "파일을 저장하지 못했어요." · 404 "여행을 찾을 수 없어요."
+
+> 파일은 서버 폴더(`PHOTO_DIR`, 기본 `uploads/photos`)에 새 이름으로 저장하고, DB `photo`에는 이름만 넣어요.
+
+### `GET /api/photos/{photoId}/file`
+사진·영상 파일 자체. 내 여행의 사진만 줘요. · 로그인 필요 · 11/06 추가
+
+**응답** 파일 (Content-Type `image/jpeg`, `video/mp4` 등) · **오류** 404 "사진을 찾을 수 없어요."
 
 ---
 
