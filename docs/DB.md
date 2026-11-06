@@ -21,6 +21,7 @@
 | `db/13_plan.sql` | ③ 테이블 | ③ |
 | `db/16_trash.sql` | 휴지통: `trip.deleted_at` 추가 (11/04, 이상재 확인 필요) | ③ |
 | `db/14_live.sql` | ④ 테이블 (`trip_track`) | ④ |
+| `db/17_place_area.sql` | 넓은 장소 경계 `place_area` + 여의도한강공원 1줄 (OSM, 11/06, 이상재 확인 필요) | ④ |
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
@@ -223,6 +224,23 @@
 
 ### ④ 여행 중 (신예지)
 (trip_track은 위에 있음. 더 필요하면 여기에)
+
+### place_area · 넓은 장소 경계 (④, `17_place_area.sql`, 11/06)
+
+공원처럼 넓은 곳은 대표 점 하나 + 150m로는 도착이 안 잡혀서(여의도한강공원은 공원 면적의 약 3%만 150m 안), 경계가 있는 장소는 경계로 도착을 판정해요.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| area_id | BIGSERIAL PK | |
+| place_id | TEXT → retrip_place (ON DELETE SET NULL) | DB에 없는 장소면 NULL |
+| name | VARCHAR(60) NOT NULL UNIQUE | 칸 이름과 맞춰볼 이름 |
+| source | VARCHAR(40) NOT NULL | 출처 (예: `osm:relation/7550666`) |
+| boundary | geography(MultiPolygon, 4326) NOT NULL, GIST 인덱스 | 경계 |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+- 칸과 잇는 법: `place_id`가 같거나 이름이 같을 때만(띄어쓰기 무시). 좌표로만 이으면 안 돼요 (여의도샛강생태공원도 여의도한강공원 경계 안에 있음)
+- 도착: 지금 점·앞 점 둘 다 경계 30m 안. 출발: 둘 다 경계 80m 밖. 경계 없는 칸은 예전처럼 150m/200m
+- 지금 들어 있는 곳: 여의도한강공원 1개. 출처 © OpenStreetMap contributors (ODbL), 앱에 경계를 보여주면 출처 표기 필요
 
 ### ⑤ 여행 후 (박석진)
 (payment, card, photo, extra_visit, amenity)

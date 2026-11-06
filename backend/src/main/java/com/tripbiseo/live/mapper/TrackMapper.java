@@ -5,6 +5,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import com.tripbiseo.live.dto.StopAreaMeters;
 import com.tripbiseo.live.dto.TrackPoint;
 
 /**
@@ -18,8 +19,12 @@ public interface TrackMapper {
     int insertTrack(@Param("tripId") long tripId, @Param("lat") double lat, @Param("lng") double lng,
                     @Param("accuracy") Double accuracy);
 
-    /** 바로 앞 GPS 한 점 (도착·출발 두 번 연속 확인용). 첫 점이면 null */
-    TrackPoint selectLastTrack(long tripId);
+    /** 최근 GPS 점, 새 것부터 최대 count개 (도착·출발 판정용). 오차가 maxAccuracy보다 큰 점, seconds초보다 오래된 점은 뺌 */
+    List<TrackPoint> selectRecentTrackList(@Param("tripId") long tripId, @Param("count") int count,
+                                           @Param("seconds") int seconds, @Param("maxAccuracy") int maxAccuracy);
+
+    /** 이 점에서 경계가 있는 칸(place_area와 이어진 칸)까지 거리. 경계 있는 칸만 나옴 */
+    List<StopAreaMeters> selectAreaMetersList(@Param("tripId") long tripId, @Param("lat") double lat, @Param("lng") double lng);
 
     /** 여행의 GPS 점 전부, 시간순 (⑤ 회고 지도 GPS 선) */
     List<TrackPoint> selectTrackList(long tripId);
