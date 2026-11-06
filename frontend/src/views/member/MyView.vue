@@ -8,6 +8,7 @@ import TabBar from '@/components/common/TabBar.vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import VersionTap from '@/components/member/VersionTap.vue'
+import SavePlaceButton from '@/components/plan/SavePlaceButton.vue'
 import DevDot from '@/components/live/DevDot.vue'
 import { turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
@@ -148,6 +149,7 @@ async function logout() {
           <h2 id="tr-h" class="t-sub">내 여행</h2>
           <div class="group">
             <RouterLink to="/trips" class="row"><span class="ico-tile ico-tile--sky"><i class="ic i-calendar" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 여행 일정</span><span class="row__meta tn">예정 {{ tripStats.planned }} · 다녀온 {{ tripStats.done }}</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+            <RouterLink to="/my/places" class="row"><span class="ico-tile ico-tile--sky"><i class="ic i-bookmark" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 장소</span><span class="row__meta">친구 코스·링크에서 저장한 곳</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
             <RouterLink to="/my/trash" class="row"><span class="ico-tile ico-tile--neutral"><i class="ic i-route" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">여행 기록</span><span class="row__meta">지운 여행 다시 살리기</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
             <RouterLink to="/my/location" class="row"><span class="ico-tile ico-tile--lilac"><i class="ic i-pin" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 위치 기록</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
           </div>
@@ -223,7 +225,7 @@ async function logout() {
           <h2 class="h-title">{{ openFriend }}의 코스</h2>
           <p class="t-cap tn">{{ openNews.date }} · {{ openNews.area.name }} · {{ openNews.places.length }}곳</p>
           <ol class="fr-places">
-            <li v-for="(place, i) in openNews.places" :key="place"><span class="fr-no tn">{{ i + 1 }}</span>{{ place }}</li>
+            <li v-for="(place, i) in openNews.places" :key="place"><span class="fr-no tn">{{ i + 1 }}</span><span class="fr-name">{{ place }}</span><SavePlaceButton :name="place" :from-name="openFriend" /></li>
           </ol>
           <button type="button" class="btn btn--primary btn--lg btn--block" @click="followCourse">이 코스 따라하기</button>
           <button type="button" class="btn btn--ghost btn--md btn--block" @click="openFriend = null">닫기</button>
@@ -269,6 +271,7 @@ async function logout() {
 .scr-My .fr-ring.is-seen{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--line-strong)}
 .scr-My .fr-sheet{z-index:21;gap:8px;padding:8px 16px 24px}
 .scr-My .fr-sheet .h-title{margin:0}
+.scr-My .fr-name{flex:1;min-width:0}
 .scr-My .fr-places{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:12px}
 .scr-My .fr-places li{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;color:var(--ink)}
 .scr-My .fr-no{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--navy);color:#fff;font-size:12px;font-weight:700}
