@@ -11,6 +11,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 // meta.history: 여러 화면에서 들어오는 상세 화면은 들어온 곳으로 돌아감 (장소 상세·알림·일정 편집)
 const routes = [
   // ① 회원·홈 밖 화면·알림·마이·잠금화면
+  { path: '/invite', component: () => import('@/views/member/InviteView.vue'), meta: { owner: 3, title: 'S00 친구 초대 링크' } },
   { path: '/onboarding', component: () => import('@/views/member/OnboardingView.vue'), meta: { owner: 1, title: 'S01 온보딩' } },
   { path: '/login', component: () => import('@/views/member/LoginView.vue'), meta: { parent: '/onboarding', owner: 1, title: 'S02-a 로그인' } },
   { path: '/find-account', component: () => import('@/views/member/FindAccountView.vue'), meta: { parent: '/login', owner: 1, title: 'S02-c 아이디·비밀번호 찾기' } },
