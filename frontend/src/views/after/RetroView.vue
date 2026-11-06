@@ -19,19 +19,25 @@ let timer = null
 
 const routePoints = computed(() => trackPoints.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
 const info = computed(() => visited.value.find((v) => v.no === infoNo.value)) 
-// 재생 위치에 맞춰 GPS 점 사이에서 지금 점을 계산해요
+//재생 위치(%)를 시각으로 바꾸고, 그 시각이 들어 있는 GPS 구간에서 점을 계산해요
 const me = computed(() => {
-  const sections = trackPoints.value.length - 1 // sections: GPS 점과 점 사이 구간 수. 예: GPS 점이 5개면 구간은 4개
-  if (sections < 1 ) return { x : - 100, y : - 100 } // 선이 없으면 점을 화면 밖에 두게 함
-  const part = Math.min(sections - 0.001, (progress.value / 100) * sections) // part: 지금 몇 번째 구간쯤인지. 예: 2.72면 2번 구간의 72% 지점. sections - 0.001: 마지막 점을 넘어가지 않게 막음
-  // (progress.value / 100) * sections) : 현재 위치가 전체 구간에 어디에 있는지 계산
-  const i = Math.floor(part) // i: 지금 지나는 구간의 시작 GPS 점 번호 (2.72 → 2)
-  const rate = part - i
-  const a = trackPoints.value[i]
-  const b = trackPoints.value[i + 1]
-  return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
+  const points = trackPoints.value
+  if (points.length < 2) return { x: -100, y: -100 } // 선이 없으면 점을 화면 밖에 두게 함
+  const now = nowMinutes.value // 지금 시각(분). 막대 시각과 같은 계산
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const aTime = toMinutes(a.time)
+    const bTime = toMinutes(b.time)
+    if (now > bTime) continue // 지금이 이 구간 끝보다 늦으면 → 다음 구간으로
+    let rate = 0 // 구간 안에서 몇 % 왔는지 (두 점 시각이 같으면 0)
+    if (bTime > aTime) rate = (now - aTime) / (bTime - aTime)
+    return { x: Math.round(a.x + (b.x - a.x) * rate), y: Math.round(a.y + (b.y - a.y) * rate) }
+  }
+  const last = points[points.length - 1] // 끝까지 못 찾으면 마지막 점
+  return { x: last.x, y: last.y }
 })
-const nowText = computed(() => toTime(startMinutes.value + Math.round((progress.value / 100) * (endMinutes.value - startMinutes.value))) + (playing.value ? ' · 4배속' : ''))
+const nowText = computed(() =>  toTime(Math.round(nowMinutes.value)) + (playing.value ? ' · 4배속' : ''))
 const movedText = computed(() => {
   if(!retro.value) return '' // 응답이 없다면 빈글자
   const meters = retro.value.movedMeters
@@ -58,6 +64,28 @@ const endMinutes = computed(() => {
   if (trackPoints.value.length === 0) return 0
   return toMinutes(trackPoints.value[ trackPoints.value.length - 1].time)
 })
+
+// 재생 위치(%)를 지금 시각 (분)으로 바꿈 예 50% -> 770 + 0.5 *270분 = 905분
+const nowMinutes = computed(() => {
+  return startMinutes.value + (progress.value / 100) * (endMinutes.value - startMinutes.value) // 지금 시각(분). 막대 시각과 같은 계산
+})
+// 재생 중 지금 머물고 있는 장소 번호. 예: 800분(13:20) → 경복궁(780~860) 안이라 1. 이동 중이면 null
+
+const currentNo = computed(() => {
+  if (retro.value === null) return null
+
+  const stops = retro.value.stops
+  for (let i = 0; i<stops.length; i++) {
+    if (stops[i].actualArrive === null || stops[i].actualStay === null) continue
+
+    const arrive = toMinutes(stops[i].actualArrive)
+    const leave = (arrive + stops[i].actualStay)
+
+    if(arrive <= nowMinutes.value && nowMinutes.value < leave) return i + 1
+  }
+  return null
+})
+
 
 function togglePlay() {
   if (playing.value) return stop()
@@ -111,6 +139,45 @@ const compare = computed(() => {
   return rows
 })
 
+// 다녀온 길 : 자옷를 순서대로 한 줄 씩 담음 : {  예: { no: 1, name: '경복궁', timeText: '13:00 ~ 14:20', skipped: false }
+const timeline = computed(() => {
+  const rows = []
+  if (retro.value === null) return rows
+
+  const stops = retro.value.stops
+  for (let i = 0; i < stops.length; i++) { // i : 몇번째 장소인지 (다음 단계에서 '다음 장소를 볼때 i +1')
+    rows.push({
+      type: 'place',
+      no : i + 1,
+      name : stops[i].name,
+      timeText : toTimeRange(stops[i]),
+      skipped: stops[i].state === 'skipped',
+    })
+    if (i + 1 < stops.length) { // 마지막 장소 뒤에는 이동이 없음
+      const move = toMoveRow(stops[i], stops[i + 1])
+      if (move !== null) rows.push(move) // 기록이 없어 계산 못 하면 안 넣음
+    }
+  }
+
+  return rows
+})
+
+function toTimeRange(place) { // 실제 시각 ~ 떠난 시각 글자 : 예 : 13:00에 와서 80분 -> 13:00 ~ 14:20
+  if(place.actualArrive === null) return '기록 없음' // 안 간 곳
+  if(place.actualStay === null) return place.actualArrive + ' 떠난 시간이 없어요'
+  const leave = toMinutes(place.actualArrive) + place.actualStay
+
+  return place.actualArrive + ' ~ ' + toTime(leave) // 도착  + 머문시간
+}
+
+// 두 장소 사이 이동 줄. 예: 14:20에 나와서 14:50에 도착 → { type: 'move', text: '이동 30분', timeText: '14:20 ~ 14:50' }
+function toMoveRow(from, to) {
+if(from.actualArrive === null || from.actualStay === null ) return null
+if(to.actualArrive === null) return null
+const leave = toMinutes(from.actualArrive) + from.actualStay
+const arrive = toMinutes(to.actualArrive)
+return { type : 'move', text : '이동 ' + (arrive - leave) + '분', timeText: toTime(leave) + ' ~ ' + to.actualArrive }
+}
 
 // 분류별로 계획과의 시간 차이 합계와 장소 개수를 모음. 예: { 카페: { sum: 36, count: 2 } }
 const categoryTotals = computed(() => {
@@ -220,7 +287,7 @@ function drawMap() {
   for (const place of retro.value.stops){
     const latLng = new kakao.maps.LatLng(place.lat , place.lng)
     const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
-    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' }) // point.length : 핀 번호에 번호붙이기()
+    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
   }
   visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
   const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
@@ -236,6 +303,23 @@ trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음
 
 function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
+}
+
+
+// 타임라인 줄을 누르면 재생 위치를 그 장소 도착 시각으로 옮김. 예: 13:00 도착 → (780 − 770) / 260 × 100 ≈ 3.8%
+function moveToPlace(no) {
+  const place = retro.value.stops[no - 1] // 줄 번호는 1부터, 목록 번호는 0부터라 1을 뺌
+  if (place.actualArrive === null) return // 안 간 곳은 옮길 시각이 없음
+  if (endMinutes.value === startMinutes.value) return // GPS가 없거나 한 점이면 옮길 수 없음
+  stop() // 재생 중이면 멈추고 옮김
+  progress.value = (toMinutes(place.actualArrive) - startMinutes.value) / (endMinutes.value  - startMinutes.value) * 100
+}
+
+// 지도 핀을 누르면 타임라인의 그 장소 줄이 보이게 스크롤함. 예: ③ 핀 → id가 'tl-row-3'인 줄
+function scrollToRow(no) {
+  const rowBox = document.getElementById('tl-row-' +  no ) // 줄마다 붙인 id로 찾음
+  if (rowBox === null) return // 그 줄을 못 찾으면 아무것도 안 함
+  rowBox.scrollIntoView({ behavior: 'smooth', block: 'center' }) // smooth: 부드럽게, center: 줄을 칸 가운데로
 }
 
 const isHybrid = ref(false)
@@ -266,7 +350,7 @@ function toggleMapType() {
         </svg>
       </div>
       <div class="retro-map">
-        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no)">
+        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no); scrollToRow(v.no)">
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
@@ -315,6 +399,31 @@ function toggleMapType() {
           <div class="stat"><b>{{  skippedCount }}</b><span class="t-cap">건너 뛴 곳</span></div>
         </div>
 
+        <!-- 다녀온 길: 장소 줄과 이동 줄을 시간 순서대로 (timeline) -->
+        <section v-if="timeline.length > 0" class="card card--pad" aria-labelledby="tl-h">
+          <h2 id="tl-h" class="t-sub">다녀온 길</h2>
+          <div class="retro-tl">
+            <!-- template: 화면에 안 그려지는 묶음. 한 번 돌 때 장소 줄 또는 이동 줄 중 하나를 고르려고 씀 -->
+            <template v-for="(row, index) in timeline" :key="index">
+              <!-- 장소 줄 -->
+              <div v-if="row.type === 'place'" :id="'tl-row-' + row.no" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no, 'is-now': currentNo === row.no }"
+@click="toggleInfo(row.no); moveToPlace(row.no)">
+                <span class="retro-tl__num">{{ row.no }}</span>
+                <span class="retro-tl__body">
+                  <b>{{ row.name }}</b>
+                  <span class="t-cap tn">{{ row.timeText }}</span>
+                </span>
+                <span v-if="row.skipped" class="retro-tl__tag">건너뜀</span>
+              </div>
+              <!-- 이동 줄 -->
+              <div v-else class="retro-tl__move">
+                <span class="retro-tl__icon"><span><i class="ic i-walk" aria-hidden="true"></i></span></span>
+                <span class="t-cap">{{ row.text  }} · <span class="tn">{{ row.timeText }}</span></span>
+              </div>
+            </template>
+          </div>
+        </section>
+
         <section class="card card--pad retro-cmp" aria-labelledby="cmp-h">
           <div class="sec-h" style="min-height: 28px">
             <h2 id="cmp-h" class="t-sub">계획 vs 실제</h2>
@@ -348,6 +457,25 @@ function toggleMapType() {
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
 .scr-Retro .retro-cmp{display:flex;flex-direction:column;gap:6px}
+/* 다녀온 길: 왼쪽 세로 점선 위에 번호 원과 이동 아이콘을 올림 */
+/* 지도 핀: 건너뛴 곳은 타임라인 번호 원과 같은 회색 점선 */
+.scr-Retro .pin.pin--skipped{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong)}
+.scr-Retro .retro-tl{position:relative;display:flex;flex-direction:column;margin-top:6px}
+.scr-Retro .retro-tl::before{content:"";position:absolute;left:13px;top:16px;bottom:16px;border-left:2px dashed var(--line-strong);opacity:.5}
+.scr-Retro .retro-tl__place{display:flex;align-items:center;gap:12px;min-height:52px;margin:0 -8px;padding:0 8px;border-radius:10px;cursor:pointer;transition:background-color .2s}
+.scr-Retro .retro-tl__place.is-sel{background:var(--navy-soft)}
+/* 재생 중 지금 머물고 있는 장소: 번호 원을 주황으로, 바깥에 옅은 테두리 */
+.scr-Retro .retro-tl__place.is-now .retro-tl__num{background:var(--coral);box-shadow:0 0 0 4px var(--coral-soft)}
+.scr-Retro .retro-tl__place.is-now b{color:var(--coral-ink)}
+.scr-Retro .retro-tl__num{position:relative;z-index:1;width:28px;height:28px;flex:none;border-radius:50%;background:var(--navy);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(24,33,58,.25)}
+.scr-Retro .retro-tl__body{flex:1;display:flex;flex-direction:column}
+.scr-Retro .retro-tl__tag{font-size:12px;font-weight:600;color:var(--ink-subtle);background:var(--surface-sunken);padding:2px 8px;border-radius:999px}
+.scr-Retro .retro-tl__place.is-skipped .retro-tl__num{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong);box-shadow:none}
+.scr-Retro .retro-tl__place.is-skipped b{color:var(--ink-subtle)}
+.scr-Retro .retro-tl__move{display:flex;align-items:center;gap:12px;min-height:32px}
+.scr-Retro .retro-tl__icon{position:relative;z-index:1;width:28px;flex:none;display:flex;justify-content:center}
+.scr-Retro .retro-tl__icon>span{width:22px;height:22px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink-subtle)}
+.scr-Retro .retro-tl__icon .ic{width:14px;height:14px}
 .scr-Retro .retro-key{display:inline-block;width:10px;height:8px;border-radius:4px}
 .scr-Retro .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .scr-Retro .stat{padding:12px;border-radius:var(--radius-lg);background:var(--surface-raised);border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
