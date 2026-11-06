@@ -164,10 +164,11 @@ public class PlanRuleMaker {
         List<AiDraftStop> extras = new ArrayList<>();
         Map<String, AiDraftStop> slotPicks = new HashMap<>(); // "1/S2"(날/칸) → Gemini가 고른 것
         for (AiDraftStop pick : picks) {
-            if (pick.getSlot() == null || pick.getSlot().isBlank()) {
-                if (isUserNamed(pick, conditions, candidates)) {
-                    extras.add(pick); // 칸 없이 오는 건 사용자가 말한 곳만 (Gemini가 멋대로 더한 곳은 뺌)
-                }
+            if (isUserNamed(pick, conditions, candidates)) {
+                pick.setSlot(null);
+                extras.add(pick); // 사용자가 말한 곳은 칸에 넣지 않고 그 시각에 (칸 종류 검사에 걸려 빠지지 않게, 11/06)
+            } else if (pick.getSlot() == null || pick.getSlot().isBlank()) {
+                continue; // 칸 없이 오는 건 사용자가 말한 곳만 (Gemini가 멋대로 더한 곳은 뺌)
             } else {
                 slotPicks.put(dayOf(pick) + "/" + pick.getSlot().trim().toUpperCase(), pick);
             }
