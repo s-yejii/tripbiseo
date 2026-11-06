@@ -490,7 +490,7 @@ public class PlanServiceImpl implements PlanService {
     /** 일정에 그 이름이 들어간 칸이 있는지 ("한강" → "뚝섬한강공원"도 같은 곳으로 봄) */
     private boolean hasStopNamed(List<Stop> stops, String name) {
         for (Stop stop : stops) {
-            if (stop.getName() != null && (stop.getName().contains(name) || name.contains(stop.getName()))) {
+            if (isSameName(stop.getName(), name)) {
                 return true;
             }
         }

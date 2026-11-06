@@ -405,7 +405,7 @@ public class PlanRuleMaker {
             return;
         }
         for (Place place : candidates.values()) {
-            if (place.getId() != null && (place.getName().contains(name) || name.contains(place.getName()))) {
+            if (place.getId() != null && planCandidateFinder.isSameName(place.getName(), name)) {
                 used.add(place.getId());
             }
         }
@@ -443,7 +443,7 @@ public class PlanRuleMaker {
             return null;
         }
         for (Place place : candidates.values()) {
-            if (place.getName() != null && (place.getName().contains(stop.getName()) || stop.getName().contains(place.getName()))) {
+            if (planCandidateFinder.isSameName(place.getName(), stop.getName())) {
                 return place;
             }
         }
@@ -469,7 +469,7 @@ public class PlanRuleMaker {
             return false;
         }
         for (FixedVisit fixed : conditions.getFixed()) {
-            if (fixed.getName() != null && (name.contains(fixed.getName()) || fixed.getName().contains(name))) {
+            if (planCandidateFinder.isSameName(name, fixed.getName())) {
                 return true;
             }
         }
