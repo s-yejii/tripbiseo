@@ -12,6 +12,7 @@ import WishLinks from '@/components/plan/WishLinks.vue'
 import { getAreaStats, getRecommendedLinks } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { addDays, daysBetween, toMonthDay } from '@/utils/dates'
+import TripWeather from '@/components/plan/TripWeather.vue'
 import { goBack } from '@/utils/back'
 import { imageFor } from '@/utils/mapView'
 import GuMapPicker from '@/components/plan/GuMapPicker.vue'
@@ -148,6 +149,16 @@ const moveList = [
 
 // 여행 날짜는 저장소(store.planStartDate · planEndDate)에 둬요 → 숙소 화면이 이 기간 안으로만 고르게 해요
 const nights = computed(() => (store.planEndDate ? daysBetween(store.planStartDate, store.planEndDate) : 0))
+// 달력 밑 날씨 미리 보기: 고른 날(최대 3일), 고른 지역 가운데 (없으면 서울시청)
+const WEATHER_PREVIEW_DAYS = 3
+const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 }
+const weatherSpot = computed(() => (store.planArea && store.planArea.lat != null ? { lat: store.planArea.lat, lng: store.planArea.lng } : SEOUL_CENTER))
+const weatherDays = computed(() => {
+  if (!store.planStartDate) return []
+  const list = []
+  for (let i = 0; i <= Math.min(nights.value, WEATHER_PREVIEW_DAYS - 1); i++) list.push(addDays(store.planStartDate, i))
+  return list
+})
 const whenLabel = computed(() => (nights.value ? `${nights.value}박 ${nights.value + 1}일 · ${toShortDate(store.planStartDate)}–${toShortDate(store.planEndDate)}` : `당일치기 · ${toShortDate(store.planStartDate)}`))
 // 여행 날짜를 바꿔서 기간 밖으로 나간 숙소 (목록에 "고쳐 주세요" 표시)
 function isOutside(stay) {
@@ -397,6 +408,10 @@ function useRecommendedTime() {
               <i class="ic i-next subtle" aria-hidden="true"></i>
             </RouterLink>
           </div>
+          <!-- 달력 밑: 고른 날마다 날씨·옷차림 미리 보기 (기상청 3일 예보 안의 날만, 11/06) -->
+          <div v-if="weatherDays.length" class="pa-when-wx">
+            <TripWeather v-for="date in weatherDays" :key="date" :date="date" :stops="[weatherSpot]" />
+          </div>
         </section>
 
         <section v-else-if="step.id === 'time'" class="pa-cards" aria-label="시간">
@@ -521,5 +536,6 @@ function useRecommendedTime() {
 .scr-PlanAI .stayrow:hover{border-color:var(--navy);background:var(--navy-soft)}
 .scr-PlanAI .stayrow.is-set{border-style:solid;border-color:var(--line)}
 .scr-PlanAI .btn.is-wait{opacity:.5}
+.scr-PlanAI .pa-when-wx{display:flex;flex-direction:column;gap:8px;padding-top:4px}
 .scr-PlanAI .stays{display:flex;flex-direction:column;gap:8px;padding-top:4px}
 </style>
