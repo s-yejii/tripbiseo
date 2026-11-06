@@ -88,3 +88,8 @@ VALUES (
     126.9113559 37.5331396)))')
 )
 ON CONFLICT (name) DO NOTHING;
+
+-- 관광 시드(06)를 나중에 넣었으면 다시 실행할 때 place_id를 채워요
+UPDATE place_area SET place_id = 'tour-1059479'
+WHERE name = '여의도한강공원' AND place_id IS NULL
+  AND EXISTS (SELECT 1 FROM retrip_place WHERE id = 'tour-1059479');
