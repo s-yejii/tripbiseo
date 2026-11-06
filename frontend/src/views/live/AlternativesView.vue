@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import AltTabs from '@/components/live/AltTabs.vue'
+import QuickAltCard from '@/components/live/QuickAltCard.vue'
 import LateBadge from '@/components/live/LateBadge.vue'
 import { importance } from '@/data/places'
 import { useReplanStore } from '@/stores/replan'
@@ -119,6 +120,7 @@ async function apply() {
 
       <template v-else>
       <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 102px">
+        <QuickAltCard />
         <AltTabs active="trim" />
 
         <section class="tsum" aria-label="줄인 시간 합계" aria-live="polite">
