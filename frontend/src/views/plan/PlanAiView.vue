@@ -27,6 +27,7 @@ import instagramLogo from '@/assets/brand/instagram.svg'
 import naverLogo from '@/assets/brand/naver.svg'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
+import { recommendTime } from '@/utils/timeRecommend'
 
 const AUTO_NEXT_MS = 180 // 하나만 고르는 칸은 고른 것이 보인 뒤 넘김
 const WORKSHOP_MIN_PEOPLE = 4 // 워크숍을 고르면 인원은 적어도 이만큼
@@ -311,6 +312,13 @@ onMounted(() => {
   const isPicked = (step.value.id === 'where' && store.planArea) || (step.value.id === 'from' && store.planOrigin)
   if (isPicked) moveStep(1)
 })
+// "시간 추천": 추천 시작·끝 시각으로 맞춤 (지금은 기본값, 통계가 오면 utils/timeRecommend.js만 바꿈)
+function useRecommendedTime() {
+  const time = recommendTime()
+  store.planFromTime = time.start
+  store.planToTime = time.end
+  showToast('추천 시간 ' + time.start + '~' + time.end + '로 맞췄어요')
+}
 </script>
 
 <template>
@@ -391,7 +399,10 @@ onMounted(() => {
           </div>
         </section>
 
-        <TimeRangePicker v-else-if="step.id === 'time'" v-model:start="store.planFromTime" v-model:end="store.planToTime" :note="timeNote" />
+        <section v-else-if="step.id === 'time'" class="pa-cards" aria-label="시간">
+          <TimeRangePicker v-model:start="store.planFromTime" v-model:end="store.planToTime" :note="timeNote" />
+          <button type="button" class="chip" style="align-self: center" @click="useRecommendedTime"><i class="ic ic--s i-sparkle" aria-hidden="true"></i>시간 추천</button>
+        </section>
 
         <OriginPicker v-else-if="step.id === 'from'" />
 
