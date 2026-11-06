@@ -56,6 +56,7 @@ public class PlanRuleMaker {
     private static final int TODAY_LAST_END_MIN = 23 * 60;     // 오늘 당겨 쓴 칸은 23:00 안에 끝나는 것만
     private static final int MIDDLE_DAY_START_MIN = 10 * 60;   // 여러 날 여행: 고른 시작 시각은 첫날만, 다른 날은 10:00부터 (11/06)
     private static final int MIDDLE_DAY_END_MIN = 20 * 60;     // 고른 끝 시각은 마지막 날만, 다른 날은 20:00까지 (화면 기본값과 같음)
+    private static final int BOARDING_TRAVEL_MIN = 40;         // 역·터미널·공항 고정 일정 앞은 40분 비움 (11/06 영등포 타임스퀘어→서울역 대중교통 42분 실측 기준)
     private static final int SLOT_GAP_MIN = 30;                // 당겨 쓴 칸 앞뒤 이동 여유
     private static final int TIME_STEP_MIN = 10;               // 당긴 시각은 10분 단위로 (17:43 → 17:50)
     private static final int PULL_LATEST_DAY_KIND_MIN = 19 * 60;   // 관광·전시·쇼핑 칸을 당겨 넣을 때 늦어도 이 시각에 시작
@@ -189,8 +190,43 @@ public class PlanRuleMaker {
         if (replaced > 0) {
             warnings.add("AI가 고른 " + replaced + "곳이 종류·영업시간·거리와 맞지 않아 평점·거리로 다시 골랐어요");
         }
+        removeOutsideHours(conditions, candidates, days, stops);
         addMissingKindWarnings(conditions, candidates, stops, warnings);
         return stops;
+    }
+
+    /**
+     * 고른 시간 밖의 칸을 뺌 (사용자가 말한 곳·고정 일정은 그대로). 15:00 시작인데 14:00 칸이 들어오던 문제 (11/06)
+     * 시작은 첫날만, 끝은 마지막 날만 (getSlotList와 같은 기준)
+     */
+    private void removeOutsideHours(PlanConditions conditions, Map<String, Place> candidates, int days, List<AiDraftStop> stops) {
+        if (!hasDayTime(conditions)) {
+            return;
+        }
+        List<AiDraftStop> outside = new ArrayList<>();
+        for (AiDraftStop stop : stops) {
+            if (Boolean.TRUE.equals(stop.getFixed()) || isUserNamed(stop, conditions, candidates) || stop.getTime() == null) {
+                continue;
+            }
+            int day = dayOf(stop);
+            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
+            int end = day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
+            int stopStart = Geo.toMinutes(stop.getTime());
+            int stay = stop.getStay() == null ? 0 : stop.getStay();
+            if (stopStart < start || stopStart + stay > end) {
+                outside.add(stop);
+            }
+        }
+        stops.removeAll(outside);
+    }
+
+    /** 역·터미널·공항 고정 일정인지 (PlanServiceImpl.isBoardingPlace와 같은 기준) */
+    private boolean isBoardingExtra(AiDraftStop extra) {
+        if (!Boolean.TRUE.equals(extra.getFixed()) || extra.getName() == null) {
+            return false;
+        }
+        String name = extra.getName().replace("KTX", "").replace("SRT", "").trim();
+        return name.endsWith("역") || name.contains("터미널") || name.contains("공항");
     }
 
     /** 숙소: 체크인 날 마지막 일정 뒤에 숙소 칸 (마지막 일정 끝 + 30분, 체크인 시각보다 이르지 않게, 23:30까지) */
@@ -618,7 +654,8 @@ public class PlanRuleMaker {
             }
             int extraStart = Geo.toMinutes(extra.getTime());
             int extraEnd = extraStart + (extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay());
-            if (start < extraEnd && extraStart < start + stay) {
+            int travelBefore = isBoardingExtra(extra) ? BOARDING_TRAVEL_MIN : 0; // KTX 타러 갈 시간까지 비움 (11/06)
+            if (start < extraEnd && extraStart - travelBefore < start + stay) {
                 return true;
             }
         }
