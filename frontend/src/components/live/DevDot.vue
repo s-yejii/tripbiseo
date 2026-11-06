@@ -117,8 +117,8 @@ function turnOff() {
 </template>
 
 <style>
-.dev-dot { position: absolute; left: 10px; top: 132px; z-index: 6; width: 18px; height: 18px; border-radius: 50%; border: 0; background: var(--navy, #1f3a68); opacity: 0.28; cursor: pointer; }
-.dev-panel { position: absolute; left: 10px; top: 156px; z-index: 9; width: min(330px, calc(100% - 20px)); display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.dev-dot { position: absolute; left: 10px; top: 168px; z-index: 6; width: 18px; height: 18px; border-radius: 50%; border: 0; background: var(--navy, #1f3a68); opacity: 0.28; cursor: pointer; }
+.dev-panel { position: absolute; left: 10px; top: 192px; z-index: 9; width: min(330px, calc(100% - 20px)); display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .dev-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .dev-panel__input { flex: 1 1 130px; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line, #ddd); border-radius: 8px; font: inherit; }
 </style>

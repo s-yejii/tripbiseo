@@ -25,6 +25,7 @@ import NotiBell from '@/components/member/NotiBell.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
 import DevDot from '@/components/live/DevDot.vue'
+import DemoBar from '@/components/live/DemoBar.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
@@ -481,6 +482,7 @@ function restartMoving() {
   <div class="scr scr-Live">
     <div class="app">
       <DevDot @clock="live.refresh()" @gps="restartMoving" />
+      <DemoBar :live="live" @restart="restartMoving" />
       <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
