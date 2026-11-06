@@ -200,6 +200,13 @@ async function select(i) {
   const el = scrollBox.value.querySelector(`[data-stop="${i}"]`)
   if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
+// 예약 여유 표시 색: 늦으면 빨강, 10분 이하면 노랑, 넉넉하면 초록 (11/06: 여유가 마이너스인데 초록 체크로 뜨던 문제)
+const SLACK_TIGHT_MIN = 10 // 여행 중 알림(LiveAlertMaker)의 "여유가 얼마 없어요"와 같은 기준
+function slackBadge(slack) {
+  if (slack < 0) return { cls: 'badge--danger', icon: 'i-warning' }
+  if (slack <= SLACK_TIGHT_MIN) return { cls: 'badge--warning', icon: 'i-warning' }
+  return { cls: 'badge--success', icon: 'i-check' }
+}
 </script>
 
 <template>
@@ -249,7 +256,7 @@ async function select(i) {
             <span v-if="badge" class="badge" :class="badge.cls" style="height: 20px; margin-right: 6px">{{ badge.text }}</span>{{ subText }}
           </p>
         </div>
-        <span v-if="trip.slack !== undefined" class="badge badge--success tn"><i class="ic ic--s i-check" aria-hidden="true"></i>예약 여유 {{ trip.slack }}분</span>
+        <span v-if="trip.slack !== undefined" class="badge tn" :class="slackBadge(trip.slack).cls"><i class="ic ic--s" :class="slackBadge(trip.slack).icon" aria-hidden="true"></i>{{ trip.slack < 0 ? '예약에 ' + -trip.slack + '분 늦어요' : '예약 여유 ' + trip.slack + '분' }}</span>
       </div>
       <TripBudget v-if="showBudget && trip.stops.length" :stops="trip.stops" />
       <slot name="head"></slot>
