@@ -28,7 +28,7 @@ const SCENES = [
 const WALK_STEPS = 4 // 장소 사이를 몇 번에 나눠 걸어가는 모습을 보여 줄지
 const WALK_STEP_MS = 450
 const LEAVE_ALERT_BEFORE_MIN = 5 // ① 떠날 시각 몇 분 전으로 맞출지
-const LATE_BEFORE_MIN = 20 // ③ KTX 고정 시각 몇 분 전까지 한강에 남아 있을지
+const LATE_BEFORE_MIN = 27 // ③ KTX 고정 시각 몇 분 전까지 한강에 남아 있을지 (18:18: 대중교통이면 몇 분 늦고, 택시로 가면 안 늦음)
 const RAIN_CHECK_TIME = '09:30'
 const RAIN_FROM = '13:00'
 const SCENE_KEY = 'demoScene'
@@ -166,6 +166,19 @@ function playAuto() {
   isAuto.value = true
   runNext()
 }
+
+// 시연 중에 화면을 새로 고치면 진짜 GPS를 기다리느라 멈춰요 → 마지막으로 도착한 칸 자리로 다시 옮겨 둠
+watch(() => props.live.phase.value, async (phase) => {
+  if ((phase !== 'gps' && phase !== 'gps-error') || !devMode.isOn || sceneIndex.value === 0 || !props.live.tripId.value) return
+  try {
+    const saved = await getTrip(props.live.tripId.value)
+    const arrived = saved.stops.filter((stop) => stop.arrivedAt).sort((a, b) => a.arrivedAt.localeCompare(b.arrivedAt))
+    const last = arrived[arrived.length - 1]
+    if (last) await props.live.placeAt(last.lat, last.lng, false)
+  } catch (e) {
+    // 못 받으면 원래처럼 GPS를 기다림
+  }
+})
 
 // 여행 상세의 "시연 재생"으로 들어오면(?autoplay=1): 여행이 없으면 시작하고, 준비되면 자동 재생
 const route = useRoute()
