@@ -60,6 +60,7 @@ const routes = [
   { path: '/plan/fail', component: () => import('@/views/plan/GenFailView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S08-b 일정 생성 실패' } },
   { path: '/plan/trim', component: () => import('@/views/plan/GenTrimView.vue'), meta: { parent: '/plan/fail', owner: 3, title: 'S08-c 한 곳 빼고 다시 만들기' } },
   { path: '/share', component: () => import('@/views/plan/ShareAddView.vue'), meta: { parent: '/new', owner: 3, title: 'S09-b 인스타 릴스에서 담기', overlay: true, statusbar: 'light' } },
+  { path: '/my/places', component: () => import('@/views/plan/MyPlacesView.vue'), meta: { parent: '/my', owner: 3, title: 'S21-g 내 장소' } },
 
   // ④ 여행 중 판별(지연·대안·바뀐 일정)
   { path: '/live', component: () => import('@/views/live/LiveView.vue'), meta: { parent: '/', owner: 4, title: 'S13-a 여행 중' } },
