@@ -21,6 +21,7 @@ public class PlanConditions {
     private String endTime;             // 하루 끝 'HH:mm'. 마지막 장소가 이 시각 안에 끝나요
     private List<com.tripbiseo.trip.dto.Stop> keptStops; // 직접 고르기에서 담은 곳 (순서·시각 그대로 두고 빈 시간만 채워요)
     private Integer people;             // 없으면 1
+    private String companion;           // 누구랑: 혼자·친구·연인·가족·아이와·워크숍 (11/06). 머무는 시간·리뷰 확인에 씀
     private List<String> transports;    // 없으면 ["subway","bus","walk"]
     private List<String> mustVisit;     // 꼭 갈 곳 이름
     private List<FixedVisit> fixed;     // 시간이 정해진 일정

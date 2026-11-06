@@ -55,8 +55,8 @@ const routes = [
   { path: '/plan/stay', component: () => import('@/views/plan/StayPinView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S06-c 숙소 위치 찍기' } },
   { path: '/plan/capture', component: () => import('@/views/plan/ReserveCaptureView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S06-d 예약 캡처로 추가' } },
   { path: '/plan/chat', component: () => import('@/views/plan/PlanChatView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S07 원하는 것 말하기' } },
-  { path: '/plan/generating', component: () => import('@/views/plan/GeneratingView.vue'), meta: { parent: '/plan/chat', owner: 3, title: 'S08 일정 만드는 중' } },
-  { path: '/plan/fail', component: () => import('@/views/plan/GenFailView.vue'), meta: { parent: '/plan/chat', owner: 3, title: 'S08-b 일정 생성 실패' } },
+  { path: '/plan/generating', component: () => import('@/views/plan/GeneratingView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S08 일정 만드는 중' } },
+  { path: '/plan/fail', component: () => import('@/views/plan/GenFailView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S08-b 일정 생성 실패' } },
   { path: '/plan/trim', component: () => import('@/views/plan/GenTrimView.vue'), meta: { parent: '/plan/fail', owner: 3, title: 'S08-c 한 곳 빼고 다시 만들기' } },
   { path: '/share', component: () => import('@/views/plan/ShareAddView.vue'), meta: { parent: '/new', owner: 3, title: 'S09-b 인스타 릴스에서 담기', overlay: true, statusbar: 'light' } },
 
