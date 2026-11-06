@@ -76,6 +76,7 @@ public class PlanServiceImpl implements PlanService {
     private static final int LAST_MUST_START_MIN = 1260;  // 꼭 갈 곳은 늦어도 21:00 시작
     private static final int MUST_STAY_MIN = 90;
     private static final int FIXED_STAY_MIN = 120;
+    private static final int BOARDING_STAY_MIN = 30;     // 기차역·터미널·공항 고정 일정은 타러 가는 것뿐이라 30분 (11/06)
     private static final int MIN_STAY = 10;
     private static final int MAX_STAY = 600;
     private static final int MAX_NEEDS = 3;          // 칩에 없는 요청은 3개까지 (리뷰 확인이 요청마다 Gemini를 불러서)
@@ -1060,7 +1061,8 @@ public class PlanServiceImpl implements PlanService {
         int clock = conditions.getStartTime() == null ? FALLBACK_START_MIN : Geo.toMinutes(conditions.getStartTime());
         if (conditions.getFixed() != null) {
             for (FixedVisit fixed : conditions.getFixed()) {
-                AiDraftStop stop = makeDraftStop(fixed.getName(), fixed.getTime(), FIXED_STAY_MIN, true);
+                int stay = isBoardingPlace(fixed.getName()) ? BOARDING_STAY_MIN : FIXED_STAY_MIN;
+                AiDraftStop stop = makeDraftStop(fixed.getName(), fixed.getTime(), stay, true);
                 stop.setDay(dayOf(fixed));
                 stops.add(stop);
             }
@@ -1118,6 +1120,9 @@ public class PlanServiceImpl implements PlanService {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
             if (place == null && Boolean.TRUE.equals(pick.getFixed()) && isBoardingPlace(pick.getName())) {
                 place = findBoardingPlace(pick.getName(), nearLat, nearLng); // "서울역"이 "도마 서울역점" 식당으로 잡히지 않게 (11/06)
+            }
+            if (place == null) {
+                place = findSameNamePlace(pick.getName()); // 이름이 똑같은 곳이 있으면 그곳 (11/06)
             }
             if (place == null) {
                 place = placeService.getPlaceByName(pick.getName(), nearLat, nearLng);
@@ -1190,6 +1195,18 @@ public class PlanServiceImpl implements PlanService {
             fixed.setTime(Geo.toHhmm(Geo.toMinutes(departure) - BOARDING_BUFFER_MIN));
             notes.add(makeNote(fixed.getName() + "은 " + departure + " 출발 " + BOARDING_BUFFER_MIN + "분 전인 " + fixed.getTime() + " 도착으로 맞췄어요", null));
         }
+    }
+
+    /**
+     * 이름이 똑같은 장소 (없으면 null). 이름으로 찾으면 가까운 곳을 먼저 골라서
+     * "영등포 타임스퀘어"가 그 안의 식당 "더플레이스 영등포 타임스퀘어점"으로 바뀌던 문제 (11/06)
+     */
+    private Place findSameNamePlace(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        Place place = placeService.getPlaceByName(name, null, null); // 위치 없이 찾으면 이름이 똑같은 곳이 먼저 옴
+        return place != null && name.trim().equals(place.getName()) ? place : null;
     }
 
     /**
