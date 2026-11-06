@@ -38,6 +38,18 @@ public class DevController {
         return devService.forwardClock(loginUser.id(), request.getMinutes());
     }
 
+    /** 시연 비 예보 넣기 { "from": "13:00" } */
+    @PostMapping("/rain")
+    public DevStatus setRain(@RequestBody RainRequest request) {
+        return devService.setRain(loginUser.id(), request.getFrom());
+    }
+
+    /** 시연 비 예보 빼기 */
+    @DeleteMapping("/rain")
+    public DevStatus clearRain() {
+        return devService.clearRain(loginUser.id());
+    }
+
     /** 진짜 시각으로 되돌리기 */
     @DeleteMapping("/clock")
     public DevStatus resetClock() {

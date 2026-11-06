@@ -3,7 +3,7 @@
 // 누르면: 가짜 GPS 켜고 끄기 · 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
 import { onMounted, ref } from 'vue'
-import { forwardDevClock, getDevStatus, resetDevClock, setDevClock } from '@/api/dev'
+import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain } from '@/api/dev'
 import { devMode, setFakeGps, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
@@ -13,6 +13,8 @@ const FORWARD_STEPS = [5, 15, 30, 60]
 const isOpen = ref(false)
 const serverNow = ref('') // "2026-11-07T18:05"
 const offsetMinutes = ref(0)
+const rainFrom = ref(null) // 시연 비 시작 시각 (돌발 ②)
+const rainInput = ref('13:00')
 const dateInput = ref('')
 const timeInput = ref('')
 const isBusy = ref(false)
@@ -30,6 +32,7 @@ async function loadStatus() {
 function showStatus(status) {
   serverNow.value = status.now
   offsetMinutes.value = status.offsetMinutes
+  rainFrom.value = status.rainFrom
   dateInput.value = status.now.slice(0, 10)
   timeInput.value = status.now.slice(11, 16)
 }
@@ -57,6 +60,12 @@ function forward(minutes) {
 }
 function backToRealTime() {
   changeClock(resetDevClock, '진짜 시각으로 돌아왔어요')
+}
+
+// 시연 비 예보 넣고 빼기: 기상청 예보 대신 "오늘 13:00부터 비" (돌발 ②)
+function toggleRain() {
+  if (rainFrom.value) changeClock(clearDevRain, '시연 비 예보를 뺐어요')
+  else changeClock(() => setDevRain(rainInput.value), rainInput.value + '부터 비 예보를 넣었어요')
 }
 
 function toggleFakeGps() {
@@ -87,6 +96,11 @@ function turnOff() {
         <input v-model="dateInput" type="date" class="dev-panel__input" aria-label="시연 날짜" />
         <input v-model="timeInput" type="time" class="dev-panel__input" aria-label="시연 시각" />
         <button type="button" class="btn btn--primary btn--sm" :disabled="isBusy" @click="applyClock">맞추기</button>
+      </div>
+
+      <div class="dev-panel__row">
+        <input v-model="rainInput" type="time" class="dev-panel__input" aria-label="비 시작 시각" :disabled="!!rainFrom" />
+        <button type="button" class="chip" :class="{ 'is-on': rainFrom }" :disabled="isBusy" @click="toggleRain">{{ rainFrom ? rainFrom + '부터 비 · 빼기' : '비 예보 넣기' }}</button>
       </div>
 
       <div class="dev-panel__row">

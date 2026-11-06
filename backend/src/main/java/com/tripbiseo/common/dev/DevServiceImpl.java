@@ -35,6 +35,9 @@ public class DevServiceImpl implements DevService {
     // ConcurrentHashMap: 여러 요청이 동시에 읽고 써도 안전한 Map
     private final Map<Long, Long> offsets = new ConcurrentHashMap<>();
 
+    // 회원 번호 → 시연 비 시작 시각 "13:00" (돌발 ②: 오후 비 → 아침에 알림 → 야외를 먼저)
+    private final Map<Long, String> rains = new ConcurrentHashMap<>();
+
     @Override
     public DevStatus getStatus(long memberId) {
         DevStatus status = new DevStatus();
@@ -43,6 +46,7 @@ public class DevServiceImpl implements DevService {
         status.setOffsetMinutes(offset / SECONDS_PER_MINUTE);
         // 방금 바꾼 값도 바로 보이게 진짜 시각 + 이 회원의 차이로 계산
         status.setNow(ZonedDateTime.now(Geo.KST).plusSeconds(offset).toLocalDateTime().withSecond(0).withNano(0).toString());
+        status.setRainFrom(rains.get(memberId));
         return status;
     }
 
@@ -71,6 +75,27 @@ public class DevServiceImpl implements DevService {
     public DevStatus resetClock(long memberId) {
         offsets.remove(memberId);
         return getStatus(memberId);
+    }
+
+    @Override
+    public DevStatus setRain(long memberId, String rainFrom) {
+        checkDemoAccount(memberId);
+        if (rainFrom == null || !rainFrom.matches("\\d{2}:\\d{2}")) {
+            throw fail(400, "비 시작 시각은 13:00처럼 보내 주세요.");
+        }
+        rains.put(memberId, rainFrom);
+        return getStatus(memberId);
+    }
+
+    @Override
+    public DevStatus clearRain(long memberId) {
+        rains.remove(memberId);
+        return getStatus(memberId);
+    }
+
+    @Override
+    public String getRainFrom(long memberId) {
+        return rains.get(memberId);
     }
 
     @Override

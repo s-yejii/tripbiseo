@@ -18,6 +18,15 @@ public interface DevService {
     /** 시연 시계를 끄고 진짜 시각으로 */
     DevStatus resetClock(long memberId);
 
+    /** 시연 비 예보 넣기: 오늘 rainFrom("13:00")부터 비 (시연 계정만) */
+    DevStatus setRain(long memberId, String rainFrom);
+
+    /** 시연 비 예보 빼기 (진짜 기상청 예보로) */
+    DevStatus clearRain(long memberId);
+
+    /** 요청마다 부름: 이 회원의 시연 비 시작 시각. 안 넣었으면 null */
+    String getRainFrom(long memberId);
+
     /** 요청마다 부름: 이 회원의 시연 시계 차이(초). 안 맞췄으면 0 */
     long getOffsetSeconds(long memberId);
 }

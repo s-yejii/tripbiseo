@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.Forecast;
 import com.tripbiseo.common.external.WeatherClient;
+import com.tripbiseo.common.util.DemoWeather;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.StatusContext;
 import com.tripbiseo.live.dto.WeatherInfo;
@@ -26,6 +27,8 @@ import lombok.RequiredArgsConstructor;
 public class LiveWeatherChecker {
 
     private static final int RAIN_POP_PERCENT = 60; // 강수확률이 이 이상이면 비 온다고 봄
+    private static final int DEMO_RAIN_POP = 80;    // 시연 비 예보의 강수확률
+    private static final int HOUR_END_MIN = 59;     // 14:00 예보는 14:59까지
 
     private final WeatherClient weatherClient; // 기상청 단기예보 (공통)
     private final PlaceService placeService;   // 실내 판단 (②)
@@ -35,6 +38,10 @@ public class LiveWeatherChecker {
      * 예보 위치는 다음 칸 (없으면 내 위치). 기상청 격자가 5km라 같은 동네면 결과가 거의 같아요.
      */
     public WeatherInfo check(double lat, double lng, StatusContext context) {
+        String demoRain = DemoWeather.rainFrom(); // 시연 계정이 개발자 모드에서 넣은 비 (11/06)
+        if (demoRain != null) {
+            return makeDemoRain(demoRain, context);
+        }
         Stop nextStop = context.getNextStop();
         double forecastLat = nextStop == null ? lat : nextStop.getLat();
         double forecastLng = nextStop == null ? lng : nextStop.getLng();
@@ -57,12 +64,45 @@ public class LiveWeatherChecker {
         return weather;
     }
 
+    /** 시연 비: 기상청 대신 "오늘 rainFrom부터 비". 이미 지난 비면 null */
+    private WeatherInfo makeDemoRain(String rainFrom, StatusContext context) {
+        int start = Geo.toMinutes(rainFrom);
+        if (start + HOUR_END_MIN < context.getNow()) {
+            return null;
+        }
+        WeatherInfo weather = new WeatherInfo();
+        weather.setTime(rainFrom);
+        weather.setPop(DEMO_RAIN_POP);
+        weather.setSnow(false);
+        weather.setOutdoor(findOutdoorStops(context, start));
+        return weather;
+    }
+
+    /**
+     * 오늘 비가 시작하는 시각(분). 비 소식이 없거나 예보를 못 받으면 null.
+     * 대안 "비 오기 전에 야외 먼저"에서 씀 (AlternativeServiceImpl, 11/06)
+     */
+    public Integer findRainStart(double lat, double lng) {
+        int now = Geo.nowMinutes();
+        String demoRain = DemoWeather.rainFrom();
+        if (demoRain != null) {
+            int start = Geo.toMinutes(demoRain);
+            return start + HOUR_END_MIN < now ? null : start;
+        }
+        try {
+            Forecast.Hour rainHour = findRainHour(weatherClient.getForecast(lat, lng), now);
+            return rainHour == null ? null : Geo.toMinutes(rainHour.getTime());
+        } catch (ApiException e) {
+            return null;
+        }
+    }
+
     /** 오늘, 아직 안 지난 시간 중 비·눈이 오거나(pty ≠ 0) 강수확률 60% 이상인 첫 시간 (없으면 null) */
     private Forecast.Hour findRainHour(Forecast forecast, int now) {
         String today = Geo.now().toLocalDate().toString().replace("-", ""); // "2026-11-01" → "20261101"
         for (Forecast.Hour hour : forecast.getHours()) {
             // 14:00 예보는 14:59까지라서, 끝(시작 + 59분)이 지났으면 지난 시간
-            boolean isPast = Geo.toMinutes(hour.getTime()) + 59 < now;
+            boolean isPast = Geo.toMinutes(hour.getTime()) + HOUR_END_MIN < now;
             if (!today.equals(hour.getDate()) || isPast) {
                 continue;
             }

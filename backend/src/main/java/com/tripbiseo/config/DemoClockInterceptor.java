@@ -6,6 +6,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import com.tripbiseo.common.auth.LoginUser;
 import com.tripbiseo.common.dev.DevService;
 import com.tripbiseo.common.util.DemoClock;
+import com.tripbiseo.common.util.DemoWeather;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -31,6 +32,10 @@ public class DemoClockInterceptor implements HandlerInterceptor {
             if (offset != 0) {
                 DemoClock.set(offset);
             }
+            String rainFrom = devService.getRainFrom((Long) memberId);
+            if (rainFrom != null) {
+                DemoWeather.set(rainFrom);
+            }
         }
         return true;
     }
@@ -38,5 +43,6 @@ public class DemoClockInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         DemoClock.clear();
+        DemoWeather.clear();
     }
 }
