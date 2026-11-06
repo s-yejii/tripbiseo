@@ -90,9 +90,31 @@ public class LiveAlertMaker {
             return null; // 비 소식이 없거나, 비 올 때 야외에 있을 곳이 없으면 알리지 않음
         }
         String what = weather.isSnow() ? "눈" : "비";
+        String movable = findMovableOutdoor(context);
+        if (movable != null) {
+            // 돌발 ② (11/06): 아침에 미리 알려서 야외를 비 오기 전으로 옮기게
+            return newAlert("rain-move-" + weather.getTime().replace(":", ""), "warn",
+                    weather.getTime() + "부터 " + what + " 소식이 있어요 (강수확률 " + weather.getPop() + "%)",
+                    movable + "을(를) " + what + " 오기 전에 먼저 가면 안 젖어요. '대안 보기'에서 순서를 바꿔 보세요");
+        }
         return newAlert("rain-" + weather.getTime().replace(":", ""), "warn",
                 weather.getTime() + "부터 " + what + " 소식이 있어요 (강수확률 " + weather.getPop() + "%)",
                 String.join(", ", weather.getOutdoor()) + "에 있을 때예요. 우산을 챙기세요");
+    }
+
+    /** 비 맞을 야외 칸 중 아직 안 간 첫 곳 이름 (지금 있는 곳은 옮길 수 없어서 뺌). 없으면 null */
+    private String findMovableOutdoor(StatusContext context) {
+        WeatherInfo weather = context.getWeather();
+        if (weather == null) {
+            return null;
+        }
+        String currentName = context.getCurrent() == null ? null : context.getCurrent().getName();
+        for (String name : weather.getOutdoor()) {
+            if (!name.equals(currentName)) {
+                return name;
+            }
+        }
+        return null;
     }
 
     /**
@@ -113,7 +135,10 @@ public class LiveAlertMaker {
         if (!context.getMissedStops().isEmpty()) {
             return true;
         }
-        return makeNextLateAlert(context) != null;
+        if (makeNextLateAlert(context) != null) {
+            return true;
+        }
+        return findMovableOutdoor(context) != null; // 비 오기 전에 야외를 먼저 (11/06)
     }
 
     // makeAlert에서

@@ -107,8 +107,36 @@
 | `POST /api/plans/route-order` | [동선 정리] 하루 일정의 새 순서 (최근접 이웃 + 2-opt). AI 일정과 같은 함수 | trip/PlanManualView | 있음 |
 | `POST /api/plans/links` | 인스타·유튜브·네이버(블로그·지도) 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
+| `GET /api/dev/status` | [개발자 모드] 시연 계정인지 + 시연 시계 상태 | member/MyView (VersionTap), live/DevDot | 있음 (11/06) |
+| `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
 
-### ④ 여행 중 판별 (live)
+#### 개발자 모드 · 시연 시계 (11/06, ③)
+발표 시연 계정만 쓰는 시계예요. 시연 계정은 환경변수 `DEMO_ACCOUNTS`(아이디를 쉼표로, `application-local.properties`)로 정하고 코드·DB에는 적지 않아요.
+시계를 맞추면 **그 계정의 요청을 처리하는 동안만** 서버의 `Geo.now()`가 그 시각이 돼요 (도착 판정·지연 계산·알림이 모두 따라감). 다른 계정은 진짜 시각 그대로이고, 서버를 다시 켜면 진짜 시각으로 돌아가요.
+화면: 마이 맨 아래 "버전 1.0.0"을 5번 연달아 누르면 `GET /api/dev/status`로 확인해서 켜지고, 여행 중 화면의 반투명 점(DevDot)에서 써요. 가짜 GPS는 화면 쪽 기능이라 API가 없어요.
+
+| 메서드 · 주소 | 요청 | 하는 일 |
+|---|---|---|
+| `GET /api/dev/status` | 없음 | 시연 계정인지 + 지금 시연 시계 |
+| `POST /api/dev/clock` | `{ "date": "2026-11-07", "time": "18:05" }` (date를 비우면 오늘) | 그 시각으로 맞춤 |
+| `POST /api/dev/clock/forward` | `{ "minutes": 15 }` (1~720) | 그만큼 빨리 감기 |
+| `DELETE /api/dev/clock` | 없음 | 진짜 시각으로 |
+| `POST /api/dev/rain` | `{ "from": "13:00" }` | 시연 비 예보 넣기: 그 계정은 기상청 대신 "오늘 13:00부터 비(강수확률 80%)"로 봄 (돌발 ②) |
+| `DELETE /api/dev/rain` | 없음 | 시연 비 예보 빼기 (진짜 예보로) |
+
+**응답** (네 개 모두 같음)
+```json
+{ "allowed": true, "now": "2026-11-07T18:05", "offsetMinutes": 1558, "rainFrom": "13:00" }
+```
+- `allowed`: 시연 계정이면 true. false면 화면은 개발자 모드를 열지 않음
+- `now`: 서버가 이 계정에 대해 지금으로 보는 시각 (분까지), `offsetMinutes`: 진짜 시각과의 차이 (0이면 진짜 시각)
+- `rainFrom`: 시연 비 시작 시각, 안 넣었으면 null
+
+**오류** 401 "로그인이 필요해요." · 403 "시연 계정만 쓸 수 있어요." · 400 "날짜는 2026-11-07, 시각은 18:05처럼 보내 주세요." · 400 "빨리 감기는 1분부터 720분까지 돼요." · 400 "비 시작 시각은 13:00처럼 보내 주세요."
+
+---
+
+## ④ 여행 중 판별 (live)
 
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|

@@ -7,6 +7,8 @@ import { getTripList } from '@/api/trips'
 import TabBar from '@/components/common/TabBar.vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
+import VersionTap from '@/components/member/VersionTap.vue'
+import { turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 import { friendNews } from '@/data/friendNews'
 import { useTripStore } from '@/stores/trip'
@@ -100,6 +102,7 @@ function setMainCard(index) {
 // 로그아웃: 서버 세션을 지우고 첫 화면으로
 async function logout() {
   await post('/auth/logout')
+  turnOffDevMode() // 다른 사람이 이 브라우저로 로그인해도 개발자 모드가 남지 않게
   router.replace('/login')
 }
 
@@ -208,7 +211,7 @@ async function logout() {
 
         <div class="my-foot">
           <button type="button" class="btn btn--ghost btn--sm" @click="logout"><i class="ic ic--s i-logout" aria-hidden="true"></i>로그아웃</button>
-          <span class="t-cap subtle tn">버전 1.0.0</span>
+          <VersionTap />
         </div>
       </div>
 

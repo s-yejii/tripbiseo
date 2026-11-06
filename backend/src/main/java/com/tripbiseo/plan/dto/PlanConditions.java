@@ -46,7 +46,7 @@ public class PlanConditions {
     private List<String> mustKinds;     // 꼭 넣을 종류 코드 ("선물 사기는 꼭" → shop). kinds에도 같이 들어감
     private List<String> avoidKinds;    // 빼 달라는 종류 코드 ("카페는 별로 안 가고 싶어" → cafe). 후보에서 뺌
     private List<String> avoidVisit;    // 피하고 싶은 곳 이름 ("롯데월드는 가 봐서 빼 줘"). 후보에서 뺌
-    private FixedVisit finish;          // 여행이 끝나는 곳·도착 시각 {name, time} ("KTX 19시 광명역" → 광명역 18:30)
+    private FixedVisit finish;          // 여행이 끝나는 곳·도착 시각 {name, time} ("KTX 19시 광명역" → 광명역 18:45, 출발 15분 전)
     private Integer maxWalkMin;         // 한 번에 걷는 시간 상한(분) ("오래 걷기 싫어" → 15)
     private List<String> asked;         // 대화에서 이미 물어본 질문 (visit · avoid · time). 서버가 다음 질문을 고를 때 씀
 }
