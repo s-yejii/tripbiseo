@@ -13,6 +13,7 @@
 | `db/02_retrip_schema.sql` | 예전 결제·테마 `retrip_expense`, `retrip_theme` (+ FK 때문에 `retrip_trip`) | DB 총괄 |
 | `db/03~05_…` | 장소·리뷰 데이터 넣기 (04·05는 고치지 않음) | DB 총괄 |
 | `db/06_retrip_seed_tour_seoul.sql` | 서울 관광지·문화시설·쇼핑 (TourAPI, `source='tour'`). `db/tour/make_tour_seed.mjs`로 만들어요 (11/03) | DB 총괄 |
+| `db/07_retrip_seed_demo_places.sql` | 시연에 필요한데 04·06에 없는 쇼핑 장소 (더현대 서울, 영등포 타임스퀘어, `source='demo'`) (11/06) | DB 총괄 |
 | `db/11_member.sql` | ① 테이블 | ① |
 | `db/12_trip.sql` | ② 테이블 (`trip_chat`) | ② |
 | `db/13_plan.sql` | ③ 테이블 | ③ |
