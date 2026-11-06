@@ -54,6 +54,8 @@ public class PlanRuleMaker {
     private static final int AI_PICK_LIMIT_M = 2000;           // AI가 고른 곳이 앞 장소에서 이보다 멀면 다시 고름
     private static final int TODAY_START_AFTER_MIN = 60;       // 오늘 출발이면 지금부터 1시간 뒤 칸부터
     private static final int TODAY_LAST_END_MIN = 23 * 60;     // 오늘 당겨 쓴 칸은 23:00 안에 끝나는 것만
+    private static final int MIDDLE_DAY_START_MIN = 10 * 60;   // 여러 날 여행: 고른 시작 시각은 첫날만, 다른 날은 10:00부터 (11/06)
+    private static final int MIDDLE_DAY_END_MIN = 20 * 60;     // 고른 끝 시각은 마지막 날만, 다른 날은 20:00까지 (화면 기본값과 같음)
     private static final int SLOT_GAP_MIN = 30;                // 당겨 쓴 칸 앞뒤 이동 여유
     private static final int TIME_STEP_MIN = 10;               // 당긴 시각은 10분 단위로 (17:43 → 17:50)
     private static final int PULL_LATEST_DAY_KIND_MIN = 19 * 60;   // 관광·전시·쇼핑 칸을 당겨 넣을 때 늦어도 이 시각에 시작
@@ -140,7 +142,9 @@ public class PlanRuleMaker {
     /** 그날 칸 목록 (담은 곳이 있으면 그 시간은 비워 둠) */
     private List<String[]> getSlotList(PlanConditions conditions, int day) {
         if (hasDayTime(conditions)) {
-            return timedSlotsOf(conditions, Geo.toMinutes(conditions.getStartTime()), Geo.toMinutes(conditions.getEndTime()), keptOfDay(conditions, day));
+            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
+            int end = day == lastDayOf(conditions) ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
+            return timedSlotsOf(conditions, start, end, keptOfDay(conditions, day));
         }
         boolean isCafeChosen = conditions.getKinds() != null && conditions.getKinds().contains(CAFE_KIND);
         return slotsOf(kindsOf(conditions), isCafeChosen);
@@ -210,6 +214,14 @@ public class PlanRuleMaker {
     }
 
     // ---------------------------------------------------------------- 도우미
+
+    /** 마지막 날 번호 (끝 날짜가 없으면 1). 15:00 시작·19:00 끝이 둘째 날 오전까지 막지 않게 (11/06) */
+    private int lastDayOf(PlanConditions conditions) {
+        if (conditions.getStartDate() == null || conditions.getEndDate() == null) {
+            return 1;
+        }
+        return (int) ChronoUnit.DAYS.between(LocalDate.parse(conditions.getStartDate()), LocalDate.parse(conditions.getEndDate())) + 1;
+    }
 
     /** 시작·끝 시간을 골랐는지 */
     private boolean hasDayTime(PlanConditions conditions) {
