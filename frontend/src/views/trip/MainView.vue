@@ -420,7 +420,7 @@ async function loadSeoulPopular() {
         <div class="dim" style="z-index: 20" @click="isConfirmOpen = false"></div>
         <section class="home-confirm" role="alertdialog" aria-modal="true" aria-label="여행 삭제 확인">
           <h2 class="h-title" style="margin: 0">이 여행을 삭제할까요?</h2>
-          <p class="t-cap home-confirm__name">{{ trip.title }} · 휴지통으로 옮겨요</p>
+          <p class="t-cap home-confirm__name">{{ trip.title }} · 여행 기록으로 옮겨요</p>
           <div class="cta__row">
             <button type="button" class="btn btn--secondary btn--lg" @click="isConfirmOpen = false">취소</button>
             <button type="button" class="btn btn--danger btn--lg" :disabled="isDeleting" @click="removeTrip">{{ isDeleting ? '삭제 중' : '삭제' }}</button>
