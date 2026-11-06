@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.common.external.FoundArea;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.plan.dto.AiConditions;
@@ -62,6 +63,7 @@ public class PlanServiceImpl implements PlanService {
     private static final List<String> DEFAULT_TRANSPORTS = List.of("subway", "bus", "walk");
     private static final List<String> KIND_CODES = List.of("food", "cafe", "bar", "tour", "culture", "shop"); // 대화로 더할 수 있는 종류
     private static final List<String> TAG_CODES = List.of("mood", "quiet", "value", "no_wait", "solo");       // 대화로 더할 수 있는 태그
+    private static final int MAX_REGION_WORDS = 3;        // 말로 정한 지역에서 중심을 찾는 낱말 수 (카카오 호출 수)
     private static final int MAX_MESSAGE_LENGTH = 300;
     private static final int MAX_TITLE_LENGTH = 60;
     private static final int MAX_PROMPT_CANDIDATES = 90;
@@ -853,8 +855,32 @@ public class PlanServiceImpl implements PlanService {
         }
         if (!isNearMe && conditions.getAreaLat() == null) {
             planCandidateFinder.addArea(candidates, region); // 지역 좌표 없이 이름만 말했을 때 (대화)
+            addRegionKinds(candidates, region, kinds); // 그 지역 중심에서 종류별 후보 + 볼거리 카카오 보충 (11/06)
         }
         return candidates;
+    }
+
+    /**
+     * 말로만 정한 지역("서울 영등포 여의도")의 낱말마다 카카오로 중심을 찾아 종류별 후보를 더함 (11/06).
+     * 이름으로만 찾으면 볼거리(공원·쇼핑몰)가 거의 없어 오후가 비어서, 지도에서 고른 구와 같은 방법을 씀. 못 찾으면 건너뜀
+     */
+    private void addRegionKinds(Map<String, Place> candidates, String region, List<String> kinds) {
+        int found = 0;
+        for (String word : region.split("[\\s,·/]+")) {
+            if (word.length() < 2 || word.equals("서울") || found >= MAX_REGION_WORDS) {
+                continue;
+            }
+            try {
+                List<FoundArea> areas = placeService.getAreaList(word);
+                if (!areas.isEmpty()) {
+                    FoundArea area = areas.get(0);
+                    planCandidateFinder.addKinds(candidates, area.getLat(), area.getLng(), "gu".equals(area.getType()) ? "gu" : "dong", kinds);
+                    found++;
+                }
+            } catch (ApiException e) { // 카카오가 안 되면 이름으로 찾은 후보만 씀
+                log.info("지역 중심을 찾지 못함: {}", word);
+            }
+        }
     }
 
     /**
