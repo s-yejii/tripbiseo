@@ -3,12 +3,15 @@ package com.tripbiseo.live.service;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.live.dto.StopAreaMeters;
 import com.tripbiseo.live.dto.TrackPoint;
 import com.tripbiseo.live.dto.TrackRequest;
 import com.tripbiseo.live.mapper.TrackMapper;
@@ -26,8 +29,14 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class TrackServiceImpl implements TrackService {
 
-    private static final int ARRIVE_RADIUS_M = 150; // 지금 점·앞 점 둘 다 이 안이면 도착
-    private static final int LEAVE_RADIUS_M = 200;  // 지금 칸에서 지금 점·앞 점 둘 다 이 밖이면 출발
+    private static final int ARRIVE_RADIUS_M = 150; // 일반 칸: 최근 점이 다 이 안 + 멈춰 있으면 도착
+    private static final int LEAVE_RADIUS_M = 200;  // 일반 칸: 지금 점·앞 점 둘 다 이 밖이면 출발
+    private static final int AREA_ARRIVE_M = 30;    // 경계 칸(공원): 최근 점이 다 경계 이 안 + 걷는 속도면 도착
+    private static final int AREA_LEAVE_M = 80;     // 경계 칸(공원): 지금 점·앞 점 둘 다 경계 이 밖이면 출발
+    private static final int STAY_POINTS = 4;       // 도착은 최근 4점(20초마다 → 약 1분)으로 판정
+    private static final int STAY_SECONDS = 120;    // 이보다 오래된 점은 안 씀 (GPS가 끊겼다 오면 예전 위치가 섞임)
+    private static final int STAY_MOVE_M = 40;      // 일반 칸: 첫 점~마지막 점이 이 안이면 멈춰 있음 (걸으면 1분에 약 75m)
+    private static final int WALK_STEP_M = 60;      // 경계 칸: 점 사이(약 20초)가 다 이 안이면 걷는 속도 (버스·차는 100m 넘음)
     private static final int MAX_ACCURACY_M = 100;  // GPS 오차가 이보다 크면 저장만 하고 판정 안 함
 
     private final TrackMapper trackMapper;
@@ -35,28 +44,32 @@ public class TrackServiceImpl implements TrackService {
     private final LiveTripReader liveTripReader;   // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
 
     /** GPS 한 점 저장 + 도착·출발 판정 */
-    // 규칙: 지금 있는 칸은 하나만. 제일 가까운 칸이 바뀌면(150m 안 두 번) 새 칸 도착 + 전 칸 다녀옴.
-    //       근처에 새 칸이 없으면 전 칸에서 200m 밖 두 번일 때 다녀옴.
+    // 규칙: 지금 있는 칸은 하나만. 새 칸에 도착하면 전 칸은 다녀옴.
+    //   도착: 최근 4점(2분 안)으로 봄. 1순위 일반 칸 = 다 150m 안 + 멈춰 있음(40m 안)
+    //                                  2순위 경계 칸(공원) = 다 경계 30m 안 + 걷는 속도(점 사이 60m 안)
+    //   출발: 지금 점·앞 점 둘 다 지금 칸 밖 (일반 칸 200m, 경계 칸은 경계 80m)
     @Override
     @Transactional
     public void createTrack(long memberId, long tripId, TrackRequest request) {
         // 1. 공통 오류 검사 (위치 → 404 → 진행 중 아님). GPS를 저장하기 전에 해야 시작 안 한 여행에 점이 안 쌓임
         Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
 
-        // 2. 바로 앞 점을 먼저 읽고(저장 뒤에 읽으면 방금 넣은 점이 나옴) 지금 점 저장
-        TrackPoint before = trackMapper.selectLastTrack(tripId);
+        // 2. 지금 점 저장
         trackMapper.insertTrack(tripId, request.getLat(), request.getLng(), request.getAccuracy());
 
         // 3. 판정할 수 없는 점이면 여기서 끝
-        if (before == null || isInaccurate(request.getAccuracy())) {
+        if (isInaccurate(request.getAccuracy())) {
             return;
         }
-        TrackPoint now = new TrackPoint();
-        now.setLat(request.getLat());
-        now.setLng(request.getLng());
 
-        // 4. 도착·출발 판정
-        checkArriveOrLeave(memberId, tripId, getTodayStops(trip), now, before);
+        // 4. 최근 점 (새 것부터, 방금 넣은 점이 0번). 2점이 안 되면 판정 안 함
+        List<TrackPoint> recent = trackMapper.selectRecentTrackList(tripId, STAY_POINTS, STAY_SECONDS, MAX_ACCURACY_M);
+        if (recent.size() < 2) {
+            return;
+        }
+
+        // 5. 도착·출발 판정
+        checkArriveOrLeave(memberId, tripId, getTodayStops(trip), recent, getAreaMetersList(tripId, recent));
     }
 
     // ---------------------------------------------------------------- 도착·출발 판정 도우미
@@ -81,22 +94,40 @@ public class TrackServiceImpl implements TrackService {
         return stops;
     }
 
-    /** 지금 칸(도착했고 아직 출발 안 함)과 제일 가까운 칸을 보고 도착·출발 기록 */
-    private void checkArriveOrLeave(long memberId, long tripId, List<Stop> stops, TrackPoint now, TrackPoint before) {
-        Stop current = findCurrentStop(stops);
-        Stop nearest = findNearestStop(stops, now);
+    /** 최근 점마다 "경계 칸 id → 경계까지 거리(m)" (경계 안이면 0). 순서는 recent와 같음 */
+    private List<Map<Long, Double>> getAreaMetersList(long tripId, List<TrackPoint> recent) {
+        List<Map<Long, Double>> areaList = new ArrayList<>();
+        for (TrackPoint point : recent) {
+            Map<Long, Double> areaMeters = new HashMap<>();
+            // 경계 칸이 있는지는 점과 상관없음 → 첫 점에서 없으면 나머지 점은 안 물어봄
+            boolean hasAreaStop = areaList.isEmpty() || !areaList.get(0).isEmpty();
+            if (hasAreaStop) {
+                for (StopAreaMeters row : trackMapper.selectAreaMetersList(tripId, point.getLat(), point.getLng())) {
+                    areaMeters.put(row.getStopId(), row.getMeters());
+                }
+            }
+            areaList.add(areaMeters);
+        }
+        return areaList;
+    }
 
-        // 새 칸 도착: 제일 가까운 칸이 지금 칸이 아니고, 지금 점·앞 점 둘 다 150m 안
-        boolean isNewStop = nearest != null && nearest != current;
-        if (isNewStop && isWithin(nearest, now, ARRIVE_RADIUS_M) && isWithin(nearest, before, ARRIVE_RADIUS_M)) {
+    /** 새 칸에 도착했으면 도착 기록(전 칸은 다녀옴), 아니면 지금 칸에서 출발했는지 확인 */
+    private void checkArriveOrLeave(long memberId, long tripId, List<Stop> stops, List<TrackPoint> recent,
+                                    List<Map<Long, Double>> areaList) {
+        Stop current = findCurrentStop(stops);
+        Stop arrived = findArrivedStop(stops, recent, areaList);
+
+        // 새 칸 도착
+        if (arrived != null && arrived != current) {
             if (current != null) {
                 leaveStop(memberId, tripId, current);
             }
-            arriveStop(memberId, tripId, nearest);
+            arriveStop(memberId, tripId, arrived);
             return;
         }
-        // 출발: 지금 칸에서 지금 점·앞 점 둘 다 200m 밖
-        if (current != null && !isWithin(current, now, LEAVE_RADIUS_M) && !isWithin(current, before, LEAVE_RADIUS_M)) {
+        // 출발: 지금 점(0번)·앞 점(1번) 둘 다 지금 칸 밖
+        if (current != null && isOutside(current, recent.get(0), areaList.get(0))
+                && isOutside(current, recent.get(1), areaList.get(1))) {
             leaveStop(memberId, tripId, current);
         }
     }
@@ -111,12 +142,31 @@ public class TrackServiceImpl implements TrackService {
         return null;
     }
 
-    /** 지금 점에서 제일 가까운 칸 (지금 칸도 후보에 넣어야 "아직 여기 있음"을 알 수 있음) */
-    private Stop findNearestStop(List<Stop> stops, TrackPoint now) {
+    /** 도착한 칸: 1순위 멈춰 있는 일반 칸, 2순위 걸어 다니는 경계 칸. 최근 점이 4개가 안 되면 null */
+    private Stop findArrivedStop(List<Stop> stops, List<TrackPoint> recent, List<Map<Long, Double>> areaList) {
+        if (recent.size() < STAY_POINTS) {
+            return null;
+        }
+        // 공원 안 카페처럼 더 구체적인 곳을 먼저 봄
+        Stop pointStop = findStayingPointStop(stops, recent, areaList.get(0));
+        if (pointStop != null) {
+            return pointStop;
+        }
+        return findWalkingAreaStop(stops, recent, areaList);
+    }
+
+    /** 일반 칸 중 최근 점이 다 150m 안인 제일 가까운 칸. 멈춰 있지 않으면(걸어서 지나가는 중) null */
+    private Stop findStayingPointStop(List<Stop> stops, List<TrackPoint> recent, Map<Long, Double> areaMeters) {
+        if (!isStaying(recent)) {
+            return null;
+        }
         Stop nearest = null;
         double nearestMeters = Double.MAX_VALUE;
         for (Stop stop : stops) {
-            double meters = Geo.distanceMeters(now.getLat(), now.getLng(), stop.getLat(), stop.getLng());
+            if (hasArea(stop, areaMeters) || !isAllWithin(stop, recent)) {
+                continue;
+            }
+            double meters = pointMeters(stop, recent.get(0));
             if (meters < nearestMeters) {
                 nearest = stop;
                 nearestMeters = meters;
@@ -125,9 +175,75 @@ public class TrackServiceImpl implements TrackService {
         return nearest;
     }
 
-    /** 점이 칸에서 radius 미터 안인지 */
-    private boolean isWithin(Stop stop, TrackPoint point, int radius) {
-        return Geo.distanceMeters(point.getLat(), point.getLng(), stop.getLat(), stop.getLng()) <= radius;
+    /** 경계 칸 중 최근 점이 다 경계 30m 안인 칸. 걷는 속도가 아니면(차·버스로 지나감) null */
+    private Stop findWalkingAreaStop(List<Stop> stops, List<TrackPoint> recent, List<Map<Long, Double>> areaList) {
+        if (!isWalking(recent)) {
+            return null;
+        }
+        for (Stop stop : stops) {
+            if (hasArea(stop, areaList.get(0)) && isAllInsideArea(stop, areaList)) {
+                return stop;
+            }
+        }
+        return null;
+    }
+
+    /** 멈춰 있는지: 제일 새 점과 제일 오래된 점 사이가 40m 안 */
+    private boolean isStaying(List<TrackPoint> recent) {
+        TrackPoint newest = recent.get(0);
+        TrackPoint oldest = recent.get(recent.size() - 1);
+        return Geo.distanceMeters(newest.getLat(), newest.getLng(), oldest.getLat(), oldest.getLng()) <= STAY_MOVE_M;
+    }
+
+    /** 걷는 속도인지: 이웃한 점 사이(약 20초)가 다 60m 안 */
+    private boolean isWalking(List<TrackPoint> recent) {
+        for (int i = 0; i + 1 < recent.size(); i++) {
+            TrackPoint a = recent.get(i);
+            TrackPoint b = recent.get(i + 1);
+            if (Geo.distanceMeters(a.getLat(), a.getLng(), b.getLat(), b.getLng()) > WALK_STEP_M) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 일반 칸: 최근 점이 다 150m 안인지 */
+    private boolean isAllWithin(Stop stop, List<TrackPoint> recent) {
+        for (TrackPoint point : recent) {
+            if (pointMeters(stop, point) > ARRIVE_RADIUS_M) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 경계 칸: 최근 점이 다 경계 30m 안인지 */
+    private boolean isAllInsideArea(Stop stop, List<Map<Long, Double>> areaList) {
+        for (Map<Long, Double> areaMeters : areaList) {
+            Double meters = areaMeters.get(stop.getId());
+            if (meters == null || meters > AREA_ARRIVE_M) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 이 점이 칸 밖인지 (일반 칸 200m, 경계 칸은 경계 80m) */
+    private boolean isOutside(Stop stop, TrackPoint point, Map<Long, Double> areaMeters) {
+        if (hasArea(stop, areaMeters)) {
+            return areaMeters.get(stop.getId()) > AREA_LEAVE_M;
+        }
+        return pointMeters(stop, point) > LEAVE_RADIUS_M;
+    }
+
+    /** 경계(place_area)가 있는 칸인지 */
+    private boolean hasArea(Stop stop, Map<Long, Double> areaMeters) {
+        return stop.getId() != null && areaMeters.containsKey(stop.getId());
+    }
+
+    /** 점에서 칸 대표 점까지 거리(m) */
+    private double pointMeters(Stop stop, TrackPoint point) {
+        return Geo.distanceMeters(point.getLat(), point.getLng(), stop.getLat(), stop.getLng());
     }
 
     /** 칸 도착 기록 (arrived_at = 지금) */

@@ -9,13 +9,28 @@
     VALUES (#{tripId}, #{lat}, #{lng}, #{accuracy})
   </insert>
 
-  <!-- 바로 앞 GPS 한 점. 같은 시각이면 나중에 들어온 것(track_id 큰 것)이 먼저 -->
-  <select id="selectLastTrack" resultType="com.tripbiseo.live.dto.TrackPoint">
+  <!-- 최근 GPS 점, 새 것부터. 같은 시각이면 나중에 들어온 것(track_id 큰 것)이 먼저.
+       오차 큰 점, 오래된 점(GPS가 끊겼다 다시 오면 예전 위치가 섞임)은 뺌 -->
+  <select id="selectRecentTrackList" resultType="com.tripbiseo.live.dto.TrackPoint">
     SELECT lat, lng
     FROM trip_track
     WHERE trip_id = #{tripId}
+      AND (accuracy IS NULL OR accuracy &lt;= #{maxAccuracy})
+      AND recorded_at &gt;= NOW() - #{seconds} * INTERVAL '1 second'
     ORDER BY recorded_at DESC, track_id DESC
-    LIMIT 1
+    LIMIT #{count}
+  </select>
+
+  <!-- 이 점에서 경계가 있는 칸까지 거리(m). 경계 안이면 0 (ST_Distance, PostGIS).
+       칸과 경계는 place_id가 같거나 이름이 같을 때만 이음 (띄어쓰기 무시).
+       좌표로만 이으면 안 됨: 여의도샛강생태공원도 여의도한강공원 경계 안에 있음 -->
+  <select id="selectAreaMetersList" resultType="com.tripbiseo.live.dto.StopAreaMeters">
+    SELECT s.stop_id AS stopId,
+           ST_Distance(a.boundary, ST_SetSRID(ST_MakePoint(#{lng}, #{lat}), 4326)::geography) AS meters
+    FROM trip_stop s
+    JOIN place_area a ON a.place_id = s.place_id
+                      OR REPLACE(a.name, ' ', '') = REPLACE(s.name, ' ', '')
+    WHERE s.trip_id = #{tripId}
   </select>
 
   <!-- 여행의 GPS 점 전부, 시간순.
