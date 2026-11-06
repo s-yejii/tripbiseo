@@ -77,6 +77,7 @@ public class PlanServiceImpl implements PlanService {
     private static final int MUST_STAY_MIN = 90;
     private static final int FIXED_STAY_MIN = 120;
     private static final String MIDDLE_DAY_START = "10:00"; // 여러 날 여행에서 첫날이 아닌 날의 시작 (PlanRuleMaker와 같음)
+    private static final String CALL_AHEAD_MARK = "연락 필수"; // 영업시간 원문에 이 말이 있으면 미리 연락해야 하는 곳
     private static final int BOARDING_STAY_MIN = 30;     // 기차역·터미널·공항 고정 일정은 타러 가는 것뿐이라 30분 (11/06)
     private static final int MIN_STAY = 10;
     private static final int MAX_STAY = 600;
@@ -1147,6 +1148,10 @@ public class PlanServiceImpl implements PlanService {
                 continue;
             }
             Stop stop = toDraftStop(pick, place, days);
+            if (place.getUseTime() != null && place.getUseTime().contains(CALL_AHEAD_MARK)) {
+                // 관광공사 정보에 "방문 전 연락 필수"인 곳은 미리 알려 줌 (11/07 점검: 삼해소주를 아무 안내 없이 넣었음)
+                response.getNotes().add(makeNote(place.getName() + "은(는) 방문 전에 연락이 필요해요", placeService.getNaverUrl(place.getName(), null)));
+            }
             stop.setMemo(makeMemo(pick.getReason(), reasons.get(place.getId())));
             stop.setImportance(isMustStop(pick, place, conditions, mustKindsLeft) ? MUST : MAYBE); // 여행 중 대안이 꼭은 안 줄임 (11/04)
             response.getStops().add(stop);
