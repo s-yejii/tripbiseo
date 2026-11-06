@@ -172,6 +172,7 @@ public class PlanRuleMaker {
                 slotPicks.put(dayOf(pick) + "/" + pick.getSlot().trim().toUpperCase(), pick);
             }
         }
+        clampToHours(conditions, days, extras);
         moveToOpenTimes(extras, candidates, startDate);
         List<AiDraftStop> stops = new ArrayList<>(extras);
         Set<String> used = new HashSet<>();
@@ -193,6 +194,27 @@ public class PlanRuleMaker {
         removeOutsideHours(conditions, candidates, days, stops);
         addMissingKindWarnings(conditions, candidates, stops, warnings);
         return stops;
+    }
+
+    /**
+     * 꼭 갈 곳(고정 일정 말고)이 고른 시간 밖에 오면 시간 안으로 옮김 (Gemini가 15:00 시작인데 14:00에 둔 경우, 11/06).
+     * 겹치면 다음 단계(moveToOpenTimes)가 뒤로 밀어요
+     */
+    private void clampToHours(PlanConditions conditions, int days, List<AiDraftStop> extras) {
+        if (!hasDayTime(conditions)) {
+            return;
+        }
+        for (AiDraftStop extra : extras) {
+            if (Boolean.TRUE.equals(extra.getFixed()) || extra.getTime() == null || !extra.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            int day = dayOf(extra);
+            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
+            int end = day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
+            int stay = extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay();
+            int time = Math.max(start, Math.min(Geo.toMinutes(extra.getTime()), end - stay));
+            extra.setTime(Geo.toHhmm(time));
+        }
     }
 
     /**

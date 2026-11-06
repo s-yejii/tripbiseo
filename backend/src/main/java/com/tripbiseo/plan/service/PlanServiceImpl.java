@@ -1118,6 +1118,9 @@ public class PlanServiceImpl implements PlanService {
         Double nearLng = baseLng != null ? baseLng : first == null ? null : first.getLng();
         for (AiDraftStop pick : picked) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
+            if (place != null && !isSimilarName(pick.getName(), place.getName())) {
+                place = null; // Gemini가 이름과 다른 곳의 번호를 붙임 ("영등포 타임스퀘어"에 63스퀘어 번호, 11/06) → 이름으로 다시 찾음
+            }
             if (place == null && Boolean.TRUE.equals(pick.getFixed()) && isBoardingPlace(pick.getName())) {
                 place = findBoardingPlace(pick.getName(), nearLat, nearLng); // "서울역"이 "도마 서울역점" 식당으로 잡히지 않게 (11/06)
             }
@@ -1195,6 +1198,16 @@ public class PlanServiceImpl implements PlanService {
             fixed.setTime(Geo.toHhmm(Geo.toMinutes(departure) - BOARDING_BUFFER_MIN));
             notes.add(makeNote(fixed.getName() + "은 " + departure + " 출발 " + BOARDING_BUFFER_MIN + "분 전인 " + fixed.getTime() + " 도착으로 맞췄어요", null));
         }
+    }
+
+    /** 두 이름이 같은 곳으로 볼 만한지: 띄어쓰기를 빼고 한쪽이 다른 쪽을 품음. 이름이 없으면 그냥 믿음 */
+    private boolean isSimilarName(String pickName, String placeName) {
+        if (pickName == null || pickName.isBlank() || placeName == null) {
+            return true;
+        }
+        String first = pickName.replace(" ", "");
+        String second = placeName.replace(" ", "");
+        return first.contains(second) || second.contains(first);
     }
 
     /**
