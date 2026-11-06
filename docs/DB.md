@@ -49,6 +49,7 @@
 | ② | `pack_item` | 챙길 것 | | 만들 예정 (여유) |
 | ③ | `theme`, `theme_stop` | 테마 코스 | ② 읽기 | 만들 예정 |
 | ③ | `vector_store` | RAG 임베딩 (768차원) | | 만들 예정 (여유) |
+| ③ | `my_place` | 내 장소 (친구 소식·장소 상세에서 저장한 곳) | ① 마이 화면에서 읽기 | 만들 예정 (11/06, 확인 필요) |
 | ④ | `trip_track` | GPS 기록 | ⑤① 읽기 | 있음 |
 | ⑤ | `payment` | 결제 메모 | | 만들 예정 |
 | ⑤ | `card` | 결제 카드 | | 만들 예정 |
@@ -218,6 +219,21 @@
 
 ### ③ AI 일정 (김주형)
 (theme, theme_stop, vector_store)
+
+### my_place · 내 장소 (③, `13_plan.sql`, 11/06)
+친구 소식에서 "저장"을 누른 곳. 마이 > 내 장소에서 식당 · 카페 · 놀거리로 나눠 보여요. 나누기는 **저장하지 않고** 읽을 때 `retrip_place` 분류(② `PlaceMapper`의 종류 코드)로 정해요.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| my_place_id | BIGSERIAL PK | |
+| member_id | BIGINT NOT NULL → member (ON DELETE CASCADE) | 저장한 사람 |
+| place_id | TEXT NOT NULL → retrip_place (ON DELETE CASCADE) | 장소 |
+| from_name | VARCHAR(50) | 누구 소식에서 저장했는지 (예: 민지). 직접 저장이면 NULL |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+- UNIQUE (member_id, place_id): 같은 곳은 한 번만
+- 인덱스: (member_id, created_at DESC)
+- 비슷한 테이블 확인: `friend`(① 여유)와 겹치지 않아요. 친구가 생기면 `from_name` 대신 친구 번호를 넣을지 정해요
 
 ### ④ 여행 중 (신예지)
 (trip_track은 위에 있음. 더 필요하면 여기에)
