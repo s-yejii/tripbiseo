@@ -2,7 +2,7 @@
 // 개발자 모드 점 (③, 11/06): 여행 중 화면 왼쪽의 반투명 점. 개발자 모드(시연 계정)일 때만 보여요.
 // 누르면: 가짜 GPS 켜고 끄기 · 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
-import { onMounted, ref } from 'vue'
+import { ref, watch } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain } from '@/api/dev'
 import { devMode, setClockOffset, setFakeGps, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
@@ -19,7 +19,8 @@ const dateInput = ref('')
 const timeInput = ref('')
 const isBusy = ref(false)
 
-onMounted(loadStatus)
+// 개발자 모드일 때만 서버에 물어봄 (끈 사람·로그아웃한 사람은 요청 안 함, 11/06)
+watch(() => devMode.isOn, (isOn) => { if (isOn) loadStatus() }, { immediate: true })
 
 async function loadStatus() {
   try {
