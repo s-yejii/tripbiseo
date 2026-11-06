@@ -17,8 +17,8 @@ WHERE id = 'naver-597569164';
 UPDATE retrip_place SET
   rating = 4.93,
   image_url = 'https://search.pstatic.net/common/?src=https%3A%2F%2Fldb-phinf.pstatic.net%2F20260616_285%2F17815436550040M6Xu_JPEG%2FIMG_4302.jpg',
-  amenities = '남/녀 화장실 구분, 무선 인터넷, 단체 이용 가능, 예약, 콜키지 가능(유료), 주차 불가',
-  overview = '문래동 골목 속 일본 현지 분위기의 야키토리 이자카야. 비장탄 화로에 직접 구운 꼬치, 대표 메뉴 야키토리 5종·오뎅 5종과 생맥주·사케. 오뎅탕과 삿포로 생맥주가 잘 어울려요. 신도림역 6번 출구에서 375m. 네이버 예약 가능. 인스타그램 @hanamato_mullae',
+  amenities = '남/녀 화장실 구분, 무선 인터넷, 단체 이용 가능, 예약',
+  overview = '문래동 골목 속 일본 현지 분위기의 야키토리 이자카야. 비장탄 화로에 직접 구운 꼬치, 대표 메뉴 야키토리 5종·오뎅 5종과 생맥주·사케. 오뎅탕과 삿포로 생맥주가 잘 어울려요. 신도림역 6번 출구에서 375m. 콜키지 가능(유료), 주차 불가. 네이버 예약 가능. 인스타그램 @hanamato_mullae',
   updated_at = '2026-11-06T00:00:00.000Z'
 WHERE id = 'naver-2085802165';
 
@@ -28,8 +28,8 @@ WHERE id = 'naver-2085802165';
 --  https://search.pstatic.net/common/?src=https%3A%2F%2Fldb-phinf.pstatic.net%2F20240919_132%2F1726727892763ygucV_JPEG%2F88.jpg
 UPDATE retrip_place SET
   image_url = 'https://search.pstatic.net/common/?src=https%3A%2F%2Fldb-phinf.pstatic.net%2F20240919_124%2F1726727906988fH0id_JPEG%2F33.jpg',
-  amenities = '단체 이용 가능, 포장, 배달, 예약, 남/녀 화장실 구분, 유아의자, 대기공간, 간편결제, 생일/기념일 혜택, 글루텐프리 메뉴, 콜키지 가능(유료), 반려동물 동반 불가, 주차(유료, 최초 10분 1,500원)',
-  overview = '흑백요리사2 윤진원 셰프의 차이니즈 다이닝. 트러플 풍미 가득한 스테이크 짜장면이 대표 메뉴. 런치 특선 19,000원(2026.11.04~2027.10.31). 라스트오더 20:50. 여의도역(5·9호선) 1번 출구에서 51m. 네이버 예약 가능. 인스타그램 @mutandining',
+  amenities = '단체 이용 가능, 포장, 배달, 예약, 남/녀 화장실 구분, 유아의자, 대기공간, 간편결제, 주차',
+  overview = '흑백요리사2 윤진원 셰프의 차이니즈 다이닝. 트러플 풍미 가득한 스테이크 짜장면이 대표 메뉴. 런치 특선 19,000원(2026.11.04~2027.10.31). 라스트오더 20:50. 여의도역(5·9호선) 1번 출구에서 51m. 주차 유료(최초 10분 1,500원), 콜키지 가능(유료), 글루텐프리 메뉴, 생일·기념일 혜택, 반려동물 동반 불가. 네이버 예약 가능. 인스타그램 @mutandining',
   updated_at = '2026-11-06T00:00:00.000Z'
 WHERE id = 'naver-1971705948';
 
@@ -39,8 +39,8 @@ WHERE id = 'naver-1971705948';
 --  https://search.pstatic.net/common/?src=https%3A%2F%2Fldb-phinf.pstatic.net%2F20260926_218%2F1790425280061BB76W_JPEG%2FDSCF1273.jpg
 UPDATE retrip_place SET
   image_url = 'https://search.pstatic.net/common/?src=https%3A%2F%2Fldb-phinf.pstatic.net%2F20260926_253%2F1790425279881wqbAK_JPEG%2FKakaoTalk_Photo_2024-06-07-01-13-21_025.jpg',
-  amenities = '단체 이용 가능, 포장, 주차 불가(더현대서울 주차 안내 확인), 1인석, 바테이블, 단체석(3~10명)',
-  overview = '서울 3대 크로아상. 흑백요리사2 김훈 셰프, tvN 스트릿 레스토랑 파이터 우승. 프랑스 AOP 인증 레스큐어 버터 사용. 퀸아망과 마르게리타가 특별한 맛. 더현대서울 지하 1층 파이브가이즈 옆 (1층 4-5번 게이트 앞 에스컬레이터). 여의나루역 1번 출구에서 384m. 라스트오더 20:25. 인스타그램 @we.love_teddy',
+  amenities = '단체 이용 가능, 포장',
+  overview = '서울 3대 크로아상. 흑백요리사2 김훈 셰프, tvN 스트릿 레스토랑 파이터 우승. 프랑스 AOP 인증 레스큐어 버터 사용. 퀸아망과 마르게리타가 특별한 맛. 더현대서울 지하 1층 파이브가이즈 옆 (1층 4-5번 게이트 앞 에스컬레이터). 여의나루역 1번 출구에서 384m. 라스트오더 20:25. 1인석·바테이블·단체석(3~10명). 매장 주차는 없고 더현대서울 주차장을 이용해요. 인스타그램 @we.love_teddy',
   updated_at = '2026-11-06T00:00:00.000Z'
 WHERE id = 'naver-1096877686';
 
