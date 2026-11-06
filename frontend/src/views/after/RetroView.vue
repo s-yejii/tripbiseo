@@ -111,34 +111,6 @@ const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
 const MAP_PADDING_TOP = 60 // 위쪽 뒤로가기 버튼에 안 가리게
 const MAP_PADDING_SIDE = 40 // 핀이 화면 양옆에 잘리지 않게
 const MAP_PADDING_BOTTOM = 100 // 재생 막대에 안 가리게
-const BAR_FULL_MINUTES = 240 // 막대가 꽉 차는 기준 시간(분) // 240분으로 정한 이유는 한 장소에 4시간 이상 머무는 일은 거의 없을것 같아서 주관임.
-
-// 머문 시간을 %로 해주는 것
-function toBarWidth(minutes) {
-  return Math.min(100, (minutes / BAR_FULL_MINUTES) * 100)
-}
-
-// 계획 vs 실제 막대: 실제로 머문 기록이 있는 장소만 한 줄씩 만듦
-const compare = computed(() => {
-  const rows = []
-  if(retro.value === null)
-  return rows
-
-  for(const place of retro.value.stops) {
-    if(place.actualStay === null) continue // 머문 기록이 없으면 비교할 수 없어서 건너뜀
-
-    const diff = place.actualStay - place.stay // 실제 - 계획. 예: 80 - 60 = 20분 더 머묾
-    rows.push({
-      name: place.name,
-      plan: toBarWidth(place.stay),
-      real: toBarWidth(place.actualStay),
-      diff: (diff > 0 ? '+' : '') + diff + '분', // 더 머물렀으면 앞에 + 를 붙임
-      cls: diff > 0 ? 'c-warning' : 'muted', // 더 머문 곳만 눈에 띄는 색으로 표시
-    })
-  }
-  return rows
-})
-
 // 다녀온 길 : 자옷를 순서대로 한 줄 씩 담음 : {  예: { no: 1, name: '경복궁', timeText: '13:00 ~ 14:20', skipped: false }
 const timeline = computed(() => {
   const rows = []
@@ -178,64 +150,6 @@ const leave = toMinutes(from.actualArrive) + from.actualStay
 const arrive = toMinutes(to.actualArrive)
 return { type : 'move', text : '이동 ' + (arrive - leave) + '분', timeText: toTime(leave) + ' ~ ' + to.actualArrive }
 }
-
-// 분류별로 계획과의 시간 차이 합계와 장소 개수를 모음. 예: { 카페: { sum: 36, count: 2 } }
-const categoryTotals = computed(() => {
-  const totals = {}
-  if (retro.value === null) return totals
-
-  for (const place of retro.value.stops) {
-    if (place.actualStay ===null) continue // 머문 기록이 없는 곳은 뺌
-    if (place.category === null) continue // 분류가 없는 곳은 뺌
-    const categoryName = place.category.split(',')[0] // 쉼표 앞 첫 분류만 씀. 예: '카페,디저트' → '카페'
-    if (totals[categoryName] === undefined) // 처음 나온 분류면 0부터 시작
-      totals[categoryName] = { sum : 0, count: 0 }
-    totals[categoryName].count = totals[categoryName].count + 1 // 장소 개수 1 늘림
-    totals[categoryName].sum = (place.actualStay - place.stay) + totals[categoryName].sum // 이번 차이를 합계에 더함
-  }
-  return totals
-})
-
-// 계획보다 평균적으로 가장 더 머무른 분류를 찾음
-const topCategory = computed(() => {
-  let best = null // 지금까지의 1등. 예: { name: '카페', average: 18 }
-
-  // for...in은 객체의 키를 하나씩 꺼내요
-  for (const categoryName in categoryTotals.value) { // categoryName: 분류 이름. 예: '카페'
-    const total = categoryTotals.value[categoryName] // total: 그 분류의 합계와 개수. 예: { sum: 36, count: 2 }
-    const average = Math.round(total.sum / total.count) // average: 한 곳당 계획과의 평균 차이(분). 예: 18
-
-    if (best === null || average > best.average) {
-      best = { name : categoryName, average : average }
-    }
-  }
-  return best
-})
-
-// 배너 첫 줄 문구. 비교할 기록이 없으면 null
-const bannerTitle = computed(() => {
-  if (topCategory.value === null) return null
-
-  const name = topCategory.value.name
-  const average = topCategory.value.average
-
-  if (average > 0) return name + '에선 평균 ' + average + '분 더 머물렀어요'
-  if (average < 0) return name + '에선 평균 ' + Math.abs(average) + '분 덜 머물렀어요'
-  return name + '에선 계획대로 머물렀어요'
-})
-
-
-// 배너 두 번째 줄 문구. 기록이 없거나 평균 차이가 0이면 null
-const bannerTip = computed(() => {
-  if (topCategory.value === null) return null
-
-  const name = topCategory.value.name
-  const average = topCategory.value.average
-
-  if (average > 0) return '다음 여행엔 ' + name + ' 시간을 넉넉히 잡아 보세요'
-  if (average < 0) return '다음 여행엔 ' + name + ' 시간을 줄여도 괜찮을거 같아요'
-  return null
-})
 
 //화면이 열리면 회고 데이터를 가져옴
 onMounted(async () => {
@@ -424,21 +338,6 @@ function toggleMapType() {
           </div>
         </section>
 
-        <section class="card card--pad retro-cmp" aria-labelledby="cmp-h">
-          <div class="sec-h" style="min-height: 28px">
-            <h2 id="cmp-h" class="t-sub">계획 vs 실제</h2>
-            <span class="t-cap" style="display: inline-flex; gap: 10px"><span><i class="retro-key" style="background: var(--line-strong)"></i> 계획</span><span><i class="retro-key" style="background: var(--navy)"></i> 실제</span></span>
-          </div>
-          <div v-for="row in compare" :key="row.name" class="cmp">
-            <span class="t-strong" style="font-size: 14px">{{ row.name }}</span>
-            <span class="cmp__bars"><i :style="{ width: row.plan + '%', background: 'var(--line-strong)' }"></i><i :style="{ width: row.real + '%', background: 'var(--navy)' }"></i></span>
-            <b class="tn" :class="row.cls" style="font-size: 13px; text-align: right">{{ row.diff }}</b>
-          </div>
-          <div v-if="bannerTitle" class="banner banner--info" style="margin-top: 6px">
-            <i class="ic i-info" aria-hidden="true"></i>
-          <span class="banner__body"><span class="t-strong">{{ bannerTitle }}</span><span v-if="bannerTip" class="t-cap">{{ bannerTip }}</span></span></div>
-
-        </section>
       </div>
 
       <div class="cta">
@@ -456,7 +355,6 @@ function toggleMapType() {
 .scr-Retro .map{z-index: 0 }
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
-.scr-Retro .retro-cmp{display:flex;flex-direction:column;gap:6px}
 /* 다녀온 길: 왼쪽 세로 점선 위에 번호 원과 이동 아이콘을 올림 */
 /* 지도 핀: 건너뛴 곳은 타임라인 번호 원과 같은 회색 점선 */
 .scr-Retro .pin.pin--skipped{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong)}
@@ -476,12 +374,8 @@ function toggleMapType() {
 .scr-Retro .retro-tl__icon{position:relative;z-index:1;width:28px;flex:none;display:flex;justify-content:center}
 .scr-Retro .retro-tl__icon>span{width:22px;height:22px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink-subtle)}
 .scr-Retro .retro-tl__icon .ic{width:14px;height:14px}
-.scr-Retro .retro-key{display:inline-block;width:10px;height:8px;border-radius:4px}
 .scr-Retro .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .scr-Retro .stat{padding:12px;border-radius:var(--radius-lg);background:var(--surface-raised);border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
 .scr-Retro .stat b{font-size:20px;line-height:28px;font-weight:700;font-variant-numeric:tabular-nums}
-.scr-Retro .cmp{display:grid;grid-template-columns:88px 1fr 44px;column-gap:10px;align-items:center;min-height:36px}
-.scr-Retro .cmp__bars{display:flex;flex-direction:column;gap:3px}
-.scr-Retro .cmp__bars i{display:block;height:8px;border-radius:999px}
 .scr-Retro .player{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-full);background:var(--surface-raised);box-shadow:var(--shadow-card)}
 </style>
