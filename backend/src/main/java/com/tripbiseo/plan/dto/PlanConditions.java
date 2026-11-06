@@ -17,6 +17,9 @@ public class PlanConditions {
     private String region;              // "내 위치·여기·근처"라고 하면 "내 위치"
     private String startDate;           // 없으면 오늘
     private String endDate;             // 없으면 startDate
+    private String startTime;           // 하루 시작 'HH:mm' (여행 정보 화면, 없으면 정해 둔 칸대로)
+    private String endTime;             // 하루 끝 'HH:mm'. 마지막 장소가 이 시각 안에 끝나요
+    private List<com.tripbiseo.trip.dto.Stop> keptStops; // 직접 고르기에서 담은 곳 (순서·시각 그대로 두고 빈 시간만 채워요)
     private Integer people;             // 없으면 1
     private List<String> transports;    // 없으면 ["subway","bus","walk"]
     private List<String> mustVisit;     // 꼭 갈 곳 이름
@@ -25,6 +28,9 @@ public class PlanConditions {
     // ---- 11/03 여행 정보 화면에서 고른 값 (Gemini가 아니라 화면이 채움)
     private List<String> kinds;         // 어디 위주로: food · cafe · bar · tour (없으면 food·cafe)
     private List<String> tags;          // 이런 곳이면 더 좋아요: mood · quiet · value · no_wait · solo (가산점)
+    private List<PlanArea> areas;       // 서울 구 지도에서 고른 구들 (여러 개면 순서대로 돌아요, 11/04)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private java.util.Set<String> dongPlaceIds; // 고른 동 안의 장소 id (서버 안에서만 씀)
     private Double areaLat;             // 어디로 가요? 고른 지역 중심 (있으면 주소 글자 대신 이 반경에서 후보)
     private Double areaLng;
     private String areaType;            // gu(구) / dong(동) / spot(동네) → 반경 크기

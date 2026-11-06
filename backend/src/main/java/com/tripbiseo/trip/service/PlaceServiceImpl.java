@@ -225,6 +225,12 @@ public class PlaceServiceImpl implements PlaceService {
         return locationSearchClient.searchLocations(checkQuery(query), lat, lng);
     }
 
+    /** 좌표 근처 지하철역·구청·시청 */
+    @Override
+    public List<FoundLocation> getLocationHubList(double lat, double lng) {
+        return locationSearchClient.searchHubs(lat, lng);
+    }
+
     /** 현재 위치의 건물 이름·주소. 못 찾으면 404 */
     @Override
     public FoundLocation getLocationHere(double lat, double lng) {

@@ -7,9 +7,14 @@
 //     (빈 시각은 점검으로 채운 뒤 PUT /api/trips/{id}/stops)
 // 순서를 바꾸면 첫 칸·고정 칸 시각만 두고 나머지는 비워요 (utils/draftEdit). ✕는 들어오기 전으로 되돌려요
 // 고정 칸(예약) 위에 놓으면 그 앞·뒤에 끼워 넣어요 (예약 전에 다른 곳 먼저 가기)
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+// 위 40%는 지도 (11/04): 번호 핀 + 순서대로 잇는 선. 칸을 누르면 핀이 커지고(한 번 더 누르면 한 칸 수정), 핀을 누르면 그 칸으로 스크롤
+// − 는 바로 빼고 토스트로 되돌려요 (완료 전에는 서버에 안 가요). 지도의 [동선 최적화]는 상세 화면과 같은 함수
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { importance } from '@/data/places'
+import { checkPlan } from '@/api/trips'
+import KakaoMap from '@/components/common/KakaoMap.vue'
+import { useRouteOptimize } from '@/utils/useRouteOptimize'
 import { useTripStore } from '@/stores/trip'
 import { goBackTo } from '@/utils/back'
 import { addDays } from '@/utils/dates'
@@ -17,6 +22,8 @@ import { cancelEdit, dayStopsOf, dropPlaceOf, editingTripOf, finishEdit, loadEdi
 import { toDuration } from '@/utils/time'
 import { toShortDate, tripDetailLink } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
+import { useStopPhotos } from '@/utils/useStopPhotos'
+import StopThumb from '@/components/trip/StopThumb.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +46,76 @@ const dayList = computed(() => {
   for (let d = 1; d <= last; d++) list.push({ day: d, label: trip.value.startDate ? toShortDate(addDays(trip.value.startDate, d - 1)) : '' })
   return list
 })
+const stopPhotos = useStopPhotos(() => (hasTrip.value ? dayStopsOf(trip.value, day.value) : [])) // 칸 사진 (홈 카드와 같은 함수)
+const MAP_PADDING = { top: 36, right: 36, bottom: 28, left: 36 }
+const FOCUS_LEVEL_KEEP = null // 칸을 눌러 옮길 때 지도 확대 단계는 그대로
+const mapRef = ref(null)
+const selected = ref(null) // 고른 칸 번호
+const mapStops = computed(() => (hasTrip.value ? dayStopsOf(trip.value, day.value) : []))
+const mapPins = computed(() => mapStops.value.map((stop, i) => ({
+  key: i,
+  index: i,
+  lat: stop.lat,
+  lng: stop.lng,
+  text: i + 1,
+  cls: selected.value === i ? 'pin--sel' : '',
+  label: i + 1 + ' ' + stop.name,
+})))
+// 칸을 누름: 처음엔 핀을 키우고 지도 가운데로, 이미 고른 칸을 또 누르면 한 칸 수정
+function pickRow(i) {
+  if (selected.value === i) return openStop(i)
+  selected.value = i
+  const stop = mapStops.value[i]
+  if (mapRef.value && stop.lat != null) mapRef.value.moveTo(stop.lat, stop.lng, FOCUS_LEVEL_KEEP)
+}
+// 핀을 누름: 그 칸으로 스크롤
+async function pickPin(pin) {
+  selected.value = pin.index
+  await nextTick()
+  document.querySelector(`.scr-PlanEdit .erow[data-idx="${pin.index}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+// 이동 시간 비교: 처음 값과 지금 값 (순서·칸이 바뀔 때마다 점검으로 다시 재요)
+const firstMove = ref(null)
+const nowMove = ref(null)
+async function measureMove() {
+  try {
+    const check = await checkPlan(trip.value, day.value)
+    let minutes = 0
+    for (const leg of check.legs || []) minutes += leg.minutes || 0
+    nowMove.value = minutes
+    if (firstMove.value === null) firstMove.value = minutes
+    return minutes
+  } catch {
+    return null
+  }
+}
+watch(() => day.value + '/' + mapStops.value.map((stop) => stop.name).join('|'), (key, oldKey) => {
+  if (!mapStops.value.length) return
+  if (oldKey && key.split('/')[0] !== oldKey.split('/')[0]) firstMove.value = null // 다른 날로 바꾸면 처음부터
+  measureMove()
+}, { immediate: true })
+// 지도의 [동선 최적화]: 누를 때마다 다음 후보로 (저장은 "완료"할 때)
+const optimize = useRouteOptimize({
+  stopsOf: () => dayStopsOf(trip.value, day.value),
+  dateOf: () => addDays(trip.value.startDate, day.value - 1),
+  transportsOf: () => trip.value.transports,
+  apply: applyOrder,
+})
+async function applyOrder(list) {
+  const before = nowMove.value
+  const backup = JSON.parse(JSON.stringify(trip.value.stops))
+  setDayStops(trip.value, day.value, list)
+  selected.value = null
+  const after = await measureMove()
+  showToast(`이동 ${before}분 → ${after}분`, {
+    isTop: true,
+    actionText: '되돌리기',
+    action: () => {
+      optimize.reset()
+      trip.value.stops = backup
+    },
+  })
+}
 const dragIndex = ref(null) // 끌고 있는 칸 번호
 const dropTo = ref(null) // 놓을 칸 번호
 const dropPlace = ref(null) // 'swap' 자리 바꾸기 / 'before'·'after' 고정 칸 앞·뒤에 끼우기
@@ -84,6 +161,8 @@ function moveRow(from, to, place) {
   const moved = orderAfterDrop(list.length, from, to, place).map((i) => list[i])
   retime(moved, startTime)
   setDayStops(trip.value, day.value, moved)
+  selected.value = null
+  optimize.reset()
 }
 // 끌기: 다른 칸은 그대로, 끄는 칸만 손가락을 따라 움직이고 놓은 자리의 칸과 자리를 바꿔요 (11/04)
 // 움직임·놓기는 화면 전체(window)에서 받아요 (손가락이 손잡이 밖으로 나가도 계속)
@@ -140,8 +219,18 @@ function sheetLink(path, i) {
 function openStop(i) {
   router.push(sheetLink('/plan/edit/stop', i))
 }
-function openDelete(i) {
-  router.push(sheetLink('/plan/edit/delete', i))
+// − : 바로 빼고, 토스트의 되돌리기로 살려요 (완료 전에는 서버에 안 가요)
+function removeRow(i) {
+  const list = dayStopsOf(trip.value, day.value)
+  const backup = JSON.parse(JSON.stringify(trip.value.stops))
+  const startTime = list[0].time
+  const name = list[i].name
+  const rest = list.filter((stop, index) => index !== i)
+  retime(rest, startTime)
+  setDayStops(trip.value, day.value, rest)
+  selected.value = null
+  optimize.reset()
+  showToast(name + ' 뺐어요', { actionText: '되돌리기', action: () => { trip.value.stops = backup } })
 }
 
 // 저장된 여행이면 상세로, 초안이면 일정 점검으로
@@ -187,7 +276,10 @@ async function done() {
         <button type="button" class="btn btn--primary btn--sm" :disabled="isLoading || isSaving || !hasTrip" @click="done">{{ isSaving ? '저장 중' : '완료' }}</button>
       </header>
 
-      <div class="scroll" style="padding-top: 4px; gap: 10px; bottom: 34px">
+      <div v-if="mapStops.length" class="pe-map">
+        <KakaoMap ref="mapRef" :pins="mapPins" :padding="MAP_PADDING" :fit-key="day + '/' + mapStops.length" @pick="pickPin" />
+      </div>
+      <div class="scroll" :class="{ 'pe-list': mapStops.length }" style="padding-top: 4px; gap: 10px; bottom: 34px">
         <p v-if="isLoading" class="t-cap">일정을 불러오는 중이에요</p>
         <p v-else-if="loadError" class="t-cap c-warning">{{ loadError }}</p>
         <p v-else-if="!hasTrip" class="t-cap">고칠 일정이 없어요</p>
@@ -197,20 +289,22 @@ async function done() {
         </div>
         <p class="t-cap" style="display: flex; align-items: center; gap: 4px"><i class="ic ic--s i-grip" aria-hidden="true"></i>손잡이를 끌어 순서를 바꿔요 · 시각은 다시 계산해요</p>
 
+        <p v-if="firstMove !== null && nowMove !== firstMove" class="t-cap tn" style="margin: 0">이동 {{ firstMove }}분 → {{ nowMove }}분</p>
         <ol class="elist">
           <li
             v-for="(stop, i) in rows"
             :key="stop.key"
             class="erow"
-            :class="{ 'is-drag': dragIndex === i, 'is-target': dropTo === i && dropPlace === 'swap', 'is-before': dropTo === i && dropPlace === 'before', 'is-after': dropTo === i && dropPlace === 'after' }"
+            :class="{ 'is-sel': selected === i, 'is-drag': dragIndex === i, 'is-target': dropTo === i && dropPlace === 'swap', 'is-before': dropTo === i && dropPlace === 'before', 'is-after': dropTo === i && dropPlace === 'after' }"
             :style="dragIndex === i ? { transform: 'translateY(' + dragY + 'px)' } : null"
             :data-idx="i"
           >
-            <button v-if="!stop.isDone" type="button" class="delbtn" :aria-label="stop.name + ' 빼기'" @click="openDelete(i)"><i class="ic ic--s i-minus" aria-hidden="true"></i></button>
+            <button v-if="!stop.isDone" type="button" class="delbtn" :aria-label="stop.name + ' 빼기'" @click="removeRow(i)"><i class="ic ic--s i-minus" aria-hidden="true"></i></button>
             <span v-else class="delbtn" style="visibility: hidden" aria-hidden="true"></span>
-            <button type="button" class="stop" :class="{ 'is-fixed': stop.fixed }" style="grid-template-columns: 1fr" @click="openStop(i)">
+            <button type="button" class="stop" :class="{ 'is-fixed': stop.fixed }" style="grid-template-columns: 1fr" @click="pickRow(i)">
               <span class="stop__card">
-                <img class="thumb" :src="stop.img" alt="" />
+                <span class="pe-num tn" aria-hidden="true">{{ i + 1 }}</span>
+                <StopThumb :src="stopPhotos[stop.name]" :name="stop.name" :category="stop.category" />
                 <span class="stop__body">
                   <span class="stop__name">{{ stop.name }}</span>
                   <span v-if="stop.isDone" class="stop__meta c-success"><i class="ic ic--s i-check" aria-hidden="true"></i>{{ stop.time }} · 다녀왔어요</span>
@@ -246,6 +340,11 @@ async function done() {
 </template>
 
 <style>
+.scr-PlanEdit .pe-map { position: absolute; top: 103px; left: 0; right: 0; height: 36%; z-index: 1; }
+.scr-PlanEdit .pe-map__btn { position: absolute; top: 10px; right: 10px; z-index: 2; }
+.scr-PlanEdit .scroll.pe-list { top: calc(103px + 36%); padding-top: 8px !important; }
+.scr-PlanEdit .pe-num { flex: none; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--navy); color: #fff; font-size: 11px; font-weight: 700; }
+.scr-PlanEdit .erow.is-sel .stop__card { border-color: var(--navy); }
 .scr-PlanEdit .elist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .scr-PlanEdit .grip { touch-action: none; }
 .scr-PlanEdit .pe-days { display: flex; gap: 6px; overflow-x: auto; }

@@ -56,10 +56,36 @@ public class TripController {
         return tripService.updateTrip(loginUser.id(), id, trip);
     }
 
-    /** 여행 삭제 */
+    /** 여행 삭제 = 휴지통으로 옮기기 */
     @DeleteMapping("/{id}")
     public OkResponse deleteTrip(@PathVariable long id) {
         tripService.deleteTrip(loginUser.id(), id);
+        return new OkResponse();
+    }
+
+    /** 휴지통 목록 */
+    @GetMapping("/trash")
+    public List<Trip> getTrashList() {
+        return tripService.getTrashList(loginUser.id());
+    }
+
+    /** 휴지통 비우기 */
+    @DeleteMapping("/trash")
+    public OkResponse deleteAllTrash() {
+        tripService.deleteAllTrash(loginUser.id());
+        return new OkResponse();
+    }
+
+    /** 휴지통에서 꺼내기 */
+    @PostMapping("/{id}/restore")
+    public Trip restoreTrip(@PathVariable long id) {
+        return tripService.restoreTrip(loginUser.id(), id);
+    }
+
+    /** 휴지통의 여행 영구 삭제 */
+    @DeleteMapping("/{id}/trash")
+    public OkResponse deleteTrashTrip(@PathVariable long id) {
+        tripService.deleteTrashTrip(loginUser.id(), id);
         return new OkResponse();
     }
 
@@ -73,6 +99,12 @@ public class TripController {
     @PostMapping("/{id}/finish")
     public Trip finishTrip(@PathVariable long id) {
         return tripService.finishTrip(loginUser.id(), id);
+    }
+
+    /** 진행 중인 여행 보관 */
+    @PostMapping("/{id}/archive")
+    public Trip archiveTrip(@PathVariable long id) {
+        return tripService.archiveTrip(loginUser.id(), id);
     }
 
     /** 일정 칸 추가 */

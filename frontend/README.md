@@ -36,3 +36,7 @@ npm run dev
 ```sh
 npm run build
 ```
+
+## 데이터 출처
+
+- 지도 경계 데이터: 통계청 SGIS, vuski/admdongkor (CC BY 4.0). 자세한 표기는 `public/geo/README.md`

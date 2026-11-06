@@ -25,7 +25,9 @@ export function goBack(fallback = '/') {
     return
   }
   const meta = router.currentRoute.value.meta
-  const hasPrevious = window.history.state && window.history.state.back
+  const previous = window.history.state && window.history.state.back
+  // 바로 전 기록이 지금 화면과 같으면 되감아도 그대로예요 (예: 알림 → 상세 → 알림으로 돌아온 뒤 뒤로가기)
+  const hasPrevious = previous && previous.split('?')[0] !== router.currentRoute.value.path
   if (meta.history && hasPrevious) {
     router.back()
     return

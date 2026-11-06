@@ -2,7 +2,10 @@
 // S05 새 여행 · 방법 고르기 (③): AI가 짜 주기 / 지도에서 직접 고르기 / 무계획(곧 나와요)
 import { ref } from 'vue'
 import TopBar from '@/components/common/TopBar.vue'
+import { useTripStore } from '@/stores/trip'
 import { showToast } from '@/utils/toast'
+
+useTripStore().replanFrom = null // 새 여행 고르기로 오면 다시 짜기는 그만둔 것 (저장할 때 옛 여행을 묻지 않게)
 
 const notify = ref(false) // 무계획 여행 나오면 알림 받기
 
@@ -30,7 +33,7 @@ function toggleNotify() {
             </span>
             <i class="ic i-next subtle" aria-hidden="true"></i>
           </RouterLink>
-          <RouterLink to="/plan/info?method=me" class="nt-opt" role="listitem">
+          <RouterLink to="/plan/manual/start" class="nt-opt" role="listitem">
             <span class="ico-tile"><i class="ic ic--l i-map" aria-hidden="true"></i></span>
             <span class="nt-opt__b">
               <span class="nt-opt__t"><b>지도에서 직접 고르기</b></span>

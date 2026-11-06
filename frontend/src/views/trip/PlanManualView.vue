@@ -1,232 +1,449 @@
 <script setup>
-// S09-a 지도에서 직접 고르기 (②): 검색·걸러 보기로 장소를 찾고, 골라서 일정 동선에 맞게 담아요
-// 검색어를 쓰면 서버(GET /api/places/search)에서 우리 DB 장소를 찾고, 고른 곳은 여행 초안(store)에 담아요.
-// 검색어가 없을 때는 시연용 가짜 장소를 그대로 보여 줘요.
-import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+// S09-a 지도에서 직접 고르기 (②): 지도가 먼저예요. 칩·검색·링크로 실제 장소를 찾아 핀을 누르고 담아요
+// 담을 때마다 일정 점검(POST /api/plans/check)으로 구간 시간·도착 시각·영업시간 문제를 다시 계산해요
+// [동선 정리]는 거리 기준 (AI 아님), [AI로 채우기]는 고른 곳을 꼭 갈 곳으로 두고 남은 시간을 채워요 → 일정 만들기 흐름
+import ChipScroller from '@/components/common/ChipScroller.vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
-import { places } from '@/data/places'
-import { concertTrip } from '@/data/trips'
-import { searchPlaces } from '@/api/trips'
+import KakaoMap from '@/components/common/KakaoMap.vue'
+import TopBar from '@/components/common/TopBar.vue'
+import TripTimeline from '@/components/trip/TripTimeline.vue'
+import { checkPlan, findLinkPlaces, generatePlan, getManualPlaces, getPlaceDetail, getPlacePhotos, getRouteOrder, searchPlaces } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
-import { imageFor } from '@/utils/mapView'
-import { goBack } from '@/utils/back'
+import { addDays, daysBetween } from '@/utils/dates'
+import { dayStopsOf, retime, setDayStops } from '@/utils/draftEdit'
+import { toShortDate, toViewTrip } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
+import { useStopPhotos } from '@/utils/useStopPhotos'
+import { toMinutes, toTime } from '@/utils/time'
+import { modes } from '@/data/places'
 
+const KINDS = [
+  { code: 'food', label: '맛집' },
+  { code: 'cafe', label: '카페' },
+  { code: 'bar', label: '술집' },
+  { code: 'culture', label: '볼거리' },
+  { code: 'tour', label: '들를 곳' },
+]
+const RESULT_MAX = 30 // 지도에 보여 줄 장소 수
+const LIST_MAX = 5 // 시트에 보여 줄 장소 수
+const AREA_MAX = 3 // 칩으로 찾을 때 살펴볼 구 수
+const SEARCH_DELAY_MS = 300
+const DEFAULT_START = '10:00'
+const MAP_PADDING = { top: 110, right: 40, bottom: 520, left: 40 }
+const SEOUL_CENTER = { lat: 37.5665, lng: 126.978 }
+
+const route = useRoute()
 const router = useRouter()
 const store = useTripStore()
+
+const day = ref(Number(route.query.day || 1))
+const check = ref(null) // 점검 결과 (그날)
+const kind = ref('food')
 const keyword = ref('')
-
-// ---------------------------------------------------------------- 서버 검색
-const serverResults = ref([]) // 검색 결과 (장소 카드)
-const pickedServer = ref([]) // 고른 서버 장소 [{ place, fixedTime }]
-const searchError = ref('')
+const results = ref([]) // 찾은 장소 카드
+const isLoading = ref(false)
+const message = ref('')
+const picked = ref(null) // 핀을 눌러 본 장소
+const pickedDetail = ref(null) // { rating, reviewCount, hours, photo }
+const pane = ref('find') // 시트 내용: find 장소 찾기 / plan 내 일정
+const isLinkOpen = ref(false)
+const linkUrl = ref('')
+const isLinkLoading = ref(false)
+const fitKey = ref('') // 바뀌면 지도를 다시 맞춤
 let searchTimer = null
-const SEARCH_DELAY_MS = 300 // 글자를 칠 때마다 부르지 않고, 멈추면 한 번
 
-watch(() => keyword.value, (word) => {
-  clearTimeout(searchTimer)
-  if (!word.trim()) {
-    serverResults.value = []
-    return
-  }
-  searchTimer = setTimeout(() => runSearch(word.trim()), SEARCH_DELAY_MS)
+const startTime = computed(() => store.planStartTime || DEFAULT_START)
+const dayCount = computed(() => {
+  if (!store.draft.startDate) return 1
+  return daysBetween(store.draft.startDate, store.draft.endDate || store.draft.startDate) + 1
 })
-
-async function runSearch(word) {
-  try {
-    serverResults.value = await searchPlaces(word)
-    searchError.value = ''
-  } catch (e) {
-    serverResults.value = []
-    searchError.value = e.message
-  }
-}
-
-function isServerPicked(place) {
-  return pickedServer.value.some((item) => item.place.id === place.id && item.place.name === place.name)
-}
-function toggleServerPick(place) {
-  const i = pickedServer.value.findIndex((item) => item.place.id === place.id && item.place.name === place.name)
-  if (i > -1) pickedServer.value.splice(i, 1)
-  else pickedServer.value.push({ place, fixedTime: null })
-}
-// 공연·예약처럼 시간이 정해진 곳: 시각을 받아 고정 일정으로
-function pickAsFixed(place) {
-  const time = window.prompt(place.name + '의 정해진 시각 (예: 18:30)', '18:30')
-  if (!time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return
-  const found = pickedServer.value.find((item) => item.place.id === place.id && item.place.name === place.name)
-  if (found) found.fixedTime = time
-  else pickedServer.value.push({ place, fixedTime: time })
-}
-
-const filters = ref({ star: true }) // 켜진 거르기
-const picked = ref([]) // 고른 장소 id들
-
-const filterList = [
-  { key: 'star', label: '★3.0 이상' },
-  { key: '맛집', label: '맛집', words: ['점심', '저녁', '한식'] },
-  { key: '카페', label: '카페', words: ['카페'] },
-  { key: '쇼핑', label: '쇼핑', words: ['쇼핑'] },
-  { key: '전시', label: '전시', words: ['전시', '갤러리'] },
-  { key: '술집', label: '술집', words: ['술집'] },
-]
-
-// 일정에서 가장 가까운 장소까지 걸어서 몇 분 (지도 8px ≈ 걸어서 1분)
-function walkFromPlan(id) {
-  const p = places[id]
-  let nearest = Infinity
-  concertTrip.stops.forEach((stop) => {
-    nearest = Math.min(nearest, Math.hypot(p.x - stop.x, p.y - stop.y))
-  })
-  return Math.max(2, Math.round(nearest / 8))
-}
-
-// 일정에 아직 없는 장소 → 검색어 → 종류 → 별점 순서로 걸러요
-const inPlan = concertTrip.stops.map((stop) => stop.id)
-const notInPlan = Object.keys(places).filter((id) => !inPlan.includes(id))
-
-const beforeStar = computed(() => {
-  let list = notInPlan
-  const word = keyword.value.trim()
-  if (word) list = list.filter((id) => (places[id].name + places[id].cat).includes(word))
-  const types = filterList.filter((f) => f.words && filters.value[f.key])
-  if (types.length) list = list.filter((id) => types.some((f) => f.words.some((w) => places[id].cat.includes(w))))
+const dayList = computed(() => {
+  const list = []
+  for (let d = 1; d <= dayCount.value; d++) list.push({ day: d, label: toShortDate(addDays(store.draft.startDate, d - 1)) })
   return list
 })
-const candidates = computed(() => {
-  const list = filters.value.star ? beforeStar.value.filter((id) => places[id].rate >= 3) : beforeStar.value
-  return [...list].sort((a, b) => walkFromPlan(a) - walkFromPlan(b))
+const view = computed(() => {
+  const trip = toViewTrip(store.draft, check.value, day.value)
+  const names = store.draft.stops.filter((stop) => stop.aiFilled).map((stop) => stop.name)
+  // AI가 넣은 칸 표시 + 칸 사진 (홈 카드와 같은 함수)
+  return { ...trip, stops: trip.stops.map((stop) => ({ ...stop, isAi: names.includes(stop.name), photo: stopPhotos.value[stop.name] || null })) }
 })
-const hiddenCount = computed(() => (filters.value.star ? beforeStar.value.length - candidates.value.length : 0))
+const dayStops = computed(() => dayStopsOf(store.draft, day.value))
+const stopPhotos = useStopPhotos(() => dayStops.value)
+const addedIds = computed(() => new Set(store.draft.stops.map((stop) => stop.placeId || stop.name)))
+const areaNames = computed(() => store.planAreas.map((area) => area.name))
 
-function toggleFilter(key) {
-  filters.value[key] = !filters.value[key]
+// 찾는 기준 구들: 고른 구, 없으면(일정 점검에서 장소 추가로 왔을 때) 담은 곳 근처, 그것도 없으면 서울 가운데
+const baseAreas = computed(() => {
+  if (store.planAreas.length) return store.planAreas.slice(0, AREA_MAX)
+  const first = store.draft.stops.find((stop) => stop.lat != null)
+  return [first ? { lat: first.lat, lng: first.lng } : SEOUL_CENTER]
+})
+
+function isAdded(place) {
+  return addedIds.value.has(place.id || place.name)
 }
-function togglePick(id) {
-  const i = picked.value.indexOf(id)
-  if (i > -1) picked.value.splice(i, 1)
-  else picked.value.push(id)
+
+const mapPins = computed(() => {
+  const pins = view.value.stops.filter((stop) => stop.lat != null).map((stop, i) => ({
+    key: 'stop-' + i,
+    lat: stop.lat,
+    lng: stop.lng,
+    text: i + 1,
+    icon: stop.fixed ? 'i-lock' : '',
+    cls: (stop.fixed ? ' pin--fixed' : '') + (stop.warn ? ' pin--warn' : ''),
+    tag: stop.isAi ? 'AI' : '',
+    label: i + 1 + ' ' + stop.name,
+  }))
+  if (pane.value === 'plan') return pins // 내 일정을 볼 때는 찾은 장소 핀을 숨겨서 일정 번호가 잘 보이게
+  for (const place of results.value) {
+    if (place.lat == null || isAdded(place)) continue
+    const isOn = picked.value && picked.value.name === place.name
+    pins.push({ key: 'res-' + (place.id || place.name), place, lat: place.lat, lng: place.lng, route: false, icon: 'i-pin', cls: ' pin--res' + (isOn ? ' pin--sel' : ''), tag: isOn ? place.name : '', label: place.name })
+  }
+  return pins
+})
+const mapPaths = computed(() => (view.value.legs || []).filter((leg) => leg.coords && leg.coords.length > 1))
+
+onMounted(() => {
+  if (store.draft.stops.length) runCheck()
+  loadKind()
+})
+
+// 점검: 시각이 빈 칸은 서버가 앞 일정에 이어서 채워 줘요
+async function runCheck() {
+  if (!dayStops.value.length) {
+    check.value = null
+    return
+  }
+  try {
+    check.value = await checkPlan(store.draft, day.value)
+    for (const checked of check.value.stops) {
+      const stop = store.draft.stops.find((item) => item.name === checked.name && (item.day || 1) === checked.day)
+      if (stop && !stop.time) stop.time = checked.time
+    }
+  } catch (e) {
+    showToast(e.message)
+  }
 }
-function addToPlan() {
-  for (const item of pickedServer.value) store.addDraftPlace(item.place, !!item.fixedTime, item.fixedTime)
-  const count = picked.value.length + pickedServer.value.length
-  pickedServer.value = []
-  showToast(count + '곳을 동선에 맞춰 넣었어요')
-  router.push('/plan/check')
+
+// 고른 구 안의 장소만 (카카오·DB 반경 결과에 옆 구가 섞여서)
+function keepInAreas(list) {
+  if (!areaNames.value.length) return list
+  return list.filter((place) => !place.address || areaNames.value.some((name) => place.address.includes(name)))
 }
-const pickCount = computed(() => picked.value.length + pickedServer.value.length)
+
+async function loadKind() {
+  isLoading.value = true
+  message.value = ''
+  picked.value = null
+  try {
+    const lists = await Promise.all(baseAreas.value.map((area) => getManualPlaces(area.lat, area.lng, kind.value)))
+    const seen = new Set()
+    const merged = []
+    for (const place of keepInAreas(lists.flat())) {
+      if (seen.has(place.id || place.name)) continue
+      seen.add(place.id || place.name)
+      merged.push(place)
+    }
+    results.value = merged.slice(0, RESULT_MAX)
+    if (!results.value.length) message.value = '이 지역에 장소가 없어요'
+  } catch (e) {
+    results.value = []
+    message.value = e.message
+  }
+  isLoading.value = false
+  fitKey.value = 'kind-' + kind.value
+}
+
+function pickKind(code) {
+  keyword.value = ''
+  kind.value = code
+  loadKind()
+}
+
+watch(keyword, (word) => {
+  clearTimeout(searchTimer)
+  if (!word.trim()) return loadKind()
+  searchTimer = setTimeout(() => runSearch(word.trim()), SEARCH_DELAY_MS)
+})
+async function runSearch(word) {
+  message.value = ''
+  picked.value = null
+  try {
+    const base = baseAreas.value[0]
+    results.value = (await searchPlaces(word, base.lat, base.lng)).slice(0, RESULT_MAX)
+    if (!results.value.length) message.value = '찾는 곳이 없어요'
+  } catch (e) {
+    results.value = []
+    message.value = e.message
+  }
+  fitKey.value = 'search-' + word
+}
+
+// 링크로 담기: 찾은 장소를 지도에 보여 줘요
+async function findByLink() {
+  const url = linkUrl.value.trim()
+  if (!url) return
+  isLinkLoading.value = true
+  message.value = ''
+  try {
+    const found = await findLinkPlaces(url, null)
+    results.value = found.places
+    if (!found.places.length) message.value = '장소를 못 찾았어요'
+    isLinkOpen.value = false
+    linkUrl.value = ''
+    fitKey.value = 'link-' + url
+  } catch (e) {
+    message.value = e.message
+  }
+  isLinkLoading.value = false
+}
+
+// 핀·목록을 누르면 작은 카드: 평점·리뷰·오늘 영업시간·진짜 사진 (없으면 안 보여 줌)
+async function pickPlace(place) {
+  picked.value = place
+  pickedDetail.value = null
+  if (!place.id) return
+  try {
+    const [detail, photos] = await Promise.all([getPlaceDetail(place.id), getPlacePhotos([place.id])])
+    if (picked.value !== place) return
+    const today = (detail.hours || []).find((hour) => hour.isToday || hour.today)
+    pickedDetail.value = { useTime: today ? today.time || today.text : detail.useTime, photo: photos[0] ? photos[0].imageUrl : detail.imageUrl }
+  } catch {
+    pickedDetail.value = null // 카카오에서 온 곳은 상세가 없어요
+  }
+}
+function onPickPin(pin) {
+  if (pin.place) pickPlace(pin.place)
+}
+
+async function addPlace(place) {
+  const isFirst = !dayStops.value.length
+  store.addDraftPlace(place, false, isFirst ? startTime.value : null, day.value)
+  picked.value = null
+  showToast(place.name + ' 담음')
+  await runCheck()
+}
+
+function pickDay(d) {
+  if (d === day.value) return
+  day.value = d
+  check.value = null
+  router.replace('/plan/manual?day=' + d)
+  runCheck()
+}
+
+// 목록에서 끌어 순서 바꾸기 → 시각을 비우고 다시 점검
+function reorder(order) {
+  const list = dayStops.value
+  const first = list.length ? list[0].time : startTime.value
+  const moved = order.map((i) => list[i])
+  retime(moved, first)
+  setDayStops(store.draft, day.value, moved)
+  runCheck()
+}
+
+async function changeMode(i, mode) {
+  const list = dayStops.value
+  list[i].mode = mode
+  retime(list, list[0].time)
+  await runCheck()
+  showToast(modes[mode].label + '(으)로 바꿨어요')
+}
+
+function editStop(i) {
+  const back = encodeURIComponent('/plan/manual?day=' + day.value)
+  router.push(`/plan/edit/stop?day=${day.value}&idx=${i}&back=${back}`)
+}
+
+// 동선 정리: 서버가 실제 좌표로 순서를 정해요 (AI 일정과 같은 함수). 고정 칸은 그 자리, 식사는 식사 때 안에서
+async function sortRoute() {
+  const list = dayStops.value
+  if (list.length < 3) return showToast('세 곳부터 정리할 수 있어요')
+  const origin = day.value === 1 ? store.planOrigin : null
+  try {
+    const { order } = await getRouteOrder(list, addDays(store.draft.startDate, day.value - 1), origin?.lat ?? null, origin?.lng ?? null)
+    const first = list[0].time || startTime.value
+    const moved = order.map((index) => list[index])
+    retime(moved, first)
+    setDayStops(store.draft, day.value, moved)
+    showToast('가까운 순서로 정리했어요')
+    runCheck()
+  } catch {
+    showToast('동선을 정리하지 못했어요. 잠시 뒤 다시 해 주세요')
+  }
+}
+
+// 나머지 AI가 채우기: 담은 곳은 순서·시각 그대로, 빈 시간만 일정 만들기와 같은 규칙으로 채워요. 화면을 안 떠나고 바로 지도·목록에 보여 줘요
+// 다시 누르면(다시 추천) AI가 넣은 곳만 빼고, 그곳들을 피해서 다시 골라요
+const aiNames = computed(() => store.draft.stops.filter((stop) => stop.aiFilled).map((stop) => stop.name))
+const isFilling = ref(false)
+const isSlowFill = ref(false) // 3초 넘게 걸리면 안내를 보여 줘요
+const SLOW_FILL_MS = 3000
+const DEFAULT_END_MIN = 20 * 60
+const MIN_SPAN_MIN = 120
+const LAST_END_MIN = 24 * 60
+
+function endTimeOf(start) {
+  const startMin = toMinutes(start)
+  return toTime(Math.min(LAST_END_MIN, Math.max(DEFAULT_END_MIN, startMin + MIN_SPAN_MIN)))
+}
+function makeFillConditions(kept, avoidNames) {
+  const first = store.planAreas[0] || {}
+  const near = kept.find((stop) => stop.lat != null)
+  const firstTime = kept.length && kept[0].time && kept[0].time < startTime.value ? kept[0].time : startTime.value
+  return {
+    title: store.draft.title,
+    region: first.name ? '서울 ' + first.name : null,
+    areaLat: first.lat ?? near?.lat ?? null,
+    areaLng: first.lng ?? near?.lng ?? null,
+    areaType: 'gu',
+    areas: store.planAreas.map((area) => ({ name: area.name, lat: area.lat, lng: area.lng, dongs: [] })),
+    startDate: store.draft.startDate,
+    endDate: store.draft.endDate,
+    startTime: firstTime,
+    endTime: store.planToTime || endTimeOf(firstTime),
+    people: store.draft.people,
+    transports: store.draft.transports,
+    kinds: [],
+    tags: [],
+    keptStops: kept,
+    avoidVisit: avoidNames,
+    originLat: store.planOrigin?.lat ?? null,
+    originLng: store.planOrigin?.lng ?? null,
+  }
+}
+async function fillWithAi() {
+  if (isFilling.value) return
+  isFilling.value = true
+  const slowTimer = setTimeout(() => {
+    isSlowFill.value = true
+  }, SLOW_FILL_MS)
+  try {
+    await runCheck() // 담은 곳의 빈 시각을 먼저 채워요
+    const kept = store.draft.stops.filter((stop) => !stop.aiFilled)
+    const conditions = makeFillConditions(kept.map((stop) => ({ ...stop })), aiNames.value)
+    const result = await generatePlan(conditions, [], null, null)
+    const keptNames = kept.map((stop) => stop.name)
+    store.draft.stops = result.stops.map((stop) => (keptNames.includes(stop.name) ? kept.find((item) => item.name === stop.name) : { ...stop, aiFilled: true }))
+    pane.value = 'plan'
+    fitKey.value = 'ai-' + Date.now()
+    for (const note of result.notes || []) showToast(note.text)
+    await runCheck()
+  } catch (e) {
+    showToast(e.message || 'AI가 고르지 못했어요', { actionText: '다시 시도', action: fillWithAi })
+  } finally {
+    clearTimeout(slowTimer)
+    isFilling.value = false
+    isSlowFill.value = false
+  }
+}
+// AI가 넣은 곳 하나 빼기
+function removeAiStop(i) {
+  const target = dayStops.value[i]
+  store.draft.stops = store.draft.stops.filter((stop) => stop !== target)
+  runCheck()
+}
+
+function goCheck() {
+  router.push('/plan/check?day=' + day.value)
+}
 </script>
 
 <template>
   <div class="scr scr-PlanManual">
     <div class="app">
-      <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
+      <KakaoMap :pins="mapPins" :paths="mapPaths" :show-route="!mapPaths.length" :padding="MAP_PADDING" :fit-key="fitKey" @pick="onPickPin" />
+      <TopBar float back="/plan/manual/start" />
 
-      <!-- 이미 일정에 있는 곳: 작은 회색 핀 -->
-      <span v-for="(stop, i) in concertTrip.stops" :key="stop.id" class="pin pin--done pm-small" :style="{ left: stop.x + 'px', top: stop.y + 'px' }" aria-hidden="true">
-        <i v-if="stop.fixed" class="ic ic--s i-lock" style="width: 11px; height: 11px"></i>
-        <template v-else>{{ i + 1 }}</template>
-      </span>
-      <!-- 담을 수 있는 곳 -->
-      <button
-        v-for="id in candidates"
-        :key="id"
-        type="button"
-        class="pin"
-        :class="picked.includes(id) ? 'pin--sel' : 'pin--ghost'"
-        :style="{ left: places[id].x + 'px', top: places[id].y + 'px' }"
-        :aria-label="places[id].name + (picked.includes(id) ? ' 선택됨' : ' 선택')"
-        @click="togglePick(id)"
-      >
-        <i v-if="picked.includes(id)" class="ic ic--s i-check" aria-hidden="true" style="width: 14px; height: 14px"></i>
-        <i v-else class="ic ic--s i-plus" aria-hidden="true" style="width: 13px; height: 13px"></i>
-      </button>
+      <!-- 핀을 누르면 뜨는 작은 카드 -->
+      <section v-if="picked" class="pm-card" aria-label="고른 장소">
+        <img v-if="pickedDetail && pickedDetail.photo" class="thumb" :src="pickedDetail.photo" alt="" />
+        <span class="pm-card__body">
+          <b class="t-strong">{{ picked.name }}</b>
+          <span v-if="picked.rating != null" class="t-cap tn"><i class="ic ic--s i-star" aria-hidden="true"></i> {{ picked.rating }}<template v-if="picked.reviewCount"> · 리뷰 {{ picked.reviewCount.toLocaleString() }}</template></span>
+          <span v-if="pickedDetail && pickedDetail.useTime" class="t-cap pm-card__time">{{ pickedDetail.useTime }}</span>
+        </span>
+        <button type="button" class="btn btn--primary btn--sm" style="height: 44px" :disabled="isAdded(picked)" @click="addPlace(picked)">{{ isAdded(picked) ? '담김' : '담기' }}</button>
+      </section>
 
-      <header class="topbar topbar--float">
-        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/plan/check')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
-        <label class="search" for="pm-q">
-          <i class="ic i-search" aria-hidden="true"></i>
-          <input id="pm-q" v-model="keyword" type="search" placeholder="장소 이름·종류 검색" autocomplete="off" class="pm-input" />
-        </label>
-      </header>
-      <button type="button" class="iconbtn iconbtn--float" aria-label="내 위치" style="position: absolute; right: 16px; top: 404px" @click="showToast('지금 위치 근처로 옮겼어요')"><i class="ic i-locate" aria-hidden="true"></i></button>
-
-      <BottomSheet class="sheet--peek" aria-label="검색 결과" style="top: 464px; padding: 8px 0 0; gap: 4px">
-        <div class="quick" role="group" aria-label="걸러 보기" style="padding-top: 4px; padding-bottom: 4px">
-          <button v-for="f in filterList" :key="f.key" type="button" class="chip chip--sm" :class="{ 'is-on': filters[f.key] }" :aria-pressed="!!filters[f.key]" @click="toggleFilter(f.key)">{{ f.label }}</button>
+      <BottomSheet class="sheet--peek pm-sheet" aria-label="장소 찾기와 내 일정">
+        <div class="sheet__head pm-head">
+          <h1 class="h-title">{{ store.draft.title }}</h1>
         </div>
-        <p class="t-cap" style="padding: 0 16px; display: flex; justify-content: space-between">
-          <span>내 일정 동선에서 가까운 순</span><span v-if="hiddenCount" class="tn">평점 3점 미만 {{ hiddenCount }}곳 숨김</span>
-        </p>
-        <div class="pm-list">
-          <!-- 서버 검색 결과 (검색어가 있을 때) -->
-          <template v-if="keyword.trim()">
-            <div v-for="place in serverResults" :key="(place.id || '') + place.name" class="row">
-              <span class="pm-hit">
-                <img class="thumb thumb--lg" :src="imageFor(place.category)" alt="" />
-                <span class="row__body">
-                  <span class="row__title">{{ place.name }}</span>
-                  <span class="row__meta tn"><template v-if="place.rating"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ place.rating }} · </template>{{ place.category }}</span>
-                </span>
-              </span>
-              <button type="button" class="btn btn--sm btn--secondary" @click="pickAsFixed(place)"><i class="ic ic--s i-lock" aria-hidden="true"></i>시간 고정</button>
-              <button type="button" class="btn btn--sm" :class="isServerPicked(place) ? 'btn--primary' : 'btn--secondary'" :aria-pressed="isServerPicked(place)" @click="toggleServerPick(place)">
-                {{ isServerPicked(place) ? '선택됨' : '선택' }}
-              </button>
+        <div class="pm-tabs" role="tablist" aria-label="찾기와 내 일정">
+          <button type="button" role="tab" :aria-selected="pane === 'find'" :class="{ 'is-on': pane === 'find' }" @click="pane = 'find'">장소 찾기</button>
+          <button type="button" role="tab" :aria-selected="pane === 'plan'" :class="{ 'is-on': pane === 'plan' }" @click="pane = 'plan'">내 일정 <span class="tn">{{ store.draft.stops.length }}</span></button>
+        </div>
+        <div v-if="pane === 'find'" class="pm-scroll">
+          <div class="pm-search">
+            <div class="field" style="flex: 1; min-width: 0">
+              <label for="pm-q" class="sr">장소 검색</label>
+              <div class="field__box"><i class="ic i-search subtle" aria-hidden="true"></i><input id="pm-q" v-model="keyword" type="search" placeholder="장소 이름 검색" autocomplete="off" /></div>
             </div>
-            <p v-if="searchError" class="t-cap c-danger" style="padding: 24px 16px; text-align: center">{{ searchError }}</p>
-            <p v-else-if="!serverResults.length" class="t-cap" style="padding: 24px 16px; text-align: center">검색 결과가 없어요. 다른 이름으로 찾아보세요.</p>
-          </template>
-          <template v-else>
-          <div v-for="id in candidates" :key="id" class="row">
-            <RouterLink to="/place" class="pm-hit">
-              <img class="thumb thumb--lg" :src="places[id].img" alt="" />
-              <span class="row__body">
-                <span class="row__title">{{ places[id].name }}</span>
-                <span class="row__meta tn"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ places[id].rate }} · {{ places[id].cat }} · 일정에서 도보 {{ walkFromPlan(id) }}분</span>
-              </span>
-            </RouterLink>
-            <button type="button" class="btn btn--sm" :class="picked.includes(id) ? 'btn--primary' : 'btn--secondary'" :aria-pressed="picked.includes(id)" @click="togglePick(id)">
-              <template v-if="picked.includes(id)"><i class="ic ic--s i-check" aria-hidden="true"></i>선택됨</template>
-              <template v-else>선택</template>
-            </button>
+            <button type="button" class="iconbtn iconbtn--soft" aria-label="링크로 담기" :aria-expanded="isLinkOpen" @click="isLinkOpen = !isLinkOpen"><i class="ic i-link" aria-hidden="true"></i></button>
           </div>
-          <p v-if="!candidates.length" class="t-cap" style="padding: 24px 16px; text-align: center">조건에 맞는 곳이 없어요. 거르기를 풀어 보세요.</p>
-          </template>
+          <form v-if="isLinkOpen" class="pm-search" @submit.prevent="findByLink">
+            <div class="field" style="flex: 1; min-width: 0">
+              <label for="pm-link" class="sr">링크</label>
+              <div class="field__box"><input id="pm-link" v-model="linkUrl" type="text" inputmode="url" placeholder="인스타·유튜브·네이버 링크" autocomplete="off" /></div>
+            </div>
+            <button type="submit" class="btn btn--secondary btn--md" :disabled="isLinkLoading">{{ isLinkLoading ? '찾는 중' : '찾기' }}</button>
+          </form>
+          <ChipScroller role="group" aria-label="장소 종류">
+            <button v-for="item in KINDS" :key="item.code" type="button" class="chip chip--sm" :class="{ 'is-on': !keyword && kind === item.code }" :aria-pressed="!keyword && kind === item.code" @click="pickKind(item.code)">{{ item.label }}</button>
+          </ChipScroller>
+          <p v-if="isLoading" class="t-cap">찾는 중이에요</p>
+          <p v-else-if="message" class="t-cap">{{ message }}</p>
+          <div v-if="results.length" class="group">
+            <div v-for="place in results.slice(0, LIST_MAX)" :key="place.id || place.name" class="row pm-row">
+              <button type="button" class="pm-row__info" @click="pickPlace(place)">
+                <span class="row__title">{{ place.name }}</span>
+                <span class="row__meta">{{ (place.category || '').split(',')[0] }}<template v-if="place.rating != null"> · ★ {{ place.rating }}</template></span>
+              </button>
+              <button type="button" class="btn btn--secondary btn--sm" style="height: 44px" :disabled="isAdded(place)" @click="addPlace(place)">{{ isAdded(place) ? '담김' : '담기' }}</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="pm-scroll">
+          <ChipScroller v-if="dayList.length > 1" role="tablist" aria-label="일차">
+            <button v-for="d in dayList" :key="d.day" type="button" role="tab" class="chip chip--sm" :class="{ 'is-on': day === d.day }" :aria-selected="day === d.day" @click="pickDay(d.day)">{{ d.day }}일차<span class="t-cap tn" style="margin-left: 4px; color: inherit">{{ d.label }}</span></button>
+          </ChipScroller>
+          <p v-if="!view.stops.length" class="t-cap">장소를 담아 보세요</p>
+          <p v-if="view.stops.length" class="t-cap tn">{{ view.stops.length }}곳 · 이동 {{ view.move }}분</p>
+          <TripTimeline v-if="view.stops.length" :stops="view.stops" reorderable mode-editable @select="editStop" @reorder="reorder" @change-mode="changeMode" @remove="removeAiStop" />
         </div>
       </BottomSheet>
 
-      <div class="cta cta--white" style="gap: 12px">
-        <div v-if="pickCount" class="pm-picks" aria-label="담은 장소">
-          <span v-for="item in pickedServer" :key="'s' + item.place.name" class="pickchip">
-            <img :src="imageFor(item.place.category)" alt="" /><b>{{ item.place.name }}{{ item.fixedTime ? ' ' + item.fixedTime : '' }}</b>
-            <button type="button" class="iconbtn" :aria-label="item.place.name + ' 빼기'" style="width: 32px; height: 32px" @click="toggleServerPick(item.place)"><i class="ic ic--s i-close subtle" aria-hidden="true"></i></button>
-          </span>
-          <span v-for="id in picked" :key="id" class="pickchip">
-            <img :src="places[id].img" alt="" /><b>{{ places[id].name }}</b>
-            <button type="button" class="iconbtn" :aria-label="places[id].name + ' 빼기'" style="width: 32px; height: 32px" @click="togglePick(id)"><i class="ic ic--s i-close subtle" aria-hidden="true"></i></button>
-          </span>
+      <p v-if="isSlowFill" class="pm-filling" role="status">AI가 장소를 고르고 있어요</p>
+      <div class="cta cta--white">
+        <div class="cta__row">
+          <button type="button" class="btn btn--secondary btn--lg pm-side" @click="sortRoute">동선 정리</button>
+          <button type="button" class="btn btn--secondary btn--lg pm-side" :disabled="isFilling" @click="fillWithAi"><i class="ic ic--s i-sparkle" aria-hidden="true"></i>{{ isFilling ? '고르는 중' : aiNames.length ? '다시 추천' : 'AI 채우기' }}</button>
+          <button type="button" class="btn btn--primary btn--lg" :disabled="!store.draft.stops.length" @click="goCheck">다음</button>
         </div>
-        <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!pickCount" @click="addToPlan">
-          {{ pickCount ? pickCount + '곳 일정에 담기' : '담을 곳을 골라 주세요' }}
-        </button>
       </div>
     </div>
   </div>
 </template>
 
 <style>
-.scr-PlanManual .pm-small{width:22px;height:22px;margin:-11px 0 0 -11px;font-size:11px}
-.scr-PlanManual .pm-input{border:0;outline:0;background:transparent;flex:1;min-width:0;font-size:16px}
-.scr-PlanManual .pm-picks{display:flex;gap:8px;overflow-x:auto}
-.scr-PlanManual .quick .chip{box-shadow:none;border-color:var(--line-strong);padding:0 10px}
-.scr-PlanManual .quick{gap:5px}
-.scr-PlanManual .quick .chip.is-on{border-color:var(--navy)}
-.scr-PlanManual .pickchip{display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 4px;border-radius:var(--radius-full);background:var(--surface-raised);border:1px solid var(--line);flex:none}
-.scr-PlanManual .pickchip img{width:32px;height:32px;border-radius:50%;object-fit:cover}
-.scr-PlanManual .pickchip b{font-size:14px;font-weight:600;max-width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.scr-PlanManual .pm-list{flex:1;min-height:0;overflow-y:auto;padding-bottom:170px}
-.scr-PlanManual .pm-list .row{padding:8px 16px}
-.scr-PlanManual .pm-hit{display:flex;align-items:center;gap:12px;flex:1;min-width:0;color:inherit;text-decoration:none}
+.scr-PlanManual .pm-sheet { top: 360px !important; gap: 8px; }
+.scr-PlanManual .pm-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 112px; }
+.scr-PlanManual .pm-scroll > * { flex: none; }
+.scr-PlanManual .pm-tabs { display: flex; flex: none; gap: 4px; padding: 4px; border-radius: var(--radius-md); background: var(--surface-sunken); }
+.scr-PlanManual .pm-tabs button { flex: 1; min-height: 40px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink-muted); cursor: pointer; }
+.scr-PlanManual .pm-tabs button.is-on { background: var(--surface-raised); color: var(--navy); box-shadow: var(--shadow-card); }
+.scr-PlanManual .pm-search { display: flex; align-items: center; gap: 8px; }
+.scr-PlanManual .pm-row { padding: 6px 12px 6px 16px; }
+.scr-PlanManual .pm-row__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.scr-PlanManual .pm-side { flex: none; padding: 0 12px; font-size: 14px; }
+.scr-PlanManual .pm-card { position: absolute; left: 16px; right: 16px; top: 256px; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-sheet); }
+.scr-PlanManual .pm-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scr-PlanManual .pm-card__time { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.scr-PlanManual .pm-filling { position: absolute; left: 50%; bottom: 118px; z-index: 5; margin: 0; padding: 8px 14px; border-radius: var(--radius-full); background: var(--navy); color: #fff; font-size: 13px; white-space: nowrap; transform: translateX(-50%); }
+.scr-PlanManual .pm-card .i-star { width: 12px; height: 12px; }
 </style>

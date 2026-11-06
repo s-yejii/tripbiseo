@@ -1,12 +1,13 @@
 <script setup>
 // S16-b 대안 · 한 곳 빼기 (④): 남은 장소 중 뺄 곳을 고르고, 남는 시간을 다음 장소에 쓸지 정해요
 // 뺄 수 있는 곳마다 "빼면 어떻게 되는지"를 서버가 계산(POST /live/preview)하고, 고른 대로 적용(POST /live/apply)해요.
-// 고정 일정·꼭 갈 곳은 뺄 수 없어요.
+// 고정 일정은 뺄 수 없어요. 꼭 갈 곳은 자물쇠를 보여 주고, 누르면 한 번 더 물어본 뒤 뺄 수 있어요.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import AltTabs from '@/components/live/AltTabs.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import LateBadge from '@/components/live/LateBadge.vue'
 import { importance } from '@/data/places'
 import { useReplanStore } from '@/stores/replan'
@@ -24,11 +25,12 @@ const dropId = ref(null) // 고른 뺄 곳
 const useExtra = ref(true) // 남는 시간을 다음 장소에 쓰기
 const final = ref(null) // 고른 대로(남는 시간 포함) 계산한 결과
 const isApplying = ref(false)
+const askingStop = ref(null) // 꼭 갈 곳을 빼려고 누른 칸 (확인 창)
 
 onMounted(async () => {
   await replan.load()
   if (!replan.base) return
-  for (const stop of droppable.value) {
+  for (const stop of replan.stops.filter((item) => !item.fixed)) {
     try {
       results.value[stop.id] = await replan.preview(listWithout(stop.id, null))
     } catch (e) {
@@ -73,8 +75,8 @@ const extra = computed(() => {
 })
 
 const extraText = computed(() => {
-  if (!extra.value) return '다음 장소에 더 쓸 시간이 없어요'
-  if (!useExtra.value) return '남는 시간은 비워 둬요'
+  if (!extra.value) return '남는 시간 없음'
+  if (!useExtra.value) return '비워 둠'
   return `${extra.value.stop.name} ${extra.value.stop.stay}분 → ${extra.value.stop.stay + extra.value.minutes}분`
 })
 
@@ -105,11 +107,17 @@ watch([dropId, useExtra], async () => {
   }
 })
 
+// 꼭 갈 곳 확인 창에서 "빼기"
+function confirmDrop() {
+  dropId.value = askingStop.value.id
+  askingStop.value = null
+}
+
 function resultText(id) {
   const result = results.value[id]
-  if (!result) return '계산하는 중…'
+  if (!result) return '계산 중'
   const slack = result.slackMin < 0 ? -result.slackMin + '분 늦음' : '여유 ' + result.slackMin + '분'
-  return `빼면 ${basisName.value} ${result.finalArrive} 도착 · ${slack}`
+  return slack
 }
 function resultClass(id) {
   const result = results.value[id]
@@ -151,23 +159,21 @@ async function apply() {
 
         <p class="divlabel">남은 일정 · 뺄 곳을 골라요</p>
 
-        <p v-if="!droppable.length" class="t-cap">뺄 수 있는 곳이 없어요 · 남은 곳이 고정 일정이거나 꼭 갈 곳이에요</p>
-
         <div role="radiogroup" aria-label="뺄 장소" style="display: flex; flex-direction: column; gap: 8px">
           <template v-for="stop in replan.stops" :key="stop.id">
             <div v-if="stop.fixed" class="opt is-locked">
               <img class="thumb" :src="imageFor(stop.category)" alt="" />
-              <span class="opt__body"><b class="t-sub">{{ stop.name }}</b><span class="t-cap tn">{{ stop.eta }} 고정 · 뺄 수 없어요</span></span>
+              <span class="opt__body"><b class="t-sub">{{ stop.name }}</b><span class="t-cap tn">{{ stop.eta }} 고정</span></span>
               <i class="ic i-lock subtle" aria-hidden="true"></i>
             </div>
-            <div v-else-if="stop.importance === 'must'" class="opt is-locked">
+            <button v-else-if="stop.importance === 'must'" type="button" role="radio" :aria-checked="dropId === stop.id" class="opt" :class="{ 'is-on': dropId === stop.id }" style="text-align: left" @click="dropId === stop.id ? (dropId = null) : (askingStop = stop)">
               <img class="thumb" :src="imageFor(stop.category)" alt="" />
               <span class="opt__body">
                 <span class="drop-name"><b class="t-sub">{{ stop.name }}</b><span class="imp imp--must">꼭</span></span>
-                <span class="t-cap tn">꼭 갈 곳이라 빼지 않아요</span>
+                <span class="t-cap tn" :class="resultClass(stop.id)">{{ resultText(stop.id) }}</span>
               </span>
-              <i class="ic i-lock subtle" aria-hidden="true"></i>
-            </div>
+              <i class="ic" :class="dropId === stop.id ? 'i-check' : 'i-lock subtle'" aria-hidden="true"></i>
+            </button>
             <button v-else type="button" role="radio" :aria-checked="dropId === stop.id" class="opt" :class="{ 'is-on': dropId === stop.id }" style="text-align: left" @click="dropId = stop.id">
               <img class="thumb" :src="imageFor(stop.category)" alt="" />
               <span class="opt__body">
@@ -181,7 +187,7 @@ async function apply() {
 
         <button v-if="dropStop" type="button" class="opt" role="checkbox" :aria-checked="useExtra && !!extra" :disabled="!extra" style="text-align: left; box-shadow: none" @click="useExtra = !useExtra">
           <span class="check" :class="{ 'is-on': useExtra && extra }"><i class="ic ic--s i-check" aria-hidden="true"></i></span>
-          <span class="opt__body"><b class="t-strong">남는 시간은 다음 장소에 쓰기</b><span class="t-cap tn">{{ extraText }}</span></span>
+          <span class="opt__body"><b class="t-strong">남는 시간 다음 곳에</b><span class="t-cap tn">{{ extraText }}</span></span>
         </button>
       </div>
 
@@ -189,6 +195,8 @@ async function apply() {
         <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="!final || isApplying" @click="apply">{{ dropStop ? dropStop.name + ' 빼고 적용' : '뺄 곳을 골라 주세요' }}</button>
       </div>
       </template>
+
+      <ConfirmModal v-if="askingStop" :img="imageFor(askingStop.category)" :title="'꼭 갈 곳인데 뺄까요?'" :text="askingStop.name" ok-text="빼기" ok-icon="i-trash" danger @cancel="askingStop = null" @ok="confirmDrop" />
     </div>
   </div>
 </template>
