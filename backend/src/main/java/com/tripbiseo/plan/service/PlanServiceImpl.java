@@ -84,6 +84,7 @@ public class PlanServiceImpl implements PlanService {
     private static final double ROAD_DETOUR = 1.3;   // 직선 거리 → 실제 길 (RouteClient와 같음)
     private static final int MIN_WALK_LIMIT = 5;     // 걷는 분 상한은 5~60분으로
     private static final int MAX_WALK_LIMIT = 60;
+    private static final int BOARDING_BUFFER_MIN = 15; // 기차·버스·비행기는 출발 15분 전 도착 (KTX 19:00 → 18:45, 11/06)
     private static final String MUST = "must";       // 일정 칸 중요도 (trip_stop.importance)
     private static final String MAYBE = "maybe";
 
@@ -183,6 +184,7 @@ public class PlanServiceImpl implements PlanService {
         }
         boolean isMoved = moveToTomorrowIfLate(conditions);
         PlanGenerateResponse response = makeEmptyDraft(conditions);
+        addBoardingBuffer(conditions, response.getNotes());
         if (isMoved) {
             response.getNotes().add(makeNote("오늘은 늦어서 내일 일정으로 짰어요", null));
         }
@@ -572,7 +574,7 @@ public class PlanServiceImpl implements PlanService {
              + "흔한 말 예: \"카페는 별로 안 가고 싶어\" → avoidKinds [cafe] / \"술은 안 마셔\" → avoidKinds [bar] / \"쇼핑은 관심 없어\" → avoidKinds [shop] / "
              + "\"롯데월드는 가 봐서 빼 줘\" → avoidVisit [롯데월드] / \"사람 많은 곳은 싫어\" → needs [붐비지 않는 곳] / "
              + "\"매운 거 못 먹어\" → needs [안 매운 메뉴] / \"계단 많은 곳은 힘들어\" → needs [계단 적은 곳] / \"줄 서는 거 싫어\" → tags [no_wait].\n"
-             + "finish: 기차·비행기·버스를 타야 하거나 집에 가야 해서 여행이 끝나는 곳. name은 그 역·터미널·공항 이름, time은 거기 도착해야 하는 시각(출발 30분 전). finish는 fixed에 넣지 마.\n"
+             + "finish: 기차·비행기·버스를 타야 하거나 집에 가야 해서 여행이 끝나는 곳. name은 그 역·터미널·공항 이름, time은 거기 도착해야 하는 시각(출발 15분 전). finish는 fixed에 넣지 마.\n"
              + "maxWalkMin: 오래 걷기 싫다·다리·무릎이 불편하다고 하면 한 번에 걸을 수 있는 분. 숫자를 말하면 그 값, 아니면 15.";
     }
 
@@ -1111,6 +1113,34 @@ public class PlanServiceImpl implements PlanService {
         stop.setFixed(Boolean.TRUE.equals(pick.getFixed()));
         stop.setState("todo");
         return stop;
+    }
+
+    /**
+     * 시간 고정 일정 중 타는 곳(이름이 "역"으로 끝나거나 터미널·공항)은 출발 15분 전 도착으로 바꿈 (11/06).
+     * "KTX 19:00 서울역"이면 서울역 칸을 18:45로 넣어서, 18:45에 닿으면 정상이고 그보다 늦으면 여행 중에 늦음 알림이 떠요.
+     * 요청으로 받은 조건만 바꾸고 저장하지 않아서, 다시 만들어도 두 번 빠지지 않아요.
+     */
+    private void addBoardingBuffer(PlanConditions conditions, List<PlanNote> notes) {
+        if (conditions.getFixed() == null) {
+            return;
+        }
+        for (FixedVisit fixed : conditions.getFixed()) {
+            if (!isBoardingPlace(fixed.getName()) || fixed.getTime() == null) {
+                continue;
+            }
+            String departure = fixed.getTime();
+            fixed.setTime(Geo.toHhmm(Geo.toMinutes(departure) - BOARDING_BUFFER_MIN));
+            notes.add(makeNote(fixed.getName() + "은 " + departure + " 출발 " + BOARDING_BUFFER_MIN + "분 전인 " + fixed.getTime() + " 도착으로 맞췄어요", null));
+        }
+    }
+
+    /** 기차역·터미널·공항인지 (이름으로만 봄. "서울역", "광명역 KTX", "동서울터미널", "김포공항") */
+    private boolean isBoardingPlace(String name) {
+        if (name == null) {
+            return false;
+        }
+        String trimmed = name.replace("KTX", "").replace("SRT", "").trim();
+        return trimmed.endsWith("역") || trimmed.contains("터미널") || trimmed.contains("공항");
     }
 
     private PlanNote makeNote(String text, String url) {
