@@ -1,6 +1,6 @@
 <script setup>
 // S19 마이 (①): 내 정보 · 여행 스타일 · 친구 · 결제 카드 · 알림 설정 · 권한
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { get, post } from '@/api/http'
 import { getTripList } from '@/api/trips'
@@ -8,6 +8,7 @@ import TabBar from '@/components/common/TabBar.vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import VersionTap from '@/components/member/VersionTap.vue'
+import { readAlarms, readStyle, saveAlarms } from '@/utils/mySettings'
 import SavePlaceButton from '@/components/plan/SavePlaceButton.vue'
 import DevDot from '@/components/live/DevDot.vue'
 import { turnOffDevMode } from '@/utils/devMode'
@@ -47,7 +48,10 @@ onMounted(async () => {
     // 여행 수를 못 받아도 마이 화면은 보여 줌 (0으로)
   }
 })
-const styleChips = ['보통 여행', '카페', '맛집', '쇼핑']
+// 내 여행 스타일 줄: 스타일 화면에서 저장한 값 (11/06, 이 브라우저에 저장)
+const savedStyle = readStyle()
+const PACE_NAMES = { slow: '느긋한 여행', mid: '보통 여행', fast: '빡빡한 여행' }
+const styleChips = [PACE_NAMES[savedStyle.pace] || '보통 여행', ...savedStyle.likes]
 const transports = readTransports() // 설정 > 이동 수단 줄에 보여 줄 값 (11/06)
 const friends = ['엄마', '민지', '준호']
 
@@ -89,12 +93,19 @@ const cards = ref([
 ])
 
 // 알림 켜기/끄기
+// 켜고 끈 값은 이 브라우저에 저장해서 다시 들어와도 그대로 (11/06, 서버 알림 설정 API가 생기면 utils/mySettings.js만 바꿈)
+const savedAlarms = readAlarms()
 const alarms = ref([
-  { key: 'depart', icon: 'i-walk', tile: 'sky', title: '출발 알림', on: true },
-  { key: 'delay', icon: 'i-warning', tile: 'warn', title: '지연·대안 알림', on: true },
-  { key: 'weather', icon: 'i-cloud', tile: 'lilac', title: '날씨 알림', on: true },
+  { key: 'depart', icon: 'i-walk', tile: 'sky', title: '출발 알림', on: savedAlarms.depart },
+  { key: 'delay', icon: 'i-warning', tile: 'warn', title: '지연·대안 알림', on: savedAlarms.delay },
+  { key: 'weather', icon: 'i-cloud', tile: 'lilac', title: '날씨 알림', on: savedAlarms.weather },
 ])
-const departBefore = ref(10) // 출발 몇 분 전에 알릴지
+const departBefore = ref(savedAlarms.departBefore) // 출발 몇 분 전에 알릴지
+watch([alarms, departBefore], () => {
+  const values = { departBefore: departBefore.value }
+  for (const alarm of alarms.value) values[alarm.key] = alarm.on
+  saveAlarms(values)
+}, { deep: true })
 
 function setMainCard(index) {
   cards.value.forEach((card, i) => (card.main = i === index))
