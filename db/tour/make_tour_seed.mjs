@@ -24,6 +24,10 @@ const HOURS_FIELDS = {
   14: { use: 'usetimeculture', rest: 'restdateculture' },
   38: { use: 'opentime', rest: 'restdateshopping' },
 }
+// 여행 갈 곳이 아니라서 받지 않는 곳 (동상·기념비·어린이공원·~터 등, 11/06). db/08_retrip_cleanup.sql과 같은 목록
+const EXCLUDE_IDS = new Set(['1829744', '1836300', '2733981', '2773287', '2591833', '127308', '1837037', '2751339', '126827',
+  '2753103', '1835206', '1836261', '1829573', '1829586', '605961', '605497', '126494', '2993372',
+  '2946242', '2946527', '3432447', '2591885']) // 가게·방탈출·끝난 행사·장난감 대여점 (11/06)
 const ROWS_PER_PAGE = 100
 const WAIT_MS = 80 // 호출 사이 쉬는 시간 (서버에 무리 안 주게)
 const SAVE_EVERY = 20 // 상세 몇 개마다 캐시 저장
@@ -100,6 +104,7 @@ async function fetchList(cache) {
       for (const item of toItems(body)) {
         if (!Number(item.mapx) || !Number(item.mapy)) continue // 좌표 없는 곳은 지도에 못 올려서 뺌
         const id = String(item.contentid)
+        if (EXCLUDE_IDS.has(id)) continue
         if (!cache.places[id]) added++
         cache.places[id] = { ...cache.places[id], list: item, typeId: String(typeId) }
       }
@@ -174,7 +179,7 @@ function toRow(id, place, now) {
 // ④ SQL 파일 쓰기
 function writeSql(cache) {
   const now = new Date().toISOString()
-  const ids = Object.keys(cache.places)
+  const ids = Object.keys(cache.places).filter((id) => !EXCLUDE_IDS.has(id)) // 캐시에 남아 있어도 SQL에는 안 씀
   const lines = [
     '-- 06_retrip_seed_tour_seoul.sql — 서울 관광지(12)·문화시설(14)·쇼핑(38) (한국관광공사 TourAPI KorService2). 04 다음에 실행',
     '--  만든 곳: db/tour/make_tour_seed.mjs (직접 고치지 말고 스크립트로 다시 만들어요)',
