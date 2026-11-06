@@ -9,17 +9,17 @@ const KEY = 'devMode'
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (saved) return { isOn: !!saved.isOn, isFakeGps: !!saved.isFakeGps }
+    if (saved) return { isOn: !!saved.isOn, isFakeGps: !!saved.isFakeGps, clockOffsetMs: saved.clockOffsetMs || 0 }
   } catch (e) {
     // 저장한 값이 깨졌으면 꺼진 상태로
   }
-  return { isOn: false, isFakeGps: false }
+  return { isOn: false, isFakeGps: false, clockOffsetMs: 0 }
 }
 
 export const devMode = reactive(load())
 
 function save() {
-  localStorage.setItem(KEY, JSON.stringify({ isOn: devMode.isOn, isFakeGps: devMode.isFakeGps }))
+  localStorage.setItem(KEY, JSON.stringify({ isOn: devMode.isOn, isFakeGps: devMode.isFakeGps, clockOffsetMs: devMode.clockOffsetMs }))
 }
 
 // 개발자 모드 켜기 (시연 계정 확인이 끝난 뒤에만 부름)
@@ -28,11 +28,23 @@ export function turnOnDevMode() {
   save()
 }
 
-// 개발자 모드 끄기 (가짜 GPS도 같이 꺼짐)
+// 개발자 모드 끄기 (가짜 GPS·시연 시계도 같이 꺼짐)
 export function turnOffDevMode() {
   devMode.isOn = false
   devMode.isFakeGps = false
+  devMode.clockOffsetMs = 0
   save()
+}
+
+// 서버 시연 시계와 같은 차이를 화면 시계에도 (DevDot이 서버 상태를 받을 때 부름, 11/06)
+export function setClockOffset(minutes) {
+  devMode.clockOffsetMs = minutes * 60000
+  save()
+}
+
+// 화면이 쓰는 "지금": 개발자 모드면 시연 시계, 아니면 이 PC 시각
+export function appNow() {
+  return new Date(Date.now() + (devMode.isOn ? devMode.clockOffsetMs : 0))
 }
 
 // 가짜 GPS 켜고 끄기 (개발자 모드일 때만)

@@ -4,7 +4,7 @@
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
 import { onMounted, ref } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain } from '@/api/dev'
-import { devMode, setFakeGps, turnOffDevMode } from '@/utils/devMode'
+import { devMode, setClockOffset, setFakeGps, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const emit = defineEmits(['clock', 'gps'])
@@ -32,6 +32,7 @@ async function loadStatus() {
 function showStatus(status) {
   serverNow.value = status.now
   offsetMinutes.value = status.offsetMinutes
+  setClockOffset(status.offsetMinutes) // 홈의 D-day·상태바 시계도 시연 시계로
   rainFrom.value = status.rainFrom
   dateInput.value = status.now.slice(0, 10)
   timeInput.value = status.now.slice(11, 16)

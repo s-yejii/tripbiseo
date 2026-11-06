@@ -1,4 +1,6 @@
 // 날짜 글자('2026-11-14') 도우미. 날짜를 글자로 다루면 크기 비교('2026-11-14' < '2026-11-15')가 그대로 돼요
+import { appNow } from '@/utils/devMode'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 // Date → '2026-11-14' (내 PC 시간 기준)
@@ -10,7 +12,7 @@ export function toDateText(date) {
 
 // 오늘 '2026-11-03'
 export function todayText() {
-  return toDateText(new Date())
+  return toDateText(appNow()) // 개발자 모드면 시연 시계 (11/06)
 }
 
 // '2026-11-14' + 1일 → '2026-11-15'

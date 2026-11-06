@@ -25,6 +25,7 @@ import { showTrashToast } from '@/utils/trash'
 import StopThumb from '@/components/trip/StopThumb.vue'
 import { MOVE_CODES } from '@/utils/styleCodes'
 import { showToast } from '@/utils/toast'
+import { appNow } from '@/utils/devMode'
 import { daysLeft, isTodayTrip, pickHomeTrip, toShortDate, toTransportText, tripBadge, tripDetailLink } from '@/utils/tripView'
 
 const LIVE_RADIUS_M = 1500 // 여행 중: 지금 위치에서 걸어서·한두 정거장 (20분 안)
@@ -177,7 +178,7 @@ const countdown = computed(() => {
   if (!isNow.value) return { cap: '여행까지', big: daysLeft(trip.value.startDate) + '일' }
   const next = dayStops.value.find((stop) => stop.state === 'todo')
   if (!next) return { cap: '오늘 일정', big: '모두 다녀왔어요' }
-  const now = new Date()
+  const now = appNow() // 개발자 모드면 시연 시계 (11/06)
   const left = toMinutes(next.time) - (now.getHours() * 60 + now.getMinutes())
   return { cap: next.name + ' (' + next.time + ')까지', big: left > 0 ? toDuration(left) : '지금 출발' }
 })

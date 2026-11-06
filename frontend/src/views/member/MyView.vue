@@ -8,6 +8,7 @@ import TabBar from '@/components/common/TabBar.vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import VersionTap from '@/components/member/VersionTap.vue'
+import DevDot from '@/components/live/DevDot.vue'
 import { turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 import { friendNews } from '@/data/friendNews'
@@ -111,6 +112,7 @@ async function logout() {
 <template>
   <div class="scr scr-My">
     <div class="app">
+      <DevDot /><!-- 개발자 모드(시연 계정)일 때만 보이는 점: 여행 시작 전에도 시연 시계를 맞출 수 있게 (11/06) -->
       <TopBar title="마이" icon="none" />
 
       <div class="scroll" style="padding-top: 8px; gap: 24px; bottom: 96px">

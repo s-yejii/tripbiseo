@@ -2,6 +2,7 @@
 // 휴대폰 맨 위 상태바 (PC에서 볼 때만). 잠금화면에서는 흰 글씨, 시간은 숨김
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { appNow } from '@/utils/devMode'
 
 const route = useRoute()
 const time = ref('')
@@ -9,7 +10,7 @@ const isLight = computed(() => route.meta.statusbar === 'light' || route.meta.st
 const hideTime = computed(() => route.meta.statusbar === 'lock')
 
 function tick() {
-  const now = new Date()
+  const now = appNow() // 개발자 모드면 시연 시계 (11/06)
   time.value = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0')
 }
 
