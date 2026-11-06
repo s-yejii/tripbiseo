@@ -25,6 +25,7 @@ import NotiBell from '@/components/member/NotiBell.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
 import DevDot from '@/components/live/DevDot.vue'
+import TripEndSheet from '@/components/live/TripEndSheet.vue'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
@@ -434,6 +435,29 @@ async function finish() {
   }
 }
 
+// ------------------------------------------------------------ 여행 끝 (11/06)
+// 마지막 날의 마지막 칸이 고정 일정(KTX 같은)이고 거기 도착하면 → 끝 시트(총 지출) → "회고 보기"로 여행 끝내기
+const endStop = ref(null) // 끝 시트를 띄운 칸 { name, eta }
+let isEndShown = false // 닫아도 다시 안 띄움
+
+watch(status, () => {
+  if (isEndShown || !status.value || !live.trip.value) return
+  const last = status.value.stops[status.value.stops.length - 1]
+  if (!last || !last.fixed || (last.reach !== 'here' && last.reach !== 'done')) return
+  if (!isLastDayStop(last.id)) return
+  isEndShown = true
+  endStop.value = { name: last.name, eta: status.value.now }
+})
+
+// 이 칸이 여행 마지막 날의 칸인지
+function isLastDayStop(stopId) {
+  const stops = live.trip.value.stops
+  let lastDay = 0
+  for (const stop of stops) lastDay = Math.max(lastDay, stop.day || 0)
+  const stop = stops.find((item) => item.id === stopId)
+  return !!stop && stop.day === lastDay
+}
+
 function showDemo() {
   setFakeGps(true)
   restartMoving()
@@ -451,6 +475,7 @@ function restartMoving() {
   <div class="scr scr-Live">
     <div class="app">
       <DevDot @clock="live.refresh()" @gps="restartMoving" />
+      <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
         <header class="topbar">
