@@ -287,7 +287,7 @@ function drawMap() {
   for (const place of retro.value.stops){
     const latLng = new kakao.maps.LatLng(place.lat , place.lng)
     const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
-    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' }) // point.length : 핀 번호에 번호붙이기()
+    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
   }
   visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
   const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
@@ -314,6 +314,7 @@ function moveToPlace(no) {
   stop() // 재생 중이면 멈추고 옮김
   progress.value = (toMinutes(place.actualArrive) - startMinutes.value) / (endMinutes.value  - startMinutes.value) * 100
 }
+
 
 const isHybrid = ref(false)
 
@@ -343,7 +344,7 @@ function toggleMapType() {
         </svg>
       </div>
       <div class="retro-map">
-        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no)">
+        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no)">
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
@@ -451,6 +452,8 @@ function toggleMapType() {
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
 .scr-Retro .retro-cmp{display:flex;flex-direction:column;gap:6px}
 /* 다녀온 길: 왼쪽 세로 점선 위에 번호 원과 이동 아이콘을 올림 */
+/* 지도 핀: 건너뛴 곳은 타임라인 번호 원과 같은 회색 점선 */
+.scr-Retro .pin.pin--skipped{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong)}
 .scr-Retro .retro-tl{position:relative;display:flex;flex-direction:column;margin-top:6px}
 .scr-Retro .retro-tl::before{content:"";position:absolute;left:13px;top:16px;bottom:16px;border-left:2px dashed var(--line-strong);opacity:.5}
 .scr-Retro .retro-tl__place{display:flex;align-items:center;gap:12px;min-height:52px;margin:0 -8px;padding:0 8px;border-radius:10px;cursor:pointer;transition:background-color .2s}
