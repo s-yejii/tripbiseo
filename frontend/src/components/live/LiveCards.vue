@@ -14,12 +14,44 @@ const emit = defineEmits(['pick', 'seg', 'scrolled'])
 const box = ref(null)
 let movedByCode = false // 처음 가운데 맞출 때는 선택을 바꾸지 않아요
 
+// 다른 카드를 보다가 손을 떼고 3초가 지나면 지금 있는 곳 카드로 돌아와요
+const BACK_TO_NOW_MS = 3000
+const RETURN_SCROLL_MS = 700 // 부드럽게 돌아가는 동안은 스크롤을 사용자 조작으로 보지 않음
+let backTimer = null
+let isReturning = false
+
+function nowCardLeft() {
+  const el = box.value && box.value.querySelector('.hcard.is-now')
+  if (!el) return null
+  return el.offsetLeft - (box.value.clientWidth - el.offsetWidth) / 2
+}
+
+function scheduleBackToNow() {
+  clearTimeout(backTimer)
+  backTimer = setTimeout(scrollBackToNow, BACK_TO_NOW_MS)
+}
+
+function scrollBackToNow() {
+  if (drag) return scheduleBackToNow() // 아직 끄는 중이면 다시 기다림
+  const left = nowCardLeft()
+  if (left === null || Math.abs(box.value.scrollLeft - left) < 4) return
+  isReturning = true
+  box.value.scrollTo({ left: left, behavior: 'smooth' })
+  setTimeout(() => {
+    isReturning = false
+    const nowCard = props.cards.find((card) => card.state === 'now')
+    if (nowCard) emit('scrolled', nowCard.no) // 지도 핀 강조도 지금 카드로
+  }, RETURN_SCROLL_MS)
+}
+
 // 옆으로 넘기면 가운데에 온 카드 번호를 알려 줘요 (지도 핀 강조용)
 function onScroll() {
   if (movedByCode) {
     movedByCode = false
     return
   }
+  if (isReturning) return
+  scheduleBackToNow()
   const mid = box.value.scrollLeft + box.value.clientWidth / 2
   const cardEls = box.value.querySelectorAll('.hcard')
   let best = 0
@@ -76,7 +108,10 @@ function removeListeners() {
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
 }
-onUnmounted(removeListeners)
+onUnmounted(() => {
+  removeListeners()
+  clearTimeout(backTimer)
+})
 
 // 마우스 휠(위아래)도 옆으로 넘기기
 function onWheel(e) {
