@@ -35,6 +35,18 @@ const isFailed = ref(false)
 let pointerType = 'mouse'
 const spinning = ref(null) // 룰렛이 지금 지나는 구 이름
 const isSpinning = ref(false)
+const isLanding = ref(false) // 주사위가 멈추며 한 번 통 튀는 동안
+const diceFace = ref(5) // 주사위 윗면 눈 수 (굴리는 동안 계속 바뀜, 11/06)
+// 눈 수별 점 자리 (24×24 안에서)
+const PIPS = {
+  1: [[12, 12]],
+  2: [[8, 8], [16, 16]],
+  3: [[8, 8], [12, 12], [16, 16]],
+  4: [[8, 8], [16, 8], [8, 16], [16, 16]],
+  5: [[8, 8], [16, 8], [12, 12], [8, 16], [16, 16]],
+  6: [[8, 7.5], [16, 7.5], [8, 12], [16, 12], [8, 16.5], [16, 16.5]],
+}
+const LAND_MS = 420 // 멈출 때 통 튀는 시간
 const HINT_KEY = 'guRouletteHintSeen' // 말풍선을 닫았는지 (이 브라우저에 기억)
 const isHintOpen = ref(readHintOpen())
 function readHintOpen() {
@@ -192,6 +204,7 @@ function spin() {
   let index = 0
   const next = () => {
     spinning.value = steps[index].name
+    diceFace.value = 1 + Math.floor(Math.random() * 6) // 지도가 반짝일 때마다 주사위 윗면도 바뀜
     if (index === steps.length - 1) return finishSpin(target)
     const progress = index / (steps.length - 1)
     index++
@@ -202,6 +215,8 @@ function spin() {
 function finishSpin(target) {
   spinning.value = null
   isSpinning.value = false
+  isLanding.value = true
+  setTimeout(() => (isLanding.value = false), LAND_MS)
   randomName.value = target.name
   emit('update:modelValue', [{ name: target.name, lat: target.lat, lng: target.lng, dongs: [] }])
 }
@@ -210,7 +225,7 @@ function finishSpin(target) {
 <template>
   <section class="card card--pad gu-map" aria-label="서울 구 지도">
     <p v-if="isFailed" class="t-cap">지도를 불러오지 못했어요. 위에서 검색해 주세요</p>
-    <button v-if="!isFailed" type="button" class="gu-map__spin" aria-label="랜덤으로 고르기" title="랜덤으로 고르기" :disabled="isSpinning" @click="spin"><svg class="gu-map__dice" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.75"/><circle cx="9" cy="9" r="1.4" fill="currentColor"/><circle cx="15" cy="15" r="1.4" fill="currentColor"/><circle cx="15" cy="9" r="1.4" fill="currentColor"/><circle cx="9" cy="15" r="1.4" fill="currentColor"/></svg></button>
+    <button v-if="!isFailed" type="button" class="gu-map__spin" aria-label="랜덤으로 고르기" title="랜덤으로 고르기" :disabled="isSpinning" @click="spin"><svg class="gu-map__dice" :class="{ 'is-rolling': isSpinning, 'is-landing': isLanding }" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="#fff" stroke="currentColor" stroke-width="1.75"/><circle v-for="(pip, i) in PIPS[diceFace]" :key="i" :cx="pip[0]" :cy="pip[1]" r="1.5" fill="currentColor"/></svg></button>
     <p v-if="isHintOpen && !isFailed" class="gu-map__hint"><span>어디 갈지 모르겠다면</span><button type="button" aria-label="닫기" @click="closeHint"><i class="ic ic--s i-close" aria-hidden="true"></i></button></p>
     <svg v-if="!isFailed" class="gu-map__svg" :viewBox="`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`" role="img" aria-label="서울 25개 구" @pointerdown="pointerType = $event.pointerType">
       <path
@@ -234,8 +249,8 @@ function finishSpin(target) {
         </g>
       </template>
     </svg>
-    <p v-if="randomName" class="gu-map__random t-cap" role="status">{{ randomName }} 어때요?<button type="button" class="gu-map__again" @click="spin">다시</button></p>
-    <p v-if="tops.length" class="gu-map__legend t-cap"><svg class="gu-map__legend-flag" viewBox="0 0 10 14" aria-hidden="true"><path d="M1 1V13" stroke="#1F3A68" stroke-width="1.5" /><path d="M1 1L9 4L1 7Z" fill="#E8603F" /></svg>여행어때 추천 지역<i class="is-on" aria-hidden="true"></i>선택</p>
+    <p v-if="randomName" class="gu-map__random" role="status">{{ randomName }} 어때요?<button type="button" class="gu-map__again" @click="spin">다시</button></p>
+    <p v-if="tops.length" class="gu-map__legend"><svg class="gu-map__legend-flag" viewBox="0 0 10 14" aria-hidden="true"><path d="M1 1V13" stroke="#1F3A68" stroke-width="1.5" /><path d="M1 1L9 4L1 7Z" fill="#E8603F" /></svg>여행어때 추천 지역<i class="is-on" aria-hidden="true"></i>선택</p>
     <button v-if="hover && !isOn(hover) && pointerType !== 'mouse'" type="button" class="btn btn--secondary btn--md btn--block" @click="toggle(gus.find((gu) => gu.name === hover)); hover = null">{{ hover }} 선택</button>
     <details class="gu-map__list">
       <summary class="t-cap">목록으로 고르기</summary>
@@ -250,8 +265,25 @@ function finishSpin(target) {
 .gu-map { position: relative; display: flex; flex-direction: column; gap: 8px; background: #EEF7FC; }
 .gu-map__spin { position: absolute; top: 12px; right: 12px; z-index: 2; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--navy); cursor: pointer; }
 .gu-map__spin::before { content: ""; position: absolute; inset: -2px; }
-.gu-map__spin:disabled { color: var(--ink-disabled); cursor: default; }
-.gu-map__dice { width: 22px; height: 22px; }
+.gu-map__spin:disabled { color: var(--navy); cursor: default; }
+.gu-map__dice { width: 24px; height: 24px; transform-origin: 50% 50%; }
+/* 굴리는 동안: 제자리에서 데굴데굴 (돌면서 살짝 뜨고 눌림), 멈출 때: 통 튀고 바로 섬 */
+.gu-map__dice.is-rolling { animation: dice-roll .36s linear infinite; }
+.gu-map__dice.is-landing { animation: dice-land .42s ease-out; }
+@keyframes dice-roll {
+  0% { transform: translateY(0) rotate(0deg) scale(1, 1); }
+  25% { transform: translateY(-5px) rotate(90deg) scale(.92, 1.06); }
+  50% { transform: translateY(0) rotate(180deg) scale(1.06, .92); }
+  75% { transform: translateY(-5px) rotate(270deg) scale(.92, 1.06); }
+  100% { transform: translateY(0) rotate(360deg) scale(1, 1); }
+}
+@keyframes dice-land {
+  0% { transform: translateY(-6px) rotate(-12deg); }
+  55% { transform: translateY(0) rotate(4deg) scale(1.08, .9); }
+  80% { transform: translateY(-2px) rotate(0deg) scale(.98, 1.02); }
+  100% { transform: translateY(0) rotate(0deg) scale(1, 1); }
+}
+@media (prefers-reduced-motion: reduce) { .gu-map__dice.is-rolling, .gu-map__dice.is-landing { animation: none; } }
 .gu-map__hint { position: absolute; top: 60px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 2px; margin: 0; padding: 2px 2px 2px 10px; border-radius: var(--radius-md); background: var(--navy); color: #fff; font-size: 12px; line-height: 16px; }
 .gu-map__hint button { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; }
 .gu-map__flag { pointer-events: none; }
@@ -273,11 +305,12 @@ function finishSpin(target) {
 .gu-map__name.is-top:not(.is-on) { fill: var(--navy); font-weight: 700; }
 @keyframes gu-lift { from { transform: translateY(0); } to { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .gu-map__lift { animation: none; } }
-.gu-map__name { font-size: 10px; font-weight: 600; fill: var(--ink); pointer-events: none; }
+.gu-map__name { font-size: 12px; font-weight: 600; fill: var(--ink); pointer-events: none; }
 .gu-map__name.is-up { transform: translateY(-3px); fill: var(--navy); font-weight: 700; }
 .gu-map__name.is-on { fill: #fff; }
-.gu-map__random { margin: 0; text-align: center; color: var(--ink); }
-.gu-map__legend { display: flex; align-items: center; gap: 6px; margin: 0; }
+.gu-map__random { margin: 0; text-align: center; color: var(--ink); font-size: 18px; line-height: 26px; font-weight: 700; }
+.gu-map__random .gu-map__again { font-size: 15px; }
+.gu-map__legend { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; line-height: 20px; }
 .gu-map__legend { color: var(--ink); }
 .gu-map__legend i { width: 12px; height: 12px; border-radius: 3px; }
 .gu-map__legend i.is-on { margin-left: 8px; background: var(--navy); }

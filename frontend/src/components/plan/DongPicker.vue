@@ -94,9 +94,9 @@ function clearDongs() {
 <template>
   <section class="card card--pad dong-pick" aria-label="동 고르기">
     <div v-if="areas.length > 1" class="chips" role="tablist" aria-label="구">
-      <button v-for="area in areas" :key="area.name" type="button" role="tab" class="chip chip--sm" :class="{ 'is-on': area.name === activeName }" :aria-selected="area.name === activeName" @click="activeName = area.name">{{ area.name }}<template v-if="area.dongs.length"> {{ area.dongs.length }}</template></button>
+      <button v-for="area in areas" :key="area.name" type="button" role="tab" class="chip" :class="{ 'is-on': area.name === activeName }" :aria-selected="area.name === activeName" @click="activeName = area.name">{{ area.name }}<template v-if="area.dongs.length"> {{ area.dongs.length }}</template></button>
     </div>
-    <p v-if="isFailed" class="t-cap">지도를 불러오지 못했어요. 건너뛰어도 돼요</p>
+    <p v-if="isFailed" class="t-cap">지도를 불러오지 못했어요. 안 골라도 돼요</p>
     <svg v-else class="dong-pick__svg" :viewBox="`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`" role="img" :aria-label="activeName + ' 행정동'">
       <path v-for="shape in shapes" :key="shape.code" class="dong-pick__dong" :class="[typeByCode[shape.code] ? 'type-' + typeByCode[shape.code] : '', { 'is-on': isOn(shape.code), 'is-hover': hover === shape.code }]" :d="shape.d" fill-rule="evenodd" @pointerenter="hover = shape.code" @pointerleave="hover = null" @click="toggle(shape)" />
     </svg>
@@ -104,8 +104,8 @@ function clearDongs() {
       <span v-for="item in TYPE_LEGEND" :key="item.type"><i class="dong-pick__dot" :class="'type-' + item.type" aria-hidden="true"></i>{{ item.label }}</span>
     </p>
     <div class="chips dong-pick__list">
-      <button type="button" class="chip chip--sm" :class="{ 'is-on': activeArea && !activeArea.dongs.length }" @click="clearDongs">전체</button>
-      <button v-for="shape in shapes" :key="'l-' + shape.code" type="button" class="chip chip--sm" :class="{ 'is-on': isOn(shape.code) }" :aria-pressed="isOn(shape.code)" @click="toggle(shape)" @pointerenter="hover = shape.code" @pointerleave="hover = null"><i v-if="typeByCode[shape.code]" class="dong-pick__dot" :class="'type-' + typeByCode[shape.code]" aria-hidden="true"></i>{{ shape.name }}</button>
+      <button type="button" class="chip" :class="{ 'is-on': activeArea && !activeArea.dongs.length }" @click="clearDongs">전체</button>
+      <button v-for="shape in shapes" :key="'l-' + shape.code" type="button" class="chip" :class="{ 'is-on': isOn(shape.code) }" :aria-pressed="isOn(shape.code)" @click="toggle(shape)" @pointerenter="hover = shape.code" @pointerleave="hover = null"><i v-if="typeByCode[shape.code]" class="dong-pick__dot" :class="'type-' + typeByCode[shape.code]" aria-hidden="true"></i>{{ shape.name }}</button>
     </div>
   </section>
 </template>
@@ -119,9 +119,9 @@ function clearDongs() {
 .dong-pick__dong.type-tour { fill: #A8DCC8; }
 .dong-pick__dong.is-hover { fill: var(--navy-soft); stroke: var(--navy); }
 .dong-pick__dong.is-on { fill: var(--navy); }
-.dong-pick__legend { display: flex; justify-content: center; gap: 12px; margin: 0; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
+.dong-pick__legend { display: flex; justify-content: center; gap: 14px; margin: 0; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .dong-pick__legend span { display: inline-flex; align-items: center; gap: 4px; }
-.dong-pick__dot { display: inline-block; flex: none; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; }
+.dong-pick__dot { display: inline-block; flex: none; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; }
 .dong-pick__legend .dong-pick__dot { margin-right: 0; }
 .dong-pick__dot.type-food { background: #FFB4A2; }
 .dong-pick__dot.type-cafe { background: #E8C9A0; }
