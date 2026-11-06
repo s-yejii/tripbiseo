@@ -24,6 +24,7 @@ import { showToast } from '@/utils/toast'
 import { showTrashToast } from '@/utils/trash'
 import { useRouteSim } from '@/utils/useRouteSim'
 import RouteSimButton from '@/components/trip/RouteSimButton.vue'
+import TripWeather from '@/components/plan/TripWeather.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -57,6 +58,9 @@ const dayList = computed(() => {
   for (let d = 1; d <= last; d++) list.push({ day: d, label: store.draft.startDate ? toShortDate(addDays(store.draft.startDate, d - 1)) : '' })
   return list
 })
+
+// 고른 날 날짜 (날씨·옷차림 줄에 씀, 11/06)
+const dayDate = computed(() => (store.draft.startDate ? addDays(store.draft.startDate, day.value - 1) : ''))
 
 onMounted(runCheck)
 
@@ -184,7 +188,7 @@ async function save() {
         <RouteSimButton v-if="hasDraft" :sim="sim" />
         <RouterLink v-if="selected !== null && !sim.isOn.value" :to="editLink(selected)" class="btn btn--sm btn--float"><i class="ic ic--s i-edit" aria-hidden="true"></i>{{ editLabel(selected) }}</RouterLink>
       </template>
-      <template v-if="hasDraft && (dayList.length > 1 || missedList.length)" #head>
+      <template v-if="hasDraft" #head>
         <div v-if="missedList.length" class="pc-missed">
           <i class="ic ic--s i-warning" aria-hidden="true"></i>
           <span class="pc-missed__text">{{ missedText }}</span>
@@ -195,6 +199,7 @@ async function save() {
             {{ d.day }}일차<span v-if="d.label" class="t-cap tn" style="margin-left: 4px">{{ d.label }}</span>
           </button>
         </ChipScroller>
+        <TripWeather :date="dayDate" :stops="dayStopsOf(store.draft, day)" />
       </template>
       <template v-if="error" #below>
         <p class="t-cap c-danger" style="padding: 12px 16px">{{ error }}</p>
