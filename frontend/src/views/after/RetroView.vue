@@ -99,8 +99,11 @@ function togglePlay() {
   if (progress.value >= 100) progress.value = 0
   playing.value = true
   infoNo.value = null
+  floatPhoto.value = null
   timer = setInterval(() => {
+    const before = nowMinutes.value // 한 칸 나아가기 전 시각
     progress.value = Math.min(100, progress.value + PLAY_STEP_1X * speed.value)
+    checkPhotoPopup(before, nowMinutes.value) // 그 사이에 찍은 사진이 있으면 지도 위에 띄움
     if (progress.value >= 100) stop()
   }, 90)
 }
@@ -236,6 +239,51 @@ function openPhoto(photo) {
   viewerStart.value = photos.value.indexOf(photo)
 }
 
+// ============================== 재생 중 사진 띄우기 + 막대 눈금
+const PHOTO_SHOW_MINUTES = 20 // 사진 카드가 떠 있는 시간 (재생 시각 기준 20분)
+const floatPhoto = ref(null)  // 지금 지도 위에 떠 있는 사진 { photo, x, y, until }. 없으면 null
+
+// 재생이 before → after 시각으로 나아갔을 때, 그 사이에 찍은 사진이 있으면 지금 점(me) 위치에 띄움
+// 예: 12:18 → 12:21로 나아가면 12:20 사진이 뜸
+function checkPhotoPopup(before, after) {
+  for (const photo of photos.value) {
+    const minutes = toMinutes(photo.takenAt)
+    if (minutes > before && minutes <= after) {
+      floatPhoto.value = { photo: photo, x: me.value.x, y: me.value.y, until: after + PHOTO_SHOW_MINUTES }
+    }
+  }
+  if (floatPhoto.value !== null && after > floatPhoto.value.until) {
+    floatPhoto.value = null // 20분이 지나면 내림
+  }
+}
+
+// 사진 카드를 누르면: 재생을 멈추고 크게 보기
+function openFloatPhoto() {
+  stop()
+  openPhoto(floatPhoto.value.photo)
+}
+
+// 사진을 찍은 장소 이름. 이동 중이면 '이동 중'
+function placeNameOf(photo) {
+  if (retro.value === null || photo.stopId === null) return '이동 중'
+  for (const stop of retro.value.stops) {
+    if (stop.id === photo.stopId) return stop.name
+  }
+  return '이동 중'
+}
+
+// 막대 눈금: 사진 찍은 시각이 막대의 몇 % 자리인지. 예: 12:00~18:00 막대에서 15:00 사진 → 50%
+const photoTicks = computed(() => {
+  const ticks = []
+  const range = endMinutes.value - startMinutes.value
+  if (range <= 0) return ticks
+  for (const photo of photos.value) {
+    const percent = ((toMinutes(photo.takenAt) - startMinutes.value) / range) * 100
+    if (percent >= 0 && percent <= 100) ticks.push({ id: photo.id, percent: percent })
+  }
+  return ticks
+})
+
 // kakao map 소환
 
 async function loadMap() {
@@ -364,6 +412,22 @@ function toggleMapType() {
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
+        <!-- 재생 중 사진 카드: 사진 찍은 시각을 지나면 점 위에 떠요. 누르면 크게 보기 -->
+        <button
+          v-if="floatPhoto"
+          :key="floatPhoto.photo.id"
+          type="button"
+          class="retro-float"
+          :style="{ left: Math.max(66, Math.min(324, floatPhoto.x)) + 'px', top: Math.max(150, floatPhoto.y - 18) + 'px' }"
+          :aria-label="placeNameOf(floatPhoto.photo) + ' ' + floatPhoto.photo.takenAt + ' 사진 크게 보기'"
+          @click="openFloatPhoto"
+        >
+          <span class="retro-float__img">
+            <video v-if="floatPhoto.photo.mediaType === 'video'" :src="floatPhoto.photo.url + '#t=0.1'" preload="metadata" muted playsinline></video>
+            <img v-else :src="floatPhoto.photo.url" alt="" />
+          </span>
+          <span class="retro-float__cap tn">{{ placeNameOf(floatPhoto.photo) }} · {{ floatPhoto.photo.takenAt }}</span>
+        </button>
         <div
           v-if="info"
           class="payinfo"
@@ -395,7 +459,11 @@ function toggleMapType() {
         <!-- 재생 속도: 누를 때마다 1배 → 2배 → 4배 → 1배 -->
         <button type="button" class="retro-speed" :aria-label="'재생 속도 ' + speed + '배'" @click="changeSpeed()">{{ speed }}배</button>
         <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
-          <span class="bar"><i :style="{ width: progress + '%' }"></i></span>
+          <!-- 막대 + 사진 눈금(코랄색): 사진 찍은 시각 자리 -->
+          <span class="retro-barwrap">
+            <span class="bar"><i :style="{ width: progress + '%' }"></i></span>
+            <span v-for="tick in photoTicks" :key="tick.id" class="retro-tick" :style="{ left: tick.percent + '%' }" aria-hidden="true"></span>
+          </span>
           <span style="display: flex; justify-content: space-between" class="t-cap tn"><span>{{ toTime(startMinutes) }}</span><b class="c-navy">{{ nowText }}</b><span>{{ toTime(endMinutes) }}</span></span>
         </span>
       </div>
@@ -504,6 +572,15 @@ function toggleMapType() {
 .scr-Retro .retro-tl__place.is-skipped .retro-tl__num{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong);box-shadow:none}
 .scr-Retro .retro-tl__place.is-skipped b{color:var(--ink-subtle)}
 .scr-Retro .retro-tl__move{display:flex;align-items:center;gap:12px;min-height:32px}
+.scr-Retro .retro-barwrap{position:relative;display:block}
+.scr-Retro .retro-barwrap .bar{display:block}
+.scr-Retro .retro-tick{position:absolute;top:-4px;width:3px;height:16px;margin-left:-1.5px;border-radius:2px;background:var(--coral);pointer-events:none}
+.scr-Retro .retro-float{position:absolute;z-index:5;width:126px;padding:4px 4px 6px;border:0;border-radius:12px;background:#fff;box-shadow:0 8px 20px rgba(24,33,58,.3);transform:translate(-50%,-100%);display:flex;flex-direction:column;gap:4px;align-items:center;cursor:pointer;font:inherit;animation:retro-pop .25s ease}
+.scr-Retro .retro-float::after{content:"";position:absolute;bottom:-5px;left:50%;margin-left:-5px;width:10px;height:10px;background:#fff;transform:rotate(45deg)}
+.scr-Retro .retro-float__img{width:118px;height:84px;border-radius:9px;overflow:hidden;background:var(--line)}
+.scr-Retro .retro-float__img img,.scr-Retro .retro-float__img video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.scr-Retro .retro-float__cap{font-size:11.5px;line-height:15px;color:var(--ink-muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:118px}
+@keyframes retro-pop{from{opacity:0;transform:translate(-50%,-90%) scale(.9)}to{opacity:1;transform:translate(-50%,-100%) scale(1)}}
 .scr-Retro .retro-tl__photos{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 6px}
 .scr-Retro .retro-tl__thumb{position:relative;width:48px;height:48px;padding:0;border:0;border-radius:8px;overflow:hidden;background:var(--line);cursor:pointer;flex:none}
 .scr-Retro .retro-tl__thumb img,.scr-Retro .retro-tl__thumb video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
