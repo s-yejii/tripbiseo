@@ -1,9 +1,9 @@
 <script setup>
-// S06 여행 정보 입력 (③): 한 화면에 하나씩 묻고 "이전"·"다음"·"건너뛰기"로 넘겨요 (11/04: 긴 스크롤 → 단계별)
+// S06 여행 정보 입력 (③): 한 화면에 하나씩 묻고 "이전"·"다음"으로 넘겨요 (11/04: 긴 스크롤 → 단계별, 11/06: 건너뛰기 버튼 없앰)
 // 주소: /plan/info (AI로 짜기) · /plan/info?method=me (직접 고르기)
 //   순서: 가고 싶은 곳(인스타 링크) → 어디로 → 언제 → 몇 시부터 몇 시까지 → 어디서 출발 → 누구랑 → 어디 위주 → 이런 곳 → 무엇으로 → 꼭 지킬 시간
 //   인스타로 담으면 그 장소의 구가 지역으로 자동 선택돼서 "어디로"를 건너뛰어요 (WishLinks)
-//   꼭 알려 줘야 하는 건 지역 하나. 나머지는 건너뛸 수 있고, 이동 수단은 건너뛰면 지하철·도보·버스
+//   꼭 알려 줘야 하는 건 지역 하나. 나머지는 안 고르고 "다음"을 눌러도 되고, 이동 수단은 안 고르면 지하철·도보·버스
 //   지금 칸·고른 값은 저장소(store)에 둬서 장소 검색에 다녀와도 그대로예요
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -33,14 +33,14 @@ const DEFAULT_MOVES = ['지하철', '도보', '버스']
 const STEPS = [
   { id: 'link', title: '가고 싶은 곳이 있나요?', sub: '링크로 넣어보세요' },
   { id: 'where', title: '어디로 가요?', sub: '', isRequired: true },
-  { id: 'dong', title: '어느 동이 좋아요?', sub: '건너뛰면 구 전체' },
+  { id: 'dong', title: '어느 동이 좋아요?', sub: '안 고르면 구 전체' },
   { id: 'when', title: '언제 가요?', sub: '' },
   { id: 'time', title: '몇 시부터 몇 시까지 놀까요?', sub: '' },
   { id: 'from', title: '어디서 출발해요?', sub: '' },
   { id: 'who', title: '누구랑 가요?', sub: '' },
-  { id: 'kind', title: '어디 위주로 갈까요?', sub: '밥·카페는 알아서 넣어요', noSkip: true },
+  { id: 'kind', title: '어디 위주로 갈까요?', sub: '밥·카페는 알아서 넣어요' },
   { id: 'tag', title: '이런 곳이면 더 좋아요', sub: '' },
-  { id: 'move', title: '무엇으로 다녀요?', sub: '건너뛰면 지하철·도보·버스' },
+  { id: 'move', title: '무엇으로 다녀요?', sub: '안 고르면 지하철·도보·버스' },
   { id: 'fixed', title: '예약한 곳이 있나요?', sub: '' },
 ]
 
@@ -53,13 +53,9 @@ const store = useTripStore()
 
 const step = computed(() => STEPS[store.planStep] || STEPS[0])
 const isLast = computed(() => store.planStep === STEPS.length - 1)
-const canSkip = computed(() => !step.value.isRequired && !step.value.noSkip)
 const progress = computed(() => Math.round(((store.planStep + 1) / STEPS.length) * 100) + '%')
-// 다음 버튼: 어디로는 지역, 어디서 출발은 출발지를 고른 뒤에 (출발지는 건너뛸 수 있어요)
-const canNext = computed(() => {
-  if (step.value.id === 'from') return !!store.planOrigin
-  return !step.value.isRequired || !!store.planArea
-})
+// 다음 버튼: 어디로는 지역을 고른 뒤에. 출발지는 안 골라도 돼요 (그러면 첫 장소에서 시작)
+const canNext = computed(() => !step.value.isRequired || !!store.planArea)
 
 // 1단계: 플랫폼 검색 바로가기 (새 창). 이 칸에선 아직 지역을 안 골라서 검색어는 늘 서울로 고정 (지난번 지역이 저장소에 남아 있어요)
 const YOUTUBE_WORD = '서울 핫플 브이로그'
@@ -283,7 +279,7 @@ function moveStep(direction) {
 
 // 다음 칸으로 (이미 고른 지역 칸은 건너뜀). 마지막 칸이면 일정 만들기로
 function goNext() {
-  if (!canNext.value) return showToast(step.value.id === 'from' ? '출발지를 골라 주세요' : '어디로 가는지 알려 주세요')
+  if (!canNext.value) return showToast('어디로 가는지 알려 주세요')
   if (isLast.value) {
     saveConditions()
     router.push(byMe ? '/plan/manual' : '/plan/chat')
@@ -294,10 +290,6 @@ function goNext() {
 function goPrev() {
   if (store.planStep === 0) return goBack('/new')
   moveStep(-1)
-}
-// 건너뛰기: 이동 수단은 기본값으로 비워 두면 saveConditions가 채움. 지역 칸은 건너뛸 수 없음
-function skip() {
-  goNext()
 }
 // 인스타로 담으면: 지역이 정해졌으니 "어디로"를 건너뛰고 "언제"로
 function onLinkAdded() {
@@ -324,7 +316,7 @@ onMounted(() => {
         <span class="topbar__side tn">{{ store.planStep + 1 }} / {{ STEPS.length }}</span>
       </header>
 
-      <div class="scroll pa-step" :class="{ 'pa-step--center': isCentered }" :style="{ paddingTop: '8px', gap: '14px', bottom: canSkip ? '130px' : '102px' }">
+      <div class="scroll pa-step" :class="{ 'pa-step--center': isCentered }" :style="{ paddingTop: '8px', gap: '14px', bottom: '102px' }">
         <div>
           <h1 class="h-title pa-title" style="margin: 0">{{ step.title }}</h1>
           <p v-if="step.id === 'when'" class="t-cap" style="margin: 4px 0 0">{{ whenLabel }}</p>
@@ -438,12 +430,11 @@ onMounted(() => {
               <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(item.name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
             </div>
           </div>
-          <button v-if="!fixedList.length" type="button" class="textlink" style="align-self: center" @click="skip">예약 없어요</button>
+          <button v-if="!fixedList.length" type="button" class="textlink" style="align-self: center" @click="goNext">예약 없어요</button>
         </section>
       </div>
 
       <div class="cta">
-        <button v-if="canSkip" type="button" class="pa-skip" @click="skip">건너뛰기</button>
         <div class="cta__row">
           <button v-if="store.planStep > 0" type="button" class="btn btn--secondary btn--lg" @click="goPrev">이전</button>
           <button type="button" class="btn btn--primary btn--lg" :class="{ 'is-wait': !canNext }" @click="goNext">{{ isLast ? '일정 만들기' : '다음' }}</button>
@@ -458,7 +449,6 @@ onMounted(() => {
 .scr-PlanAI .pa-app--kind { background: linear-gradient(#EEF5FF, #FFFFFF); }
 .scr-PlanAI .pa-app--kind .pa-title { font-size: 22px; line-height: 30px; font-weight: 700; }
 .scr-PlanAI .pa-app--kind .cta { background: #fff; }
-.scr-PlanAI .pa-skip { display: block; margin: 0 auto 8px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; line-height: 20px; color: var(--ink-muted); opacity: 0.55; cursor: pointer; }
 .scr-PlanAI .pa-step--center > :first-child { margin-top: auto; }
 .scr-PlanAI .pa-step--center > :last-child { margin-bottom: auto; padding-bottom: 32px; }
 .scr-PlanAI .pa-cards { display: flex; flex-direction: column; gap: 10px; }
