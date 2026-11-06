@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.plan.dto.AiConditions;
@@ -1061,6 +1062,9 @@ public class PlanServiceImpl implements PlanService {
         Double nearLng = baseLng != null ? baseLng : first == null ? null : first.getLng();
         for (AiDraftStop pick : picked) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
+            if (place == null && Boolean.TRUE.equals(pick.getFixed()) && isBoardingPlace(pick.getName())) {
+                place = findBoardingPlace(pick.getName(), nearLat, nearLng); // "서울역"이 "도마 서울역점" 식당으로 잡히지 않게 (11/06)
+            }
             if (place == null) {
                 place = placeService.getPlaceByName(pick.getName(), nearLat, nearLng);
             }
@@ -1132,6 +1136,32 @@ public class PlanServiceImpl implements PlanService {
             fixed.setTime(Geo.toHhmm(Geo.toMinutes(departure) - BOARDING_BUFFER_MIN));
             notes.add(makeNote(fixed.getName() + "은 " + departure + " 출발 " + BOARDING_BUFFER_MIN + "분 전인 " + fixed.getTime() + " 도착으로 맞췄어요", null));
         }
+    }
+
+    /**
+     * 타는 곳(역·터미널·공항) 고정 일정은 카카오 위치 검색에서 분류가 역·터미널·공항인 곳만 고름.
+     * 우리 장소 DB는 식당·카페 위주라 이름에 "서울역"이 들어간 가게가 먼저 잡혀서 (11/06). 못 찾으면 null
+     */
+    private Place findBoardingPlace(String name, Double lat, Double lng) {
+        List<FoundLocation> found;
+        try {
+            found = placeService.getLocationList(name.replace("KTX", "").replace("SRT", "").trim(), lat, lng);
+        } catch (ApiException e) {
+            return null; // 카카오 키가 없거나 오류면 원래 방식으로
+        }
+        for (FoundLocation location : found) {
+            String category = location.getCategory() == null ? "" : location.getCategory();
+            if (category.contains("역") || category.contains("터미널") || category.contains("공항") || category.contains("교통")) {
+                Place place = new Place();
+                place.setName(location.getName());
+                place.setCategory(category);
+                place.setAddress(location.getAddress());
+                place.setLat(location.getLat());
+                place.setLng(location.getLng());
+                return place;
+            }
+        }
+        return null;
     }
 
     /** 기차역·터미널·공항인지 (이름으로만 봄. "서울역", "광명역 KTX", "동서울터미널", "김포공항") */
