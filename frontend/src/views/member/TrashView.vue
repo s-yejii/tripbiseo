@@ -8,6 +8,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { deleteTrashTrip, emptyTrash, getTrashTrips, restoreTrip } from '@/api/trips'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
+import { withoutPractice } from '@/utils/practice'
 
 const trips = ref(null) // null: 아직 못 읽음
 const error = ref('')
@@ -23,7 +24,7 @@ onMounted(load)
 async function load() {
   error.value = ''
   try {
-    trips.value = await getTrashTrips()
+    trips.value = withoutPractice(await getTrashTrips()) // 시연 연습 복사본은 숨김
   } catch (e) {
     error.value = e.message
   }

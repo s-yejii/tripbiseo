@@ -6,12 +6,13 @@ import { getTripList } from '@/api/trips'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
+import { withoutPractice } from '@/utils/practice'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 const records = ref([])
 onMounted(async () => {
   try {
-    const trips = await getTripList()
+    const trips = withoutPractice(await getTripList()) // 시연 연습 복사본은 숨김
     records.value = trips.filter((trip) => trip.status === 'done' || trip.status === 'ongoing').map(toRecord)
   } catch {
     records.value = [] // 못 받으면 빈 화면 (아래 "기록이 없어요")

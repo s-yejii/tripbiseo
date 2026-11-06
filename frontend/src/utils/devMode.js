@@ -9,17 +9,17 @@ const KEY = 'devMode'
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (saved) return { isOn: !!saved.isOn, isFakeGps: !!saved.isFakeGps, clockOffsetMs: saved.clockOffsetMs || 0 }
+    if (saved) return { isOn: !!saved.isOn, isFakeGps: !!saved.isFakeGps, clockOffsetMs: saved.clockOffsetMs || 0, showPractice: !!saved.showPractice }
   } catch (e) {
     // 저장한 값이 깨졌으면 꺼진 상태로
   }
-  return { isOn: false, isFakeGps: false, clockOffsetMs: 0 }
+  return { isOn: false, isFakeGps: false, clockOffsetMs: 0, showPractice: false }
 }
 
 export const devMode = reactive(load())
 
 function save() {
-  localStorage.setItem(KEY, JSON.stringify({ isOn: devMode.isOn, isFakeGps: devMode.isFakeGps, clockOffsetMs: devMode.clockOffsetMs }))
+  localStorage.setItem(KEY, JSON.stringify({ isOn: devMode.isOn, isFakeGps: devMode.isFakeGps, clockOffsetMs: devMode.clockOffsetMs, showPractice: devMode.showPractice }))
 }
 
 // 개발자 모드 켜기 (시연 계정 확인이 끝난 뒤에만 부름)
@@ -33,6 +33,7 @@ export function turnOffDevMode() {
   devMode.isOn = false
   devMode.isFakeGps = false
   devMode.clockOffsetMs = 0
+  devMode.showPractice = false
   save()
 }
 
@@ -45,6 +46,12 @@ export function setClockOffset(minutes) {
 // 화면이 쓰는 "지금": 개발자 모드면 시연 시계, 아니면 이 PC 시각
 export function appNow() {
   return new Date(Date.now() + (devMode.isOn ? devMode.clockOffsetMs : 0))
+}
+
+// 연습 기록 보기 켜고 끄기: 켜면 시연 연습 복사본·그 알림도 일반 화면에 보임 (11/06)
+export function setShowPractice(isShown) {
+  devMode.showPractice = devMode.isOn && isShown
+  save()
 }
 
 // 가짜 GPS 켜고 끄기 (개발자 모드일 때만)

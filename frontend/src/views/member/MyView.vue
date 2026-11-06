@@ -16,6 +16,7 @@ import { showToast } from '@/utils/toast'
 import { friendNews } from '@/data/friendNews'
 import { useTripStore } from '@/stores/trip'
 import { readTransports } from '@/utils/transports'
+import { withoutPractice } from '@/utils/practice'
 
 // 가짜 데이터: 내 정보 (백엔드가 붙으면 member · member_style · friend · card 테이블)
 const router = useRouter()
@@ -38,7 +39,7 @@ onMounted(async () => {
     return
   }
   try {
-    const trips = await getTripList()
+    const trips = withoutPractice(await getTripList()) // 시연 연습 복사본은 숨김
     tripStats.value = {
       done: trips.filter((trip) => trip.status === 'done').length,
       planned: trips.filter((trip) => trip.status === 'planned').length,

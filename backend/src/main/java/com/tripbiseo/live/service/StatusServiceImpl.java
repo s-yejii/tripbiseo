@@ -110,7 +110,7 @@ public class StatusServiceImpl implements StatusService {
         notice.setLevel(alert.getLevel());
         notice.setTitle(alert.getTitle());
         notice.setText(alert.getText());
-        notice.setLink("/live");
+        notice.setLink("/live?id=" + tripId); // 어느 여행 알림인지 (여행 중 화면은 id를 안 봐도 됨, 시연 연습 알림 숨기기에 씀, 11/06)
         notice.setNoticeKey("trip" + tripId + "-" + Geo.now().toLocalDate() + "-" + toNoticeKey(alert.getKey()));
         notificationService.send(notice);
     }

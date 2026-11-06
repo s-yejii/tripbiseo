@@ -27,6 +27,7 @@ import { MOVE_CODES } from '@/utils/styleCodes'
 import { showToast } from '@/utils/toast'
 import { appNow } from '@/utils/devMode'
 import { daysLeft, isTodayTrip, pickHomeTrip, toShortDate, toTransportText, tripBadge, tripDetailLink } from '@/utils/tripView'
+import { withoutPractice } from '@/utils/practice'
 
 const LIVE_RADIUS_M = 1500 // 여행 중: 지금 위치에서 걸어서·한두 정거장 (20분 안)
 const TRIP_AREA_RADIUS_M = 2000 // 여행 전: 여행지(일정 장소 가운데) 둘레
@@ -59,7 +60,7 @@ async function load() {
   isLoading.value = true
   error.value = ''
   try {
-    const picked = pickHomeTrip(await getTripList())
+    const picked = pickHomeTrip(withoutPractice(await getTripList())) // 시연 연습 복사본은 숨김 (진행 중이면 보임)
     trip.value = picked ? await getTrip(picked.id) : null
   } catch (e) {
     error.value = e.message

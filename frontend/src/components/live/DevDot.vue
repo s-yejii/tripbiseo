@@ -4,7 +4,7 @@
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
 import { ref, watch } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain } from '@/api/dev'
-import { devMode, setClockOffset, setFakeGps, turnOffDevMode } from '@/utils/devMode'
+import { devMode, setClockOffset, setFakeGps, setShowPractice, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const emit = defineEmits(['clock', 'gps'])
@@ -108,6 +108,8 @@ function turnOff() {
       <div class="dev-panel__row">
         <button v-for="minutes in FORWARD_STEPS" :key="minutes" type="button" class="chip tn" :disabled="isBusy" @click="forward(minutes)">+{{ minutes }}분</button>
       </div>
+
+      <button type="button" class="chip" :class="{ 'is-on': devMode.showPractice }" @click="setShowPractice(!devMode.showPractice)">연습 기록 보기 {{ devMode.showPractice ? '켜짐' : '꺼짐' }}</button>
 
       <div class="dev-panel__row">
         <button type="button" class="btn btn--secondary btn--sm" :disabled="isBusy || !offsetMinutes" @click="backToRealTime">진짜 시각으로</button>
