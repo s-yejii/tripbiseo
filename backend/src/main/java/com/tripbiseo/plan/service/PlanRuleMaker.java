@@ -482,7 +482,7 @@ public class PlanRuleMaker {
             return false;
         }
         for (String item : names) {
-            if (name.contains(item) || item.contains(name)) {
+            if (planCandidateFinder.isSameName(name, item)) { // 띄어쓰기 무시 (11/06)
                 return true;
             }
         }

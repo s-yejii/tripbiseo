@@ -998,12 +998,9 @@ public class PlanServiceImpl implements PlanService {
         }
     }
 
-    /** 이름이 서로 포함되면 같은 곳 (2자 이상) */
+    /** 이름이 서로 포함되면 같은 곳 (2자 이상, 띄어쓰기 무시 11/06) */
     private boolean isSameName(String first, String second) {
-        if (first == null || second == null || first.length() < 2 || second.length() < 2) {
-            return false;
-        }
-        return first.contains(second) || second.contains(first);
+        return planCandidateFinder.isSameName(first, second);
     }
 
     /** 고정 일정이 몇째 날인지 (없거나 0 이하면 1일차) */
@@ -1016,7 +1013,7 @@ public class PlanServiceImpl implements PlanService {
         for (AiDraftStop pick : picks) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId());
             String pickName = place != null ? place.getName() : pick.getName();
-            if (pickName != null && (pickName.contains(name) || name.contains(pickName))) {
+            if (isSameName(pickName, name)) {
                 return true;
             }
         }

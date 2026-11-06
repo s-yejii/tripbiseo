@@ -80,7 +80,7 @@ public class PlanCandidateFinder {
 
     /** 꼭 갈 곳 하나를 실제 장소로 찾고, 그 주변 1km 12곳도 후보에. 못 찾으면 null */
     public Place addMustVisit(Map<String, Place> candidates, String name, Double lat, Double lng) {
-        Place place = placeService.getPlaceByName(name, lat, lng);
+        Place place = findByName(name, lat, lng);
         if (place == null) {
             return null;
         }
@@ -276,11 +276,38 @@ public class PlanCandidateFinder {
             return false;
         }
         for (String name : mustVisit) {
-            if (name != null && name.length() >= 2 && (place.getName().contains(name) || name.contains(place.getName()))) {
+            if (isSameName(place.getName(), name)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** 이름이 서로 포함되면 같은 곳. 띄어쓰기·대소문자는 무시 ("여의도 한강공원" = "여의도한강공원", 11/06) */
+    public boolean isSameName(String first, String second) {
+        if (first == null || second == null) {
+            return false;
+        }
+        String a = toCompactName(first);
+        String b = toCompactName(second);
+        return a.length() >= 2 && b.length() >= 2 && (a.contains(b) || b.contains(a));
+    }
+
+    /** 띄어쓰기를 빼고 소문자로 (이름 비교용) */
+    private String toCompactName(String name) {
+        return name.replace(" ", "").toLowerCase();
+    }
+
+    /** 이름으로 장소 찾기: 띄어 쓴 이름이면 붙인 이름으로 먼저 찾고(DB는 "여의도한강공원"처럼 붙여 씀), 이름이 안 맞으면 원래 이름으로 */
+    private Place findByName(String name, Double lat, Double lng) {
+        String compact = name.replace(" ", "");
+        if (!compact.equals(name)) {
+            Place place = placeService.getPlaceByName(compact, lat, lng);
+            if (place != null && isSameName(place.getName(), name)) {
+                return place;
+            }
+        }
+        return placeService.getPlaceByName(name, lat, lng);
     }
 
     /** 점수 높은 순으로 다시 줄 세운 후보 표 (Gemini에게 좋은 후보부터 보여 주려고) */
