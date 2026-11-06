@@ -29,6 +29,7 @@ import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
 
 const AUTO_NEXT_MS = 180 // 하나만 고르는 칸은 고른 것이 보인 뒤 넘김
+const WORKSHOP_MIN_PEOPLE = 4 // 워크숍을 고르면 인원은 적어도 이만큼
 const DEFAULT_MOVES = ['지하철', '도보', '버스']
 const STEPS = [
   { id: 'link', title: '가고 싶은 곳이 있나요?', sub: '링크로 넣어보세요' },
@@ -120,6 +121,7 @@ const companions = [
   { name: '연인', icon: 'i-gift', desc: '둘이서' },
   { name: '가족', icon: 'i-home', desc: '다 같이' },
   { name: '아이와', icon: 'i-star', desc: '아이와 함께' },
+  { name: '워크숍', icon: 'i-flag', desc: '회사 팀과' }, // 11/06: 단체석·회식 맞춤
 ]
 // 큰 선택 카드: 코드는 styleCodes 그대로, 아이콘·한 줄 설명만 더해요
 const CARD_LOOK = {
@@ -214,7 +216,8 @@ function changePeople(diff) {
 }
 function pickCompanion(name) {
   store.planCompanion = name
-  store.planPeople = name === '혼자' ? 1 : Math.max(2, store.planPeople)
+  const fewest = name === '워크숍' ? WORKSHOP_MIN_PEOPLE : 2
+  store.planPeople = name === '혼자' ? 1 : Math.max(fewest, store.planPeople)
   setTimeout(goNext, AUTO_NEXT_MS)
 }
 // 담은 숙소의 박 수 합 (체크인~체크아웃 날짜 차이). 여행 박 수만큼 다 담으면 "숙소 더 담기"를 숨김
@@ -260,6 +263,7 @@ function saveConditions() {
     startTime: store.planFromTime,
     endTime: store.planToTime,
     people: store.planPeople,
+    companion: store.planCompanion, // 누구랑: 서버가 머무는 시간·리뷰 확인에 씀 (11/06)
     transports,
     kinds: store.planKinds,
     tags: store.planTags,

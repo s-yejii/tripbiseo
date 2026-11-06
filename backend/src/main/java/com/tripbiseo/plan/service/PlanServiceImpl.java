@@ -77,6 +77,9 @@ public class PlanServiceImpl implements PlanService {
     private static final int MIN_STAY = 10;
     private static final int MAX_STAY = 600;
     private static final int MAX_NEEDS = 3;          // 칩에 없는 요청은 3개까지 (리뷰 확인이 요청마다 Gemini를 불러서)
+    private static final String WORKSHOP_NEED = "4명 이상 앉을 단체석"; // 누구랑 = 워크숍일 때 리뷰로 확인 (11/06)
+    private static final String KIDS_NEED = "아이와 가기 좋은 곳";        // 누구랑 = 아이와
+    private static final String MOOD_TAG = "mood";                     // 누구랑 = 연인이면 분위기 칩을 더함
     private static final int MAX_NEED_LENGTH = 20;
     private static final double WISH_BONUS = 2.0;    // 가능하면 갈 곳 점수 (태그 0.3·리뷰 확인 1.0보다 크게: 시간이 되면 먼저 들어가게)
     private static final double DONG_BONUS = 1.0; // 고른 동 안의 장소: 평점 차이보다 크게
@@ -807,6 +810,35 @@ public class PlanServiceImpl implements PlanService {
         if (conditions.getTransports() == null || conditions.getTransports().isEmpty()) {
             conditions.setTransports(DEFAULT_TRANSPORTS);
         }
+        addCompanionNeeds(conditions);
+    }
+
+    /**
+     * 누구랑에 맞는 리뷰 확인 요청을 더함 (11/06). 리뷰에서 그 말이 보이는 곳이 점수를 더 받아요 (ReviewNeedChecker).
+     * 워크숍: 단체석 · 아이와: 아이와 가기 좋은 곳 · 연인: 분위기 칩
+     */
+    private void addCompanionNeeds(PlanConditions conditions) {
+        String companion = conditions.getCompanion();
+        if ("워크숍".equals(companion)) {
+            addNeed(conditions, WORKSHOP_NEED);
+        } else if ("아이와".equals(companion)) {
+            addNeed(conditions, KIDS_NEED);
+        } else if ("연인".equals(companion)) {
+            List<String> tags = conditions.getTags() == null ? new ArrayList<>() : new ArrayList<>(conditions.getTags());
+            if (!tags.contains(MOOD_TAG)) {
+                tags.add(MOOD_TAG);
+            }
+            conditions.setTags(tags);
+        }
+    }
+
+    /** 리뷰 확인 요청 하나 더하기 (같은 말이 있거나 3개가 차 있으면 그대로) */
+    private void addNeed(PlanConditions conditions, String need) {
+        List<String> needs = conditions.getNeeds() == null ? new ArrayList<>() : new ArrayList<>(conditions.getNeeds());
+        if (!needs.contains(need) && needs.size() < MAX_NEEDS) {
+            needs.add(need);
+        }
+        conditions.setNeeds(needs);
     }
 
     // ---------------------------------------------------------------- 조건 → 초안

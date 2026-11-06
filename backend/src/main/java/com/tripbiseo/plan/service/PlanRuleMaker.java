@@ -77,6 +77,8 @@ public class PlanRuleMaker {
     private static final String BAR_KIND = "bar";
     private static final Map<String, Integer> KIND_STAY_MIN = Map.of(FOOD_KIND, 70, CAFE_KIND, 60, BAR_KIND, 90); // 나머지는 80분
     private static final int OTHER_STAY_MIN = 80;
+    private static final int CHOSEN_KIND_EXTRA_MIN = 15;       // "어디 위주로"에서 고른 맛집·카페는 더 오래 (11/06)
+    private static final int SHORTEST_STAY_MIN = 40;           // 동행에 맞춰 줄여도 이보다 짧게는 안 함
     private static final int DEFAULT_EXTRA_STAY_MIN = 90;      // 꼭 갈 곳·고정 일정의 머무는 분을 모를 때
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
@@ -136,7 +138,7 @@ public class PlanRuleMaker {
     /** 그날 칸 목록 (담은 곳이 있으면 그 시간은 비워 둠) */
     private List<String[]> getSlotList(PlanConditions conditions, int day) {
         if (hasDayTime(conditions)) {
-            return timedSlotsOf(kindsOf(conditions), Geo.toMinutes(conditions.getStartTime()), Geo.toMinutes(conditions.getEndTime()), keptOfDay(conditions, day));
+            return timedSlotsOf(conditions, Geo.toMinutes(conditions.getStartTime()), Geo.toMinutes(conditions.getEndTime()), keptOfDay(conditions, day));
         }
         boolean isCafeChosen = conditions.getKinds() != null && conditions.getKinds().contains(CAFE_KIND);
         return slotsOf(kindsOf(conditions), isCafeChosen);
@@ -215,7 +217,8 @@ public class PlanRuleMaker {
      * 고른 시간 안에서 하루 칸 만들기 (11/04): 첫 칸은 시작 시각, 마지막 칸은 끝 시각 안에 끝남.
      * 시계를 앞으로 돌리며, 점심(11:30~13:30)·저녁(17:30~19:30) 때가 되면 식사 칸, 그 밖에는 볼거리·카페 칸
      */
-    private List<String[]> timedSlotsOf(List<String> kinds, int startMin, int endMin, List<Stop> kept) {
+    private List<String[]> timedSlotsOf(PlanConditions conditions, int startMin, int endMin, List<Stop> kept) {
+        List<String> kinds = kindsOf(conditions);
         List<String[]> slots = new ArrayList<>();
         boolean hasFood = kinds.contains(FOOD_KIND);
         boolean isLunchDone = !hasFood || hasKeptMeal(kept, LUNCH_START_MIN, LUNCH_END_MIN);
@@ -239,7 +242,7 @@ public class PlanRuleMaker {
             }
             isLunchDone = isLunchDone || isLunchTime;
             isDinnerDone = isDinnerDone || isDinnerTime;
-            int stay = Math.min(stayOfSlot(slotKinds), limit - clock);
+            int stay = Math.min(stayOfSlot(slotKinds, conditions), limit - clock);
             slots.add(new String[] {slotKinds, Geo.toHhmm(clock), String.valueOf(stay)});
             previous = slotKinds;
             clock = roundUp(clock + stay + TIMED_GAP_MIN);
@@ -320,9 +323,47 @@ public class PlanRuleMaker {
         return String.join(",", chosen);
     }
 
-    /** 칸의 첫 종류로 머무는 분 */
-    private int stayOfSlot(String slotKinds) {
-        return KIND_STAY_MIN.getOrDefault(slotKinds.split(",")[0], OTHER_STAY_MIN);
+    /**
+     * 칸의 첫 종류로 머무는 분 (11/06): 기본 분 + "어디 위주로"에서 고른 맛집·카페면 15분 + 누구랑에 따라 더하거나 뺌.
+     * 맛집·카페를 골랐다는 건 거기에 시간을 더 쓰고 싶다는 뜻이라서
+     */
+    private int stayOfSlot(String slotKinds, PlanConditions conditions) {
+        String kind = slotKinds.split(",")[0];
+        int stay = KIND_STAY_MIN.getOrDefault(kind, OTHER_STAY_MIN);
+        boolean isChosen = conditions.getKinds() != null && conditions.getKinds().contains(kind);
+        if (isChosen && (FOOD_KIND.equals(kind) || CAFE_KIND.equals(kind))) {
+            stay += CHOSEN_KIND_EXTRA_MIN;
+        }
+        stay += companionExtraMin(conditions.getCompanion(), kind);
+        return Math.max(SHORTEST_STAY_MIN, stay);
+    }
+
+    /**
+     * 누구랑에 따라 더하는 분 (11/06). 워크숍: 회식·카페 길게 / 친구: 밥·카페 조금 길게 / 연인: 카페 길게 /
+     * 가족: 밥 조금 길게 / 아이와: 오래 못 머물러서 짧게 / 혼자: 밥·카페 짧게
+     */
+    private int companionExtraMin(String companion, String kind) {
+        boolean isFood = FOOD_KIND.equals(kind) || BAR_KIND.equals(kind);
+        boolean isCafe = CAFE_KIND.equals(kind);
+        if ("워크숍".equals(companion)) {
+            return isFood ? 30 : isCafe ? 20 : 0;
+        }
+        if ("친구".equals(companion)) {
+            return isFood || isCafe ? 10 : 0;
+        }
+        if ("연인".equals(companion)) {
+            return isCafe ? 20 : isFood ? 10 : 0;
+        }
+        if ("가족".equals(companion)) {
+            return isFood ? 10 : 0;
+        }
+        if ("아이와".equals(companion)) {
+            return -10;
+        }
+        if ("혼자".equals(companion)) {
+            return isFood ? -20 : isCafe ? -10 : 0;
+        }
+        return 0;
     }
 
     /** 하루 칸 채우기. Gemini가 고른 곳을 규칙으로 바꾼 칸 수를 돌려줌 */
