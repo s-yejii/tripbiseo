@@ -280,28 +280,19 @@ function onCardScrolled(id) {
   if (stop && stop.reach !== 'done' && stop.reach !== 'here') scrollTimer = setTimeout(() => previewStop(stop), PREVIEW_SCROLL_WAIT_MS)
 }
 
-// 그 곳으로 부드럽게 가서 약 2초 보여 주고 지금 위치로 돌아옴. 그 사이 사용자가 지도를 만지면 안 돌아감
+// 그 곳으로 부드럽게 가서 확대해 보여 주고 그대로 둬요 (11/06: 예전엔 2.3초 뒤 지금 위치로 돌아왔는데, 보던 곳이 사라져서 뺌)
+// 지금 위치로 돌아가려면 오른쪽 "내 위치" 버튼. 이미 더 가까이 보고 있으면 그 확대 단계를 유지
 function previewStop(stop) {
   if (!mapRef.value || stop.lat == null || adding.value) return
-  clearTimeout(backTimer)
-  if (previewId.value === null) levelBefore = mapRef.value.getLevel()
   previewId.value = stop.id
-  mapRef.value.flyTo(stop.lat, stop.lng, Math.min(levelBefore, PREVIEW_LEVEL))
-  backTimer = setTimeout(flyBack, PREVIEW_HOLD_MS)
+  const level = mapRef.value.getLevel()
+  mapRef.value.flyTo(stop.lat, stop.lng, level === null ? PREVIEW_LEVEL : Math.min(level, PREVIEW_LEVEL))
 }
-function flyBack() {
-  previewId.value = null
-  if (!mapRef.value) return
-  const me = live.position.value
-  if (me) mapRef.value.flyTo(me.lat, me.lng, levelBefore)
-  else mapRef.value.fitAll() // 위치를 모르면 전체 일정이 보이게
-}
+// 사용자가 지도를 만지면 핀 이름표를 내림
 function onMapTouched() {
-  clearTimeout(backTimer)
   previewId.value = null
 }
 onUnmounted(() => {
-  clearTimeout(backTimer)
   clearTimeout(scrollTimer)
 })
 function pickCard(card) {
@@ -403,11 +394,8 @@ const nearRing = computed(() => (adding.value && nearRadius.value && live.positi
 const nearFitKey = computed(() => (nearPlaces.value.length ? nearPlaces.value.map((place) => place.id).join(',') + '|' + nearRadius.value : ''))
 const NEAR_MAP_PADDING = { top: 100, right: 40, bottom: 230, left: 40 } // 근처 찾기: 아래 검색 카드만큼 비움
 const PREVIEW_LEVEL = 3 // 카드를 눌러 볼 때 확대 단계 (겹친 핀이 벌어져 보이는 정도)
-const PREVIEW_HOLD_MS = 2300 // 이동·확대 포함, 보여 주는 시간
 const PREVIEW_SCROLL_WAIT_MS = 250 // 카드를 넘기다 멈춘 뒤에 움직임
-let backTimer = null
 let scrollTimer = null
-let levelBefore = null // 보여 주기 전 확대 단계
 const LIVE_MAP_PADDING = { top: 150, right: 70, bottom: 444, left: 40 }
 
 // 근처 찾기·AI 채팅에서 일정에 넣으면 지금 상황을 다시 받아요
