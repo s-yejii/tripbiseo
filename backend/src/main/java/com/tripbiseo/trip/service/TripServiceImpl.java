@@ -275,14 +275,14 @@ public class TripServiceImpl implements TripService {
     @Override
     public void arriveStop(long memberId, long tripId, long stopId) {
         getTrip(memberId, tripId);
-        tripMapper.updateStopArrived(tripId, stopId);
+        tripMapper.updateStopArrived(tripId, stopId, Geo.now().toLocalDateTime()); // DB NOW() 대신 앱 시계 (시연 시계와 맞게, 11/06)
     }
 
     /** GPS 출발 기록 (state = done) */
     @Override
     public void departStop(long memberId, long tripId, long stopId) {
         getTrip(memberId, tripId);
-        tripMapper.updateStopDeparted(tripId, stopId);
+        tripMapper.updateStopDeparted(tripId, stopId, Geo.now().toLocalDateTime());
     }
 
     /** 이 여행의 대화 기록 (시간순) */

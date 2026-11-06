@@ -77,11 +77,11 @@ public interface TripMapper {
     /** 여러 일정 칸의 상태를 한 번에 바꾸기 (예: skipped) */
     int updateStopState(@Param("tripId") long tripId, @Param("stopIds") List<Long> stopIds, @Param("state") String state);
 
-    /** GPS 도착 기록 (arrived_at = 지금). 이미 기록돼 있으면 그대로 */
-    int updateStopArrived(@Param("tripId") long tripId, @Param("stopId") long stopId);
+    /** GPS 도착 기록 (arrived_at = now). 이미 기록돼 있으면 그대로. now는 Geo.now() (시연 시계를 따르게, 11/06) */
+    int updateStopArrived(@Param("tripId") long tripId, @Param("stopId") long stopId, @Param("now") java.time.LocalDateTime now);
 
-    /** GPS 출발 기록 (departed_at = 지금, state = done). 이미 기록돼 있으면 그대로 */
-    int updateStopDeparted(@Param("tripId") long tripId, @Param("stopId") long stopId);
+    /** GPS 출발 기록 (departed_at = now, state = done). 이미 기록돼 있으면 그대로 */
+    int updateStopDeparted(@Param("tripId") long tripId, @Param("stopId") long stopId, @Param("now") java.time.LocalDateTime now);
 
     // ---------------------------------------------------------------- 대화 기록
 
