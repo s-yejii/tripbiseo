@@ -19,7 +19,6 @@ import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.exception.ApiException;
-import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.plan.dto.AiConditions;
@@ -1143,13 +1142,13 @@ public class PlanServiceImpl implements PlanService {
      * 우리 장소 DB는 식당·카페 위주라 이름에 "서울역"이 들어간 가게가 먼저 잡혀서 (11/06). 못 찾으면 null
      */
     private Place findBoardingPlace(String name, Double lat, Double lng) {
-        List<FoundLocation> found;
+        List<com.tripbiseo.common.external.FoundLocation> found; // import 줄을 늘리지 않으려고 전체 이름 (다른 브랜치와 import 충돌 방지)
         try {
             found = placeService.getLocationList(name.replace("KTX", "").replace("SRT", "").trim(), lat, lng);
         } catch (ApiException e) {
             return null; // 카카오 키가 없거나 오류면 원래 방식으로
         }
-        for (FoundLocation location : found) {
+        for (com.tripbiseo.common.external.FoundLocation location : found) {
             String category = location.getCategory() == null ? "" : location.getCategory();
             if (category.contains("역") || category.contains("터미널") || category.contains("공항") || category.contains("교통")) {
                 Place place = new Place();
