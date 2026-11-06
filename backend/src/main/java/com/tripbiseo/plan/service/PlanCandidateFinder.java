@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import org.springframework.dao.DataAccessException;
 
+import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.plan.dto.PlanArea;
@@ -48,6 +49,7 @@ public class PlanCandidateFinder {
     // 화면 태그 코드 → ④ PlaceTagReader가 리뷰에서 세는 태그 이름
     // 종류 코드 → 프롬프트·안내에 쓰는 이름 (PlaceMapper kindCase와 같은 코드)
     private static final String TOUR_KIND = "tour";
+    private static final String SHOP_KIND = "shop";
     // 들를 곳이 아닌 이름: 도로·길(둘레길·산책길·숲길은 뺌)·교차로·주차장·표지석 등
     private static final Pattern NOT_SIGHT = Pattern.compile("명예도로|도로$|교차로|사거리|삼거리|나들목|IC$|주차장|표지석|기념비|(?<!둘레|산책|숲|하늘|순라|골목|올레)길$");
     private static final Pattern GOOD_SIGHT = Pattern.compile("공원|시장|거리|골목|전망|전시|미술관|박물관|갤러리|둘레길|산책|숲|천$|강$|마을|창작촌|광장");
@@ -81,6 +83,12 @@ public class PlanCandidateFinder {
     /** 꼭 갈 곳 하나를 실제 장소로 찾고, 그 주변 1km 12곳도 후보에. 못 찾으면 null */
     public Place addMustVisit(Map<String, Place> candidates, String name, Double lat, Double lng) {
         Place place = findByName(name, lat, lng);
+        if (place == null || isStoreOf(place, name) || !isSameName(place.getName(), name)) {
+            Place building = findBuilding(name, lat, lng); // "더현대 서울"이 "○○ 더현대서울점" 가게로 잡히면 건물 자체로 (11/06)
+            if (building != null) {
+                place = building;
+            }
+        }
         if (place == null) {
             return null;
         }
@@ -296,6 +304,41 @@ public class PlanCandidateFinder {
     /** 띄어쓰기를 빼고 소문자로 (이름 비교용) */
     private String toCompactName(String name) {
         return name.replace(" ", "").toLowerCase();
+    }
+
+    /** 찾은 곳이 사용자가 말한 곳 안의 가게인지: 이름에 말한 이름이 들어 있고 "점"으로 끝남 ("스타벅스 여의도한강공원점") */
+    private boolean isStoreOf(Place place, String name) {
+        String placeName = toCompactName(place.getName());
+        String wanted = toCompactName(name);
+        return !placeName.equals(wanted) && placeName.contains(wanted) && placeName.endsWith("점");
+    }
+
+    /** 카카오 키워드로 건물·공원 자체 찾기 (이름이 맞고 "○○점"이 아닌 첫 곳). 저장할 때는 장소 연결 없이 이름·좌표만 남음 */
+    private Place findBuilding(String name, Double lat, Double lng) {
+        try {
+            for (FoundLocation found : locationSearchClient.searchLocations(name, lat, lng)) {
+                if (isSameName(found.getName(), name) && !toCompactName(found.getName()).endsWith("점")) {
+                    return toKakaoPlace(found);
+                }
+            }
+        } catch (ApiException e) { // 카카오가 안 되면 DB에서 찾은 곳 그대로
+            log.info("건물을 찾지 못함: {}", name);
+        }
+        return null;
+    }
+
+    /** 카카오에서 찾은 곳 → 후보 장소. 백화점·쇼핑몰은 쇼핑, 나머지는 들를 곳 */
+    private Place toKakaoPlace(FoundLocation found) {
+        Place place = new Place();
+        place.setId("kakao-" + found.getName());
+        place.setName(found.getName());
+        boolean isShop = found.getCategory() != null && found.getCategory().matches(".*(백화점|쇼핑|아울렛|몰).*");
+        place.setCategory(found.getCategory() == null ? "관광지" : found.getCategory());
+        place.setKind(isShop ? SHOP_KIND : TOUR_KIND);
+        place.setAddress(found.getAddress());
+        place.setLat(found.getLat());
+        place.setLng(found.getLng());
+        return place;
     }
 
     /** 이름으로 장소 찾기: 띄어 쓴 이름이면 붙인 이름으로 먼저 찾고(DB는 "여의도한강공원"처럼 붙여 씀), 이름이 안 맞으면 원래 이름으로 */
