@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { get } from '@/api/http'
 import { toTime, toMinutes } from '@/utils/time'
 import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
+import BottomSheet from '@/components/common/BottomSheet.vue' // 끌어서 내리고 올리는 아래 시트 (다른 화면과 같은 것)
 
 // 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
 const visited = ref([
@@ -110,7 +111,8 @@ let selectedmap = null // 선택 한 지도로 변환
 const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
 const MAP_PADDING_TOP = 60 // 위쪽 뒤로가기 버튼에 안 가리게
 const MAP_PADDING_SIDE = 40 // 핀이 화면 양옆에 잘리지 않게
-const MAP_PADDING_BOTTOM = 100 // 재생 막대에 안 가리게
+const MAP_PADDING_BOTTOM = 600 // 재생 막대·시트에 안 가리게 (화면 844 − 재생 막대 위쪽 262 + 여유 18)
+const MAP_HEIGHT = 844 // 지도 칸 높이 = 화면 전체 (정보창 위치 계산에 씀)
 // 다녀온 길 : 자옷를 순서대로 한 줄 씩 담음 : {  예: { no: 1, name: '경복궁', timeText: '13:00 ~ 14:20', skipped: false }
 const timeline = computed(() => {
   const rows = []
@@ -257,7 +259,7 @@ function toggleMapType() {
     <div class="app">
       <div class="retro-map" aria-hidden="true">
         <div class="map"><div ref = "mapBox" style ="width: 100%; height: 100%"></div></div>
-        <svg class="route" viewBox="0 0 390 330" style="position: absolute; inset: 0">
+        <svg class="route" style="position: absolute; inset: 0; width: 100%; height: 100%">
           <!-- 흰 테두리: 굵은 흰 선을 먼저 깔고, 그 위에 남색 선을 겹쳐 그림 (SVG는 나중에 쓴 게 위에 그려짐) -->
           <polyline :points="routePoints" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
           <polyline :points="routePoints" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
@@ -271,7 +273,7 @@ function toggleMapType() {
         <div
           v-if="info"
           class="payinfo"
-          :style="{ left: Math.max(12, Math.min(150, info.x - 30)) + 'px', ...(info.y > 160 ? { bottom: 330 - info.y + 24 + 'px' } : { top: info.y + 26 + 'px' }) }"
+          :style="{ left: Math.max(12, Math.min(150, info.x - 30)) + 'px', ...(info.y > 160 ? { bottom: MAP_HEIGHT - info.y + 24 + 'px' } : { top: info.y + 26 + 'px' }) }"
           role="dialog"
           aria-label="다녀온 곳 정보"
         >
@@ -292,7 +294,8 @@ function toggleMapType() {
         </button>
       </header>
 
-      <div class="player" style="position: absolute; left: 16px; right: 16px; top: 262px">
+      <!-- data-sheet-follow: 시트를 내리면 재생 막대도 같이 내려감 (BottomSheet 기능) -->
+      <div class="player" data-sheet-follow style="position: absolute; left: 16px; right: 16px; top: 262px">
         <button type="button" class="iconbtn retro-play" :aria-label="playing ? '멈추기' : '이동 경로 재생'" @click="togglePlay"><i class="ic" :class="playing ? 'i-pause' : 'i-play'" aria-hidden="true"></i></button>
         <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
           <span class="bar"><i :style="{ width: progress + '%' }"></i></span>
@@ -300,10 +303,15 @@ function toggleMapType() {
         </span>
       </div>
 
-      <div class="scroll" style="top: 340px; padding-top: 4px; gap: 14px; bottom: 102px">
-<!-- 여행 제목과 날짜를 API 값으로 보여 줌 -->
-<div><h1 v-if="retro" class="h-title">{{ retro.title }}</h1><p v-if="retro" class="t-cap">{{ retro.startDate }} ~ {{ retro.endDate }}</p></div>
-<p v-if="errorMessage" class="t-cap">{{ errorMessage }}</p>
+      <!-- 정보 시트: 손잡이나 제목 부분(data-drag)을 끌면 내려가고 올라옴 -->
+      <BottomSheet class="sheet--peek retro-sheet" aria-labelledby="retro-title">
+        <!-- 여행 제목과 날짜를 API 값으로 보여 줌 -->
+        <div class="retro-sheet__head" data-drag>
+          <h1 v-if="retro" id="retro-title" class="h-title">{{ retro.title }}</h1>
+          <p v-if="retro" class="t-cap">{{ retro.startDate }} ~ {{ retro.endDate }}</p>
+          <p v-if="errorMessage" class="t-cap">{{ errorMessage }}</p>
+        </div>
+        <div class="retro-scroll">
         <div class="stats">
        <!-- 다녀온 곳 수 / 전체 장소 수 -->
        <div v-if="retro" class="stat"><b>{{ retro.visited }}/{{ retro.stops.length }}</b><span class="t-cap">다녀온 곳</span></div>
@@ -337,8 +345,8 @@ function toggleMapType() {
             </template>
           </div>
         </section>
-
-      </div>
+        </div>
+      </BottomSheet>
 
       <div class="cta">
         <div class="cta__row">
@@ -351,7 +359,12 @@ function toggleMapType() {
 </template>
 
 <style>
-.scr-Retro .retro-map{position:absolute;left:0;right:0;top:0;height:330px;overflow:hidden}
+.scr-Retro .retro-map{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden}
+/* 정보 시트: 처음엔 지도 아래(340px)부터. 안쪽만 스크롤 (TripPage의 trip-sheet와 같은 모양) */
+.scr-Retro .retro-sheet{top:340px;padding:8px 0 0;gap:10px}
+.scr-Retro .retro-sheet__head{padding:0 16px}
+.scr-Retro .retro-scroll{position:relative;flex:1;min-height:0;overflow-y:auto;padding:2px 16px 112px;display:flex;flex-direction:column;gap:14px}
+.scr-Retro .retro-scroll>*{flex-shrink:0}
 .scr-Retro .map{z-index: 0 }
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
