@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.common.external.FoundArea;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.plan.dto.AiConditions;
@@ -62,6 +63,7 @@ public class PlanServiceImpl implements PlanService {
     private static final List<String> DEFAULT_TRANSPORTS = List.of("subway", "bus", "walk");
     private static final List<String> KIND_CODES = List.of("food", "cafe", "bar", "tour", "culture", "shop"); // 대화로 더할 수 있는 종류
     private static final List<String> TAG_CODES = List.of("mood", "quiet", "value", "no_wait", "solo");       // 대화로 더할 수 있는 태그
+    private static final int MAX_REGION_WORDS = 3;        // 말로 정한 지역에서 중심을 찾는 낱말 수 (카카오 호출 수)
     private static final int MAX_MESSAGE_LENGTH = 300;
     private static final int MAX_TITLE_LENGTH = 60;
     private static final int MAX_PROMPT_CANDIDATES = 90;
@@ -491,7 +493,7 @@ public class PlanServiceImpl implements PlanService {
     /** 일정에 그 이름이 들어간 칸이 있는지 ("한강" → "뚝섬한강공원"도 같은 곳으로 봄) */
     private boolean hasStopNamed(List<Stop> stops, String name) {
         for (Stop stop : stops) {
-            if (stop.getName() != null && (stop.getName().contains(name) || name.contains(stop.getName()))) {
+            if (isSameName(stop.getName(), name)) {
                 return true;
             }
         }
@@ -885,8 +887,32 @@ public class PlanServiceImpl implements PlanService {
         }
         if (!isNearMe && conditions.getAreaLat() == null) {
             planCandidateFinder.addArea(candidates, region); // 지역 좌표 없이 이름만 말했을 때 (대화)
+            addRegionKinds(candidates, region, kinds); // 그 지역 중심에서 종류별 후보 + 볼거리 카카오 보충 (11/06)
         }
         return candidates;
+    }
+
+    /**
+     * 말로만 정한 지역("서울 영등포 여의도")의 낱말마다 카카오로 중심을 찾아 종류별 후보를 더함 (11/06).
+     * 이름으로만 찾으면 볼거리(공원·쇼핑몰)가 거의 없어 오후가 비어서, 지도에서 고른 구와 같은 방법을 씀. 못 찾으면 건너뜀
+     */
+    private void addRegionKinds(Map<String, Place> candidates, String region, List<String> kinds) {
+        int found = 0;
+        for (String word : region.split("[\\s,·/]+")) {
+            if (word.length() < 2 || word.equals("서울") || found >= MAX_REGION_WORDS) {
+                continue;
+            }
+            try {
+                List<FoundArea> areas = placeService.getAreaList(word);
+                if (!areas.isEmpty()) {
+                    FoundArea area = areas.get(0);
+                    planCandidateFinder.addKinds(candidates, area.getLat(), area.getLng(), "gu".equals(area.getType()) ? "gu" : "dong", kinds);
+                    found++;
+                }
+            } catch (ApiException e) { // 카카오가 안 되면 이름으로 찾은 후보만 씀
+                log.info("지역 중심을 찾지 못함: {}", word);
+            }
+        }
     }
 
     /**
@@ -1004,12 +1030,9 @@ public class PlanServiceImpl implements PlanService {
         }
     }
 
-    /** 이름이 서로 포함되면 같은 곳 (2자 이상) */
+    /** 이름이 서로 포함되면 같은 곳 (2자 이상, 띄어쓰기 무시 11/06) */
     private boolean isSameName(String first, String second) {
-        if (first == null || second == null || first.length() < 2 || second.length() < 2) {
-            return false;
-        }
-        return first.contains(second) || second.contains(first);
+        return planCandidateFinder.isSameName(first, second);
     }
 
     /** 고정 일정이 몇째 날인지 (없거나 0 이하면 1일차) */
@@ -1022,7 +1045,7 @@ public class PlanServiceImpl implements PlanService {
         for (AiDraftStop pick : picks) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId());
             String pickName = place != null ? place.getName() : pick.getName();
-            if (pickName != null && (pickName.contains(name) || name.contains(pickName))) {
+            if (isSameName(pickName, name)) {
                 return true;
             }
         }

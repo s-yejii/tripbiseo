@@ -80,6 +80,8 @@ public class PlanRuleMaker {
     private static final int CHOSEN_KIND_EXTRA_MIN = 15;       // "어디 위주로"에서 고른 맛집·카페는 더 오래 (11/06)
     private static final int SHORTEST_STAY_MIN = 40;           // 동행에 맞춰 줄여도 이보다 짧게는 안 함
     private static final int DEFAULT_EXTRA_STAY_MIN = 90;      // 꼭 갈 곳·고정 일정의 머무는 분을 모를 때
+    private static final int OPEN_MOVE_STEP_MIN = 15;          // 꼭 갈 곳이 문을 안 열었으면 이만큼씩 뒤로 (11/06)
+    private static final int OPEN_MOVE_LATEST_MIN = 21 * 60;   // 이 시각까지만 미뤄 봄
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
     // 칸 사이는 이동 20~40분을 비워 둠 (10:00~11:30 → 12:00 점심)
@@ -165,6 +167,7 @@ public class PlanRuleMaker {
                 slotPicks.put(dayOf(pick) + "/" + pick.getSlot().trim().toUpperCase(), pick);
             }
         }
+        moveToOpenTimes(extras, candidates, startDate);
         List<AiDraftStop> stops = new ArrayList<>(extras);
         Set<String> used = new HashSet<>();
         for (AiDraftStop extra : extras) {
@@ -443,10 +446,56 @@ public class PlanRuleMaker {
             return;
         }
         for (Place place : candidates.values()) {
-            if (place.getId() != null && (place.getName().contains(name) || name.contains(place.getName()))) {
+            if (place.getId() != null && planCandidateFinder.isSameName(place.getName(), name)) {
                 used.add(place.getId());
             }
         }
+    }
+
+    /**
+     * 꼭 갈 곳·가능하면 갈 곳이 문을 열기 전(또는 닫은 뒤) 시각에 잡혔으면 15분씩 미뤄서 여는 시각에 맞춤 (11/06).
+     * 시간 고정 일정은 사용자가 정한 시각이라 안 바꾸고, 영업시간을 모르는 곳·21시까지 못 찾으면 그대로 둠
+     */
+    private void moveToOpenTimes(List<AiDraftStop> extras, Map<String, Place> candidates, String startDate) {
+        for (AiDraftStop extra : extras) {
+            Place place = findPlaceOf(extra, candidates);
+            if (Boolean.TRUE.equals(extra.getFixed()) || place == null || extra.getTime() == null || !extra.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            LocalDate date = LocalDate.parse(startDate).plusDays(dayOf(extra) - 1);
+            int stay = extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay();
+            int start = Geo.toMinutes(extra.getTime());
+            int moved = start;
+            while (moved <= OPEN_MOVE_LATEST_MIN && (!isOpenFor(place, date, moved, stay) || overlapsOtherExtra(extras, extra, moved, stay))) {
+                moved += OPEN_MOVE_STEP_MIN;
+            }
+            if (moved != start && moved <= OPEN_MOVE_LATEST_MIN) {
+                extra.setTime(Geo.toHhmm(moved));
+            }
+        }
+    }
+
+    /** 일정 칸의 실제 장소: 번호로 찾고, 번호가 없으면 이름이 서로 포함되는 후보 */
+    private Place findPlaceOf(AiDraftStop stop, Map<String, Place> candidates) {
+        if (stop.getId() != null && candidates.get(stop.getId()) != null) {
+            return candidates.get(stop.getId());
+        }
+        if (stop.getName() == null) {
+            return null;
+        }
+        for (Place place : candidates.values()) {
+            if (planCandidateFinder.isSameName(place.getName(), stop.getName())) {
+                return place;
+            }
+        }
+        return null;
+    }
+
+    /** 같은 날 다른 꼭 갈 곳·고정 일정과 시간이 겹치는지 (자기 자신은 뺌) */
+    private boolean overlapsOtherExtra(List<AiDraftStop> extras, AiDraftStop self, int start, int stay) {
+        List<AiDraftStop> others = new ArrayList<>(extras);
+        others.remove(self);
+        return overlapsExtra(others, dayOf(self), start, stay);
     }
 
     /** 사용자가 말한 곳인지: 이름이 고정 일정·꼭 갈 곳·가능하면 갈 곳에 있음 (Gemini가 붙인 fixed 표시는 믿지 않음) */
@@ -461,7 +510,7 @@ public class PlanRuleMaker {
             return false;
         }
         for (FixedVisit fixed : conditions.getFixed()) {
-            if (fixed.getName() != null && (name.contains(fixed.getName()) || fixed.getName().contains(name))) {
+            if (planCandidateFinder.isSameName(name, fixed.getName())) {
                 return true;
             }
         }
@@ -474,7 +523,7 @@ public class PlanRuleMaker {
             return false;
         }
         for (String item : names) {
-            if (name.contains(item) || item.contains(name)) {
+            if (planCandidateFinder.isSameName(name, item)) { // 띄어쓰기 무시 (11/06)
                 return true;
             }
         }
