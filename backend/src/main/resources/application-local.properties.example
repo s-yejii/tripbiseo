@@ -22,3 +22,6 @@ ODSAY_API_KEY=
 # 공공데이터포털 (TourAPI 장소 찾기, 기상청 단기예보). Decoding 키
 TOUR_API_KEY=
 KMA_SERVICE_KEY=
+
+# 개발자 모드(시연 시계)를 쓸 시연 계정 아이디. 쉼표로 여러 개 (예: tripuser,demo2). 비우면 아무도 못 씀
+DEMO_ACCOUNTS=

@@ -42,9 +42,9 @@ public final class Geo {
         return String.format("%02d:%02d", m / 60, m % 60);
     }
 
-    /** 지금 한국 시각 */
+    /** 지금 한국 시각 (시연 계정이 시연 시계를 맞췄으면 그만큼 옮긴 시각, 11/06) */
     public static ZonedDateTime now() {
-        return ZonedDateTime.now(KST);
+        return ZonedDateTime.now(KST).plusSeconds(DemoClock.offsetSeconds());
     }
 
     /** 지금 한국 시각을 자정부터 센 분으로 */
