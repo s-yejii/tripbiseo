@@ -1,16 +1,29 @@
 <script setup>
 // S19-d 내 위치 기록 (①): 여행 중 기록된 경로를 보고, 보관 기간을 정하고, 모두 지울 수 있어요
-import { ref } from 'vue'
+// 11/06: 가짜 목록 대신 내 여행(GET /api/trips) 중 다녀왔거나 여행 중인 것만. 누르면 그 여행의 회고·여행 중 화면으로
+import { onMounted, ref } from 'vue'
+import { getTripList } from '@/api/trips'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
 
-// 가짜 데이터: 위치가 기록된 여행 (백엔드가 붙으면 location_log 테이블)
-const records = ref([
-  { title: '잔나비 공연 데이트', date: '10/24(토) · 오늘', meta: '6곳 · 4.2km', to: '/live' },
-  { title: '천호 카페 투어', date: '10/11(토)', meta: '5곳 · 6.8km', to: '/retro' },
-  { title: '을지로 하루', date: '10/4(토)', meta: '4곳 · 5.1km', to: '/retro' },
-])
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+const records = ref([])
+onMounted(async () => {
+  try {
+    const trips = await getTripList()
+    records.value = trips.filter((trip) => trip.status === 'done' || trip.status === 'ongoing').map(toRecord)
+  } catch {
+    records.value = [] // 못 받으면 빈 화면 (아래 "기록이 없어요")
+  }
+})
+// 여행 → 목록 한 줄 ("11/4(화) · 5곳")
+function toRecord(trip) {
+  const date = new Date(trip.startDate + 'T00:00:00')
+  const day = `${date.getMonth() + 1}/${date.getDate()}(${WEEKDAYS[date.getDay()]})`
+  const isLive = trip.status === 'ongoing'
+  return { key: trip.id, title: trip.title, date: isLive ? day + ' · 여행 중' : day, meta: (trip.stopCount ?? 0) + '곳', to: isLive ? '/live' : '/retro?id=' + trip.id }
+}
 const keepOptions = [
   { days: 30, label: '30일' },
   { days: 90, label: '90일' },
@@ -47,7 +60,7 @@ function clearAll() {
           <section style="display: flex; flex-direction: column; gap: 8px" aria-labelledby="lh-list">
             <h2 id="lh-list" class="t-sub">기록된 여행</h2>
             <div class="group">
-              <RouterLink v-for="r in records" :key="r.title" :to="r.to" class="row">
+              <RouterLink v-for="r in records" :key="r.key" :to="r.to" class="row">
                 <span class="ico-tile"><i class="ic i-route" aria-hidden="true"></i></span>
                 <span class="row__body"><span class="row__title">{{ r.title }}</span><span class="row__meta tn">{{ r.date }} · {{ r.meta }}</span></span>
                 <i class="ic i-next subtle" aria-hidden="true"></i>

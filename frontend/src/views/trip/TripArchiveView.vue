@@ -73,7 +73,7 @@ async function remove() {
       </div>
       <div v-if="menuId !== null" class="ar-dim" @click="menuId = null"></div>
       <StartConflictSheet v-if="conflict" :trip="conflict" @done="retry" @cancel="conflict = null" />
-      <ConfirmModal v-if="deleting" title="삭제할까요?" :text="deleting.title + ' · 휴지통으로 옮겨요'" ok-text="삭제" ok-icon="i-trash" danger @cancel="deleting = null" @ok="remove" />
+      <ConfirmModal v-if="deleting" title="삭제할까요?" :text="deleting.title + ' · 여행 기록으로 옮겨요'" ok-text="삭제" ok-icon="i-trash" danger @cancel="deleting = null" @ok="remove" />
     </div>
   </div>
 </template>
