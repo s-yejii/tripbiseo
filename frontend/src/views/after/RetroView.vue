@@ -315,6 +315,12 @@ function moveToPlace(no) {
   progress.value = (toMinutes(place.actualArrive) - startMinutes.value) / (endMinutes.value  - startMinutes.value) * 100
 }
 
+// 지도 핀을 누르면 타임라인의 그 장소 줄이 보이게 스크롤함. 예: ③ 핀 → id가 'tl-row-3'인 줄
+function scrollToRow(no) {
+  const rowBox = document.getElementById('tl-row-' +  no ) // 줄마다 붙인 id로 찾음
+  if (rowBox === null) return // 그 줄을 못 찾으면 아무것도 안 함
+  rowBox.scrollIntoView({ behavior: 'smooth', block: 'center' }) // smooth: 부드럽게, center: 줄을 칸 가운데로
+}
 
 const isHybrid = ref(false)
 
@@ -344,7 +350,7 @@ function toggleMapType() {
         </svg>
       </div>
       <div class="retro-map">
-        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no)">
+        <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no); scrollToRow(v.no)">
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
@@ -400,7 +406,7 @@ function toggleMapType() {
             <!-- template: 화면에 안 그려지는 묶음. 한 번 돌 때 장소 줄 또는 이동 줄 중 하나를 고르려고 씀 -->
             <template v-for="(row, index) in timeline" :key="index">
               <!-- 장소 줄 -->
-              <div v-if="row.type === 'place'" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no, 'is-now': currentNo === row.no }"
+              <div v-if="row.type === 'place'" :id="'tl-row-' + row.no" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no, 'is-now': currentNo === row.no }"
 @click="toggleInfo(row.no); moveToPlace(row.no)">
                 <span class="retro-tl__num">{{ row.no }}</span>
                 <span class="retro-tl__body">
