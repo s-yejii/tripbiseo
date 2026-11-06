@@ -101,6 +101,7 @@
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
 | `GET /api/plans/places` | 직접 고르기 지도: 종류별 장소 (들를 곳은 카카오 보충) | trip/PlanManualView | 있음 |
 | `GET /api/plans/areas` | 추천 지역 (종류마다 리뷰가 많은 서울 구) | plan/PlanAiView | 있음 |
+| `GET·POST /api/my/places` · `DELETE /api/my/places/{placeId}` | 내 장소 (친구 소식에서 저장, 식당·카페·놀거리) | plan/MyPlacesView, member/MyView (SavePlaceButton) | 있음 (11/06) |
 | `GET /api/plans/links/recommended` | 추천 게시물 목록 (파일 기반, 지금은 비어 있음) | plan/PlanAiView | 있음 |
 | `POST /api/plans/dong-types` | 한 구의 행정동 특색 (동 지도 색칠) | plan/DongPicker | 있음 |
 | `POST /api/plans/route-options` | [동선 최적화] 이동 시간이 짧은 순서 후보 최대 5개 | trip/TripDetailView, trip/PlanEditView | 있음 |
@@ -1004,6 +1005,28 @@
 > 리뷰로 확인 (11/04): `needs`마다 ① Gemini가 리뷰에서 찾을 단어를 정함 ("4명이 앉을 자리" → 단체석·단체·자리가 넓…) ② 점수 높은 후보 20곳(꼭 갈 곳 제외)의 `retrip_review`에서 그 단어가 든 리뷰를 곳마다 4개까지 꺼내 단어 앞뒤 60자만 자름 ③ Gemini가 곳마다 `ok`·`bad`·`unknown` + 근거 글 ④ **서버가 근거 글이 ②에서 보낸 리뷰에 그대로 있는지 확인**(없으면 버림). `ok`는 점수 +1.0과 칸 `memo`에 `4명이 앉을 자리: 리뷰 "…"`, `bad`는 후보에서 뺌, 결과는 `notes`에 요청마다 한 줄. 관련 리뷰가 없거나 AI가 안 되면 확인하지 않고 `notes`에만 적어요. 리뷰는 네이버 장소(카페·음식점)에만 있어요
 >
 > 꼭·가능하면·제한 (11/04): 일정 칸 `importance`를 채워요 — 시간 고정·꼭 갈 곳(`mustVisit`)·꼭 넣을 종류(`mustKinds`, 종류마다 첫 칸)·끝 칸은 `must`, 나머지는 `maybe` (저장하면 여행 중 대안이 `must`는 안 줄임). `wishVisit`은 후보에 넣고 점수 +2.0, 칸 종류가 달라도 넣을 수 있음. 못 넣으면 `notes`에 "가능하면 갈 곳 '…'은(는) … 못 넣었어요". `avoidKinds` 종류는 후보에서 뺌(직접 말한 곳은 남김), `avoidVisit`은 이름이 맞는 후보를 뺌 (뺀 수는 진행 알림 `candidates`의 `detail`). `finish`: 카카오로 끝 장소를 찾고 지역 중심 → 끝 장소 경로로 "마지막 날 일정이 끝나야 하는 시각"(= 도착 시각 − 이동 − 10분)을 정해 그 뒤 칸은 비움. 다 짠 뒤 마지막 일정 → 끝 장소 경로로 다시 재서 늦으면 뒤에서부터 3곳까지 뺌(`must`는 안 빼고 안내). 마지막에 끝 칸(`category` "여행 끝", `fixed` true, `stay` 10) 추가. `maxWalkMin`: 칸 사이 직선 거리를 `분×75m÷1.3` 안으로 고름(그 안에 없으면 제한 없이), 다 짠 뒤 구간마다 경로의 걷는 거리로 분을 계산해 넘는 구간을 `notes`에 3개까지
+
+---
+
+### `GET /api/my/places` · `POST /api/my/places` · `DELETE /api/my/places/{placeId}` (11/06)
+내 장소: 친구 소식·장소 상세에서 "저장"한 곳 · 로그인 필요 · 화면: plan/MyPlacesView(`/my/places`), 저장 버튼 components/plan/SavePlaceButton
+
+**GET 응답** 최근 저장 순
+```json
+[
+  { "id": 1, "placeId": "naver-1866981775", "name": "로라멘", "category": "일본식라면", "group": "식당",
+    "address": "서울 영등포구 도림로131길 17", "lat": 37.514, "lng": 126.89, "rating": 4.5, "reviewCount": 1456,
+    "imageUrl": null, "fromName": "민지", "createdAt": "2026-11-06 16:12" }
+]
+```
+- `group`: 식당(음식점·술집) · 카페 · 놀거리(관광지·문화시설·쇼핑 등). 저장하지 않고 장소 분류로 정해요
+
+**POST 요청** `{ "placeId": "naver-1866981775" }` 또는 `{ "name": "로라멘", "fromName": "민지" }`
+- `placeId`가 없으면 이름이 똑같은 장소 중 리뷰가 가장 많은 곳 (친구 소식은 이름만 있어서)
+- 응답: 위 목록의 한 줄. 이미 저장한 곳이면 그대로 돌려줘요 (두 번 눌러도 하나)
+- 오류: 400 "저장할 장소를 골라 주세요." · 404 "○○을(를) 찾지 못했어요." · 400 "내 장소는 200곳까지 저장할 수 있어요."
+
+**DELETE** `{ "ok": true }` (내 것만 지워져요. 없는 곳이어도 ok)
 
 ---
 
