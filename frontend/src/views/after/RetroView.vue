@@ -15,6 +15,8 @@ const trackPoints = ref([]) // gps 점 목록 drawMap에서 채워짐
 
 const progress = ref(68) // 재생 위치 (%)
 const playing = ref(false)
+const speed = ref(1) // 재생 속도(1,2,4배)
+const PLAY_STEP_1X = 0.375 // 1배속일 때 90ms마다 나아가는 % 100%까지 약 24초
 const infoNo = ref(null)
 let timer = null
 
@@ -38,7 +40,9 @@ const me = computed(() => {
   const last = points[points.length - 1] // 끝까지 못 찾으면 마지막 점
   return { x: last.x, y: last.y }
 })
-const nowText = computed(() =>  toTime(Math.round(nowMinutes.value)) + (playing.value ? ' · 4배속' : ''))
+const nowText = computed(() => toTime(Math.round(nowMinutes.value)) + (playing.value ? ' · ' + speed.value + '배속' : ''))
+
+
 const movedText = computed(() => {
   if(!retro.value) return '' // 응답이 없다면 빈글자
   const meters = retro.value.movedMeters
@@ -94,7 +98,7 @@ function togglePlay() {
   playing.value = true
   infoNo.value = null
   timer = setInterval(() => {
-    progress.value = Math.min(100, progress.value + 1.5)
+    progress.value = Math.min(100, progress.value + PLAY_STEP_1X * speed.value)
     if (progress.value >= 100) stop()
   }, 90)
 }
@@ -102,6 +106,22 @@ function stop() {
   clearInterval(timer)
   playing.value = false
 }
+
+// 재생 속도를 바꾸는 함수
+
+function changeSpeed() {
+  if(speed.value === 1) {
+    speed.value = 2
+  }
+  else if(speed.value === 2) {
+    speed.value = 4
+  }
+  else {
+
+    speed.value = 1
+  }
+}
+
 onUnmounted(() => clearInterval(timer))
 onUnmounted(() => { if(sheetWatcher !== null ) sheetWatcher.disconnect()}) // 화면을 나가면 감시도 RRma
 const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사용
@@ -325,6 +345,8 @@ function toggleMapType() {
       
       <div class="player" data-sheet-follow style="position: absolute; left: 16px; right: 16px; top: 262px">
         <button type="button" class="iconbtn retro-play" :aria-label="playing ? '멈추기' : '이동 경로 재생'" @click="togglePlay"><i class="ic" :class="playing ? 'i-pause' : 'i-play'" aria-hidden="true"></i></button>
+        <!-- 재생 속도: 누를 때마다 1배 → 2배 → 4배 → 1배 -->
+        <button type="button" class="retro-speed" :aria-label="'재생 속도 ' + speed + '배'" @click="changeSpeed()">{{ speed }}배</button>
         <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
           <span class="bar"><i :style="{ width: progress + '%' }"></i></span>
           <span style="display: flex; justify-content: space-between" class="t-cap tn"><span>{{ toTime(startMinutes) }}</span><b class="c-navy">{{ nowText }}</b><span>{{ toTime(endMinutes) }}</span></span>
@@ -395,6 +417,7 @@ function toggleMapType() {
 .scr-Retro .retro-scroll>*{flex-shrink:0}
 .scr-Retro .map{z-index: 0 }
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
+.scr-Retro .retro-speed{flex:none;min-width:40px;height:28px;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--navy);font:inherit;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
 /* 다녀온 길: 왼쪽 세로 점선 위에 번호 원과 이동 아이콘을 올림 */
 /* 지도 핀: 건너뛴 곳은 타임라인 번호 원과 같은 회색 점선 */
