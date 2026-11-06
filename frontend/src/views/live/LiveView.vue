@@ -1,6 +1,6 @@
 <script setup>
 // S13-a 여행 중 (④) — 프로토타입 S13-a·S13-a2를 진짜 데이터로
-//   진행 중(ongoing)인 여행 + 지금 GPS(또는 ?demo=1 시연 이동)로 POST /live/track·/live/status를 불러 그려요.
+//   진행 중(ongoing)인 여행 + 지금 GPS(또는 개발자 모드의 가짜 GPS)로 POST /live/track·/live/status를 불러 그려요.
 //   지도: 카카오 지도에 다녀온 곳(체크)·지금 있는 곳·남은 곳·고정 일정(자물쇠) 핀, 근처 찾기 결과 핀
 //   시트: 지금 있는 곳을 떠날 시각(도착 기록 + 머무는 시간) 또는 다음 장소까지 남은 시간, 고정 일정 여유
 //   늦으면: 위 알림(접으면 +N분 알약) → 지연 화면, 아래 버튼 "대안 보기"
@@ -10,7 +10,7 @@
 //     대중교통·차는 실선, 걷기는 동그라미 점, 길찾기 실패로 거리 추정이면 점선 직선. 그 뒤 남은 장소끼리는 점선 직선
 // 진행 중인 여행이 없거나 위치를 못 받으면 가짜 화면 대신 안내 문구를 보여 줘요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useLiveTrip } from '@/utils/useLiveTrip'
 import { imageFor } from '@/utils/mapView'
 import { toMinutes, toTime } from '@/utils/time'
@@ -24,6 +24,8 @@ import PageMessage from '@/components/common/PageMessage.vue'
 import NotiBell from '@/components/member/NotiBell.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
+import DevDot from '@/components/live/DevDot.vue'
+import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
@@ -34,11 +36,10 @@ const MUTE_AGAIN_MIN = 10 // "그냥 갈게요" 뒤 이만큼 더 늦어지면 �
 const LEG_MODE = { walk: 'walk', transit: 'subway', car: 'taxi' } // 서버 이동 수단 → 카드 칩 아이콘
 const MODE_LABEL = { walk: '도보', transit: '대중교통', car: '택시' }
 
-const route = useRoute()
 const router = useRouter()
 const replan = useReplanStore()
 const live = useLiveTrip()
-const isDemo = ref(route.query.demo === '1') // 시연용 이동 (진짜 GPS 대신 일정 장소를 차례로 지나감)
+const isDemo = ref(isFakeGps()) // 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
 
 onMounted(() => live.start(isDemo.value))
 onUnmounted(() => live.stop())
@@ -368,7 +369,7 @@ function runFab(action) {
   action()
 }
 function openToday() {
-  router.push('/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent(isDemo.value ? '/live?demo=1' : '/live'))
+  router.push('/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent('/live'))
 }
 function openLink() {
   linkOpen.value = true
@@ -434,16 +435,22 @@ async function finish() {
 }
 
 function showDemo() {
+  setFakeGps(true)
+  restartMoving()
+}
+
+// 개발자 모드에서 가짜 GPS를 켜고 끄면 처음부터 다시 받아요
+function restartMoving() {
   live.stop()
-  isDemo.value = true
-  router.replace('/live?demo=1')
-  live.start(true)
+  isDemo.value = isFakeGps()
+  live.start(isDemo.value)
 }
 </script>
 
 <template>
   <div class="scr scr-Live">
     <div class="app">
+      <DevDot @clock="live.refresh()" @gps="restartMoving" />
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
         <header class="topbar">
@@ -459,7 +466,7 @@ function showDemo() {
           <h2 class="h-title">지금 위치를 받을 수 없어요</h2>
           <p class="t-cap">{{ live.gpsError.value }}</p>
           <button type="button" class="btn btn--primary btn--lg" @click="live.retryGps()">다시 시도</button>
-          <button type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
+          <button v-if="devMode.isOn" type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
         </section>
         <PageMessage v-else is-loading title="지금 위치를 찾는 중이에요" text="위치를 받으면 남은 일정과 도착 예상 시간을 계산해요" />
         </div>
@@ -491,7 +498,6 @@ function showDemo() {
         <header class="topbar topbar--float">
           <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
           <span style="flex: 1"></span>
-          <span v-if="isDemo" class="badge badge--neutral" style="align-self: center">시연용 이동</span>
           <NotiBell float />
         </header>
 
@@ -571,7 +577,7 @@ function showDemo() {
             <div v-else class="cta__row">
               <RouterLink v-if="isLate" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
               <RouterLink v-else :to="'/plan/edit?id=' + live.tripId.value" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>일정 변경</RouterLink>
-              <RouterLink :to="'/live/route' + (isDemo ? '?demo=1' : '')" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
+              <RouterLink to="/live/route" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
             </div>
           </div>
 
