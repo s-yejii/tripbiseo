@@ -51,7 +51,7 @@
 | ④ | `trip_track` | GPS 기록 | ⑤① 읽기 | 있음 |
 | ⑤ | `payment` | 결제 메모 | | 만들 예정 |
 | ⑤ | `card` | 결제 카드 | | 만들 예정 |
-| ⑤ | `photo` | 앨범 사진 | | 만들 예정 (여유) |
+| ⑤ | `photo` | 사진·영상 (앨범·회고) | | 있음 (11/06) |
 | ⑤ | `extra_visit` | 일정에 없던 곳 "들렀어요" | | 만들 예정 (여유) |
 | ⑤ | `amenity` | 화장실·쓰레기통 (공공데이터) | | 만들 예정 (여유) |
 | - | `api_key` | 예전 관리자 API 키 | | 정리함 (키는 환경변수, 10/29 결정) |
@@ -223,3 +223,19 @@
 
 ### ⑤ 여행 후 (박석진)
 (payment, card, photo, extra_visit, amenity)
+
+### photo · 사진·영상 (⑤, `15_after.sql`, 11/06)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| photo_id | BIGSERIAL PK | |
+| trip_id | BIGINT NOT NULL → trip (ON DELETE CASCADE) | 여행 |
+| stop_id | BIGINT → trip_stop (ON DELETE SET NULL) | 찍은 시각으로 분류한 장소. NULL이면 이동 중(장소와 장소 사이) |
+| media_type | VARCHAR(10) NOT NULL DEFAULT 'photo' | photo / video |
+| file_name | VARCHAR(100) NOT NULL | 서버 폴더(`PHOTO_DIR`)에 저장한 파일 이름 (겹치지 않게 새로 지음) |
+| original_name | VARCHAR(200) | 올릴 때 원래 파일 이름 |
+| duration_sec | INT | 영상 길이(초). 사진이면 NULL |
+| taken_at | TIMESTAMP NOT NULL | 찍은 시각 (분류 기준) |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 올린 시각 |
+
+인덱스 `idx_photo_trip (trip_id, taken_at)`. 파일 자체는 DB에 넣지 않고 서버 폴더에 둬요.
