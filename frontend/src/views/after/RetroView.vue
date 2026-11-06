@@ -103,6 +103,7 @@ function stop() {
   playing.value = false
 }
 onUnmounted(() => clearInterval(timer))
+onUnmounted(() => { if(sheetWatcher !== null ) sheetWatcher.disconnect()}) // 화면을 나가면 감시도 RRma
 const route = useRoute() // 지금 주소 정보. ?id = 12 값을 읽을 떄 사용
 const retro = ref(null)//서버 응답 . 받기 전에는 null
 const errorMessage = ref(``) // 회고를 못 불러왔을 때 화면에 보여 줄 문구
@@ -111,7 +112,8 @@ let selectedmap = null // 선택 한 지도로 변환
 const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
 const MAP_PADDING_TOP = 60 // 위쪽 뒤로가기 버튼에 안 가리게
 const MAP_PADDING_SIDE = 40 // 핀이 화면 양옆에 잘리지 않게
-const MAP_PADDING_BOTTOM = 600 // 재생 막대·시트에 안 가리게 (화면 844 − 재생 막대 위쪽 262 + 여유 18)
+const MAP_PADDING_BOTTOM_OPEN = 600 // 시트 펼침: 재생 막대(위쪽 262) 위만 보임 → 844 − 262 + 18
+const MAP_PADDING_BOTTOM_CLOSED = 232 // 시트 내림: 재생 막대가 약 630까지 내려감 → 844 − 630 + 18
 const MAP_HEIGHT = 844 // 지도 칸 높이 = 화면 전체 (정보창 위치 계산에 씀)
 // 다녀온 길 : 자옷를 순서대로 한 줄 씩 담음 : {  예: { no: 1, name: '경복궁', timeText: '13:00 ~ 14:20', skipped: false }
 const timeline = computed(() => {
@@ -155,6 +157,8 @@ return { type : 'move', text : '이동 ' + (arrive - leave) + '분', timeText: t
 
 //화면이 열리면 회고 데이터를 가져옴
 onMounted(async () => {
+  watchSheet() // 시트가 내려가고 올라가는 걸 지켜보기 시작
+
   try{
     retro.value = await get('/trips/' + route.query.id +'/retro')
     await loadMap() 
@@ -194,10 +198,18 @@ function drawMap() {
   const center = new kakao.maps.LatLng(firstStop.lat , firstStop.lng)
   const map = new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
   selectedmap = map
+  fitRoute(false) // 처음엔 펄쳐져 있음
+}
+function fitRoute(isCollapsed) {// 시트가 펼쳐졌는지)false 내려갔는지(true)에 따라 아래 여백을 바꿔서 경로를 보이는 칸 가운데 맞춤
+  const map = selectedmap
+  let paddingBottom =  MAP_PADDING_BOTTOM_OPEN 
+  if (isCollapsed === true) 
+  { paddingBottom = MAP_PADDING_BOTTOM_CLOSED}
+
   const bounds = new kakao.maps.LatLngBounds() // LatLngBounds: 넣은 좌표가 모두 들어가는 네모 범위
   for (const place of retro.value.stops) // place 장소 들른 곳의 목록 중 꺼낸거
   bounds.extend(new kakao.maps.LatLng(place.lat , place.lng))
-  map.setBounds(bounds,MAP_PADDING_TOP , MAP_PADDING_SIDE ,  MAP_PADDING_BOTTOM , MAP_PADDING_SIDE) // 지도에 맞게 확대/축소 순서 : 위 , 왼쪽, 아래 , 오른쪽
+  map.setBounds(bounds,MAP_PADDING_TOP , MAP_PADDING_SIDE ,  paddingBottom , MAP_PADDING_SIDE) // 지도에 맞게 확대/축소 순서 : 위 , 왼쪽, 아래 , 오른쪽
 
   const points = [] // 장소별 핀 정보를 담을 목록
   for (const place of retro.value.stops){
@@ -213,6 +225,21 @@ function drawMap() {
     trackList.push({ x: point.x , y : point.y , time : gps.time }) 
   }
 trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음 포인트에
+}
+
+
+// 시트에 'is-collasped(내려감) 표시가 붙거나 떨어지는 순간 경로를 닷 ㅣ맞춤(끌든 누루든 항상 알 수 있음)
+let sheetWatcher = null // 시트를 지켜보는 감시자. 화면을 나갈 때 시트를 끄려고 기억해둠
+function watchSheet() {
+  const sheet = document.querySelector('.retro-sheet') // 정보 시트 (바텀 시트가 그린 세션
+  if (sheet === null) return
+    // MutationObserver: 요소가 바뀌는지 지켜보다가 바뀌면 안의 함수를 불러 줌
+    sheetWatcher = new MutationObserver(() => {
+      if(selectedmap === null) return // 지도가 없다면 맞추게 없고
+      const isCollapsed = sheet.classList.contains('is-collapsed')
+      fitRoute(isCollapsed)
+    })
+    sheetWatcher.observe(sheet, { attributes: true, attributeFilter: ['class'] }) // class가 바뀔 때만 알려 달라고 함
 }
 
 
@@ -295,6 +322,7 @@ function toggleMapType() {
       </header>
 
       <!-- data-sheet-follow: 시트를 내리면 재생 막대도 같이 내려감 (BottomSheet 기능) -->
+      
       <div class="player" data-sheet-follow style="position: absolute; left: 16px; right: 16px; top: 262px">
         <button type="button" class="iconbtn retro-play" :aria-label="playing ? '멈추기' : '이동 경로 재생'" @click="togglePlay"><i class="ic" :class="playing ? 'i-pause' : 'i-play'" aria-hidden="true"></i></button>
         <span style="flex: 1; display: flex; flex-direction: column; gap: 4px">
@@ -304,7 +332,7 @@ function toggleMapType() {
       </div>
 
       <!-- 정보 시트: 손잡이나 제목 부분(data-drag)을 끌면 내려가고 올라옴 -->
-      <BottomSheet class="sheet--peek retro-sheet" aria-labelledby="retro-title">
+      <BottomSheet class="sheet--peek retro-sheet" aria-labelledby="retro-title" >
         <!-- 여행 제목과 날짜를 API 값으로 보여 줌 -->
         <div class="retro-sheet__head" data-drag>
           <h1 v-if="retro" id="retro-title" class="h-title">{{ retro.title }}</h1>
