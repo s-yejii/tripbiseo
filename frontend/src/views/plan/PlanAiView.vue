@@ -277,12 +277,14 @@ function moveStep(direction) {
   store.planStep = next
 }
 
-// 다음 칸으로 (이미 고른 지역 칸은 건너뜀). 마지막 칸이면 일정 만들기로
+// 다음 칸으로 (이미 고른 지역 칸은 건너뜀). 마지막 칸이면 바로 일정 만들기로
+// (11/06: 단계에서 다 물어봐서 "원하는 것 말하기" 대화 화면은 흐름에서 뺌. 화면 파일·주소는 남겨 둠)
 function goNext() {
   if (!canNext.value) return showToast('어디로 가는지 알려 주세요')
   if (isLast.value) {
     saveConditions()
-    router.push(byMe ? '/plan/manual' : '/plan/chat')
+    if (!byMe) store.planMessages = [] // 예전 대화가 남아 있으면 일정 만들기에 섞이지 않게
+    router.push(byMe ? '/plan/manual' : '/plan/generating')
     return
   }
   moveStep(1)
