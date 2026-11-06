@@ -174,7 +174,7 @@ public class PlanRuleMaker {
             }
         }
         clampToHours(conditions, days, extras);
-        moveToOpenTimes(extras, candidates, startDate);
+        moveToOpenTimes(extras, candidates, startDate, conditions, days);
         List<AiDraftStop> stops = new ArrayList<>(extras);
         Set<String> used = new HashSet<>();
         for (AiDraftStop extra : extras) {
@@ -527,7 +527,7 @@ public class PlanRuleMaker {
      * 꼭 갈 곳·가능하면 갈 곳이 문을 열기 전(또는 닫은 뒤) 시각에 잡혔으면 15분씩 미뤄서 여는 시각에 맞춤 (11/06).
      * 시간 고정 일정은 사용자가 정한 시각이라 안 바꾸고, 영업시간을 모르는 곳·21시까지 못 찾으면 그대로 둠
      */
-    private void moveToOpenTimes(List<AiDraftStop> extras, Map<String, Place> candidates, String startDate) {
+    private void moveToOpenTimes(List<AiDraftStop> extras, Map<String, Place> candidates, String startDate, PlanConditions conditions, int days) {
         for (AiDraftStop extra : extras) {
             Place place = findPlaceOf(extra, candidates);
             if (Boolean.TRUE.equals(extra.getFixed()) || place == null || extra.getTime() == null || !extra.getTime().matches("\\d{2}:\\d{2}")) {
@@ -540,10 +540,35 @@ public class PlanRuleMaker {
             while (moved <= OPEN_MOVE_LATEST_MIN && (!isOpenFor(place, date, moved, stay) || overlapsOtherExtra(extras, extra, moved, stay))) {
                 moved += OPEN_MOVE_STEP_MIN;
             }
+            int latest = latestStartOf(conditions, days, dayOf(extra), stay);
+            if (moved > latest) {
+                moved = findEarlierFreeTime(extras, extra, place, date, stay, conditions, latest); // 뒤로 밀다 하루가 끝나면 그날 앞쪽 빈 시간 (11/06)
+            }
             if (moved != start && moved <= OPEN_MOVE_LATEST_MIN) {
                 extra.setTime(Geo.toHhmm(moved));
             }
         }
+    }
+
+    /** 그날 이 칸을 시작할 수 있는 가장 늦은 시각: 고른 끝 시각(마지막 날) 또는 20:00 − 머묾. 시간을 안 골랐으면 미뤄 볼 수 있는 끝 */
+    private int latestStartOf(PlanConditions conditions, int days, int day, int stay) {
+        if (!hasDayTime(conditions)) {
+            return OPEN_MOVE_LATEST_MIN;
+        }
+        int end = day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
+        return end - stay;
+    }
+
+    /** 그날 시작부터 latest까지 15분씩 보며 열려 있고 안 겹치는 첫 시각. 없으면 OPEN_MOVE_LATEST_MIN + 1 (안 옮김) */
+    private int findEarlierFreeTime(List<AiDraftStop> extras, AiDraftStop extra, Place place, LocalDate date, int stay,
+                                    PlanConditions conditions, int latest) {
+        int dayStart = !hasDayTime(conditions) || dayOf(extra) != 1 ? MIDDLE_DAY_START_MIN : Geo.toMinutes(conditions.getStartTime());
+        for (int time = dayStart; time <= latest; time += OPEN_MOVE_STEP_MIN) {
+            if (isOpenFor(place, date, time, stay) && !overlapsOtherExtra(extras, extra, time, stay)) {
+                return time;
+            }
+        }
+        return OPEN_MOVE_LATEST_MIN + 1;
     }
 
     /** 일정 칸의 실제 장소: 번호로 찾고, 번호가 없으면 이름이 서로 포함되는 후보 */
