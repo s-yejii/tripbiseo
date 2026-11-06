@@ -106,6 +106,7 @@
 | `POST /api/plans/route-options` | [동선 최적화] 이동 시간이 짧은 순서 후보 최대 5개 | trip/TripDetailView, trip/PlanEditView | 있음 |
 | `POST /api/plans/route-order` | [동선 정리] 하루 일정의 새 순서 (최근접 이웃 + 2-opt). AI 일정과 같은 함수 | trip/PlanManualView | 있음 |
 | `POST /api/plans/links` | 인스타·유튜브·네이버(블로그·지도) 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
+| `GET /api/plans/weather` | 여행 날짜 날씨(기온·습도·하늘·비 시작 시각) + 기온별 옷차림. 기상청 단기예보라 3일 뒤까지 | trip/PlanCheckView (TripWeather) | 있음 (11/06) |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 | `GET /api/dev/status` | [개발자 모드] 시연 계정인지 + 시연 시계 상태 | member/MyView (VersionTap), live/DevDot | 있음 (11/06) |
 | `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
@@ -1029,6 +1030,30 @@
 | fixed | 95 | 18:30 광명역 시간에 맞추기 | (`fixed`가 없으면 이 단계 없음) |
 
 로그인 안 했으면 알림 없이 401 JSON (`/generate`와 같음).
+
+### `GET /api/plans/weather` (11/06)
+
+여행 날짜마다 날씨와 옷차림. 기상청 단기예보(`KMA_SERVICE_KEY`)를 써요. 예보는 오늘부터 3일 뒤까지라 그 뒤 날짜는 숫자 없이 안내만 해요.
+
+- 요청: `?lat=37.5264&lng=126.9336&startDate=2026-11-07&endDate=2026-11-08` (endDate 없으면 하루, 최대 7일)
+- 응답: 날짜마다 한 줄
+
+```json
+[
+  { "date": "2026-11-07", "available": true, "message": null,
+    "minTemp": 5, "maxTemp": 16, "dayTemp": 11, "humidity": 70,
+    "sky": "비", "maxPop": 70, "rainFrom": "13:00",
+    "outfit": "자켓 · 트렌치코트 · 니트 · 청바지",
+    "outfitNote": "일교차 11도라 겉옷 하나 더 · 우산 챙기기",
+    "source": "기상청 단기예보" },
+  { "date": "2026-11-12", "available": false, "message": "11/12 날씨는 3일 전부터 보여요", "source": "기상청 단기예보" }
+]
+```
+
+- `dayTemp`: 낮(9~21시) 평균 기온. 옷차림은 흔히 쓰는 기온별 옷차림 표(28° 이상 민소매 … 4° 이하 패딩)로 골라요.
+- `minTemp`·`maxTemp`: 기상청 최저·최고(TMN·TMX). 오늘이라 그 칸이 지났으면 남은 시간 기온 중 낮은·높은 값.
+- `rainFrom`: 낮에 비·눈(PTY ≠ 0)이거나 강수확률 60% 이상인 첫 시각. 없으면 null.
+- 오류: 날짜 범위가 이상하면 400, 기상청 키가 없으면 503, 기상청 오류 502.
 
 ## ④ 여행 중 판별 (live)
 
