@@ -6,6 +6,8 @@ import { get } from '@/api/http'
 import { toTime, toMinutes } from '@/utils/time'
 import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
 import BottomSheet from '@/components/common/BottomSheet.vue' // 끌어서 내리고 올리는 아래 시트 (다른 화면과 같은 것)
+import PhotoViewer from '@/components/after/PhotoViewer.vue' // 사진 크게 보기 (앨범과 같은 것)
+import { toDurationText } from '@/utils/photoUpload' // 영상 길이 12 → "0:12"
 
 // 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
 const visited = ref([
@@ -145,6 +147,7 @@ const timeline = computed(() => {
     rows.push({
       type: 'place',
       no : i + 1,
+      stopId: stops[i].id, // 사진을 고를 때 씀
       name : stops[i].name,
       timeText : toTimeRange(stops[i]),
       skipped: stops[i].state === 'skipped',
@@ -172,7 +175,8 @@ if(from.actualArrive === null || from.actualStay === null ) return null
 if(to.actualArrive === null) return null
 const leave = toMinutes(from.actualArrive) + from.actualStay
 const arrive = toMinutes(to.actualArrive)
-return { type : 'move', text : '이동 ' + (arrive - leave) + '분', timeText: toTime(leave) + ' ~ ' + to.actualArrive }
+return { type : 'move', text : '이동 ' + (arrive - leave) + '분', timeText: toTime(leave) + ' ~ ' + to.actualArrive,
+  day: to.day, leave: leave, arrive: arrive } // day·leave·arrive: 이동 중 사진을 고를 때 씀
 }
 
 //화면이 열리면 회고 데이터를 가져옴
@@ -181,13 +185,56 @@ onMounted(async () => {
 
   try{
     retro.value = await get('/trips/' + route.query.id +'/retro')
-    await loadMap() 
+    await loadMap()
   }catch  (error){
     errorMessage.value = error.message
 
 
   }
+  loadPhotos()
 })
+
+// ============================== 사진 (11/06)
+const photos = ref([])        // 이 여행의 사진·영상 전체, 찍은 순 (GET /api/trips/{id}/photos)
+const viewerStart = ref(null) // 크게 보기로 연 칸 번호. null이면 닫힘
+
+// 사진 불러오기. 실패해도 회고는 그대로 보이게 따로 try
+async function loadPhotos() {
+  try {
+    photos.value = await get('/trips/' + route.query.id + '/photos')
+  } catch {
+    photos.value = []
+  }
+}
+
+// 이 일정 칸(stopId)에서 찍은 사진만 골라 담기. 예: 경복궁 칸(4884) → [13:30 사진]
+function photosOf(stopId) {
+  const list = []
+ for (const picture of photos.value) {
+    
+    if(stopId === picture.stopId){
+      list.push(picture)
+    }
+ }
+  return list
+}
+
+// 이동 중에 찍은 사진: 일정 칸이 없고(null), 같은 날, 이 이동 시간(leave ~ arrive) 안에 찍은 것
+function photosOfMove(row) {
+  const list = []
+  for (const picture of photos.value) {
+    const minutes = toMinutes(picture.takenAt)
+    if (picture.stopId === null && picture.day === row.day && minutes >= row.leave && minutes < row.arrive) {
+      list.push(picture)
+    }
+  }
+  return list
+}
+
+// 사진을 누르면 크게 보기. 여행 사진 전체에서 몇 번째인지로 열어요 (◁ ▷로 다른 장소 사진도 넘겨 봄)
+function openPhoto(photo) {
+  viewerStart.value = photos.value.indexOf(photo)
+}
 
 // kakao map 소환
 
@@ -384,13 +431,32 @@ function toggleMapType() {
                 <span class="retro-tl__body">
                   <b>{{ row.name }}</b>
                   <span class="t-cap tn">{{ row.timeText }}</span>
+                  <!-- 이 장소에서 찍은 사진 (건너뛴 곳은 안 보여 줌). @click.stop: 줄 클릭(지도 이동)까지 같이 눌리지 않게 -->
+                  <span v-if="!row.skipped" class="retro-tl__photos">
+                    <button v-for="photo in photosOf(row.stopId)" :key="photo.id" type="button" class="retro-tl__thumb" :aria-label="photo.takenAt + ' 사진 크게 보기'" @click.stop="openPhoto(photo)">
+                      <video v-if="photo.mediaType === 'video'" :src="photo.url + '#t=0.1'" preload="metadata" muted playsinline></video>
+                      <img v-else :src="photo.url" alt="" loading="lazy" />
+                      <span v-if="photo.mediaType === 'video'" class="retro-tl__dur tn">{{ toDurationText(photo.durationSec) }}</span>
+                    </button>
+                    <span v-if="photosOf(row.stopId).length === 0" class="retro-tl__nophoto">사진 없음</span>
+                  </span>
                 </span>
                 <span v-if="row.skipped" class="retro-tl__tag">건너뜀</span>
               </div>
               <!-- 이동 줄 -->
               <div v-else class="retro-tl__move">
                 <span class="retro-tl__icon"><span><i class="ic i-walk" aria-hidden="true"></i></span></span>
-                <span class="t-cap">{{ row.text  }} · <span class="tn">{{ row.timeText }}</span></span>
+                <span class="retro-tl__body">
+                  <span class="t-cap">{{ row.text  }} · <span class="tn">{{ row.timeText }}</span></span>
+                  <!-- 이동 중에 찍은 사진 (있을 때만) -->
+                  <span v-if="photosOfMove(row).length > 0" class="retro-tl__photos">
+                    <button v-for="photo in photosOfMove(row)" :key="photo.id" type="button" class="retro-tl__thumb" :aria-label="photo.takenAt + ' 사진 크게 보기'" @click="openPhoto(photo)">
+                      <video v-if="photo.mediaType === 'video'" :src="photo.url + '#t=0.1'" preload="metadata" muted playsinline></video>
+                      <img v-else :src="photo.url" alt="" loading="lazy" />
+                      <span v-if="photo.mediaType === 'video'" class="retro-tl__dur tn">{{ toDurationText(photo.durationSec) }}</span>
+                    </button>
+                  </span>
+                </span>
               </div>
             </template>
           </div>
@@ -404,6 +470,9 @@ function toggleMapType() {
           <RouterLink to="/theme?id=alley" class="btn btn--primary btn--lg"><i class="ic i-refresh" aria-hidden="true"></i>이 코스로 다시</RouterLink>
         </div>
       </div>
+
+      <!-- 사진 크게 보기 (◁ ▷로 이 여행 사진 전체를 넘겨 봄) -->
+      <PhotoViewer v-if="viewerStart !== null" :photos="photos" :start="viewerStart" @close="viewerStart = null" />
     </div>
   </div>
 </template>
@@ -435,6 +504,11 @@ function toggleMapType() {
 .scr-Retro .retro-tl__place.is-skipped .retro-tl__num{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong);box-shadow:none}
 .scr-Retro .retro-tl__place.is-skipped b{color:var(--ink-subtle)}
 .scr-Retro .retro-tl__move{display:flex;align-items:center;gap:12px;min-height:32px}
+.scr-Retro .retro-tl__photos{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 6px}
+.scr-Retro .retro-tl__thumb{position:relative;width:48px;height:48px;padding:0;border:0;border-radius:8px;overflow:hidden;background:var(--line);cursor:pointer;flex:none}
+.scr-Retro .retro-tl__thumb img,.scr-Retro .retro-tl__thumb video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.scr-Retro .retro-tl__dur{position:absolute;right:2px;bottom:2px;padding:0 4px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;line-height:14px}
+.scr-Retro .retro-tl__nophoto{font-size:12px;color:var(--ink-subtle);border:1px dashed var(--line-strong);border-radius:8px;padding:2px 8px}
 .scr-Retro .retro-tl__icon{position:relative;z-index:1;width:28px;flex:none;display:flex;justify-content:center}
 .scr-Retro .retro-tl__icon>span{width:22px;height:22px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink-subtle)}
 .scr-Retro .retro-tl__icon .ic{width:14px;height:14px}
