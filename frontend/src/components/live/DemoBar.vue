@@ -38,7 +38,7 @@ const isBusy = ref(false)
 const isAuto = ref(false)
 
 const trip = computed(() => props.live.trip.value)
-const isOngoing = computed(() => props.live.phase.value !== 'none' && props.live.phase.value !== 'loading')
+const isOngoing = computed(() => props.live.phase.value !== 'none' && props.live.phase.value !== 'loading' && !!props.live.tripId.value)
 const nextScene = computed(() => SCENES[sceneIndex.value] || null)
 const lastScene = computed(() => SCENES[sceneIndex.value - 1] || null)
 
@@ -167,18 +167,19 @@ function playAuto() {
   runNext()
 }
 
-// 시연 중에 화면을 새로 고치면 진짜 GPS를 기다리느라 멈춰요 → 마지막으로 도착한 칸 자리로 다시 옮겨 둠
+// 시연 중엔 진짜 GPS를 기다리지 않음: 위치 권한이 없거나(발표 PC) 새로 고쳐도 마지막으로 도착한 칸(없으면 첫 칸) 자리로 옮겨 둠
 watch(() => props.live.phase.value, async (phase) => {
-  if ((phase !== 'gps' && phase !== 'gps-error') || !devMode.isOn || sceneIndex.value === 0 || !props.live.tripId.value) return
+  if ((phase !== 'gps' && phase !== 'gps-error') || !devMode.isOn || !props.live.tripId.value) return
   try {
     const saved = await getTrip(props.live.tripId.value)
     const arrived = saved.stops.filter((stop) => stop.arrivedAt).sort((a, b) => a.arrivedAt.localeCompare(b.arrivedAt))
-    const last = arrived[arrived.length - 1]
-    if (last) await props.live.placeAt(last.lat, last.lng, false)
+    const ordered = saved.stops.slice().sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
+    const spot = arrived[arrived.length - 1] || ordered[0]
+    if (spot) await props.live.placeAt(spot.lat, spot.lng, false)
   } catch (e) {
     // 못 받으면 원래처럼 GPS를 기다림
   }
-})
+}, { immediate: true })
 
 // 여행 상세의 "시연 재생"으로 들어오면(?autoplay=1): 여행이 없으면 시작하고, 준비되면 자동 재생
 const route = useRoute()
