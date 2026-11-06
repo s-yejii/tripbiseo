@@ -5,7 +5,7 @@
 // 진행 중인 여행이 없으면 "시연 여행 시작": 가장 최근 예정 여행을 복사해서 시작해요 (원본은 본편용으로 그대로)
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { clearDevRain, setDevClock, setDevRain } from '@/api/dev'
+import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain } from '@/api/dev'
 import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
 import { addDays } from '@/utils/dates'
 import { devMode, setClockOffset } from '@/utils/devMode'
@@ -30,6 +30,7 @@ const WALK_STEP_MS = 450
 const LEAVE_ALERT_BEFORE_MIN = 5 // ① 떠날 시각 몇 분 전으로 맞출지
 const LATE_BEFORE_MIN = 27 // ③ KTX 고정 시각 몇 분 전까지 한강에 남아 있을지 (18:18: 대중교통이면 몇 분 늦고, 택시로 가면 안 늦음)
 const RAIN_CHECK_TIME = '09:30'
+const LATE_TARGET_MIN = 3 // ③ 대중교통으로 가면 이만큼 늦게 (택시면 안 늦게)
 const RAIN_FROM = '13:00'
 const SCENE_KEY = 'demoScene'
 
@@ -136,6 +137,13 @@ const RUNS = [
     await visitUntil(days, park, true)
     await setClock(dateOf(days), toMinutes(station.time) - LATE_BEFORE_MIN)
     await props.live.refresh()
+    // 실제 길찾기 시간은 시간대마다 달라서(밤엔 빨라짐) 아직 안 늦으면, 3분쯤 늦는 시각까지 더 머무름
+    const fixed = props.live.status.value && props.live.status.value.fixed
+    if (fixed && fixed.slackMin != null && fixed.slackMin >= 0) {
+      await forwardDevClock(fixed.slackMin + LATE_TARGET_MIN)
+      setClockOffset((await getDevStatus()).offsetMinutes)
+      await props.live.refresh()
+    }
   },
   async () => { // 서울역 도착
     const days = lastDay()
