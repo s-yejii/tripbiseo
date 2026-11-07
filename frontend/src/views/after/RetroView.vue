@@ -2,7 +2,7 @@
 // S19-a 지난 여행 다시보기 (⑤): 다녀온 동선을 재생하고, 핀을 누르면 시간·결제 메모를 봐요. 계획과 실제도 비교해요
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { get, post, put } from '@/api/http'
+import { get, post, put, del } from '@/api/http'
 import { toTime, toMinutes, toDuration, toWon } from '@/utils/time'
 import { showToast } from '@/utils/toast' // 아래에 잠깐 뜨는 알림
 import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
@@ -560,26 +560,72 @@ async function cyclePayer(payment) {
   }
 }
 
-// 정산 결과. 인원이 1명이거나 결제가 없으면 null
-// 예: 2명, 합계 54,800원, 나 45,000 / 동행 1 9,800 → 1인당 27,400 → 동행 1이 나에게 17,600원
+// 정산 결과. 같이 간 사람이 1명이거나 결제가 없으면 null
+// 낼 돈: 직접 정한 사람(shareAmount)은 그 금액, 나머지 사람은 (합계 − 정한 금액들)을 똑같이 나눔 (10원 단위, 남는 돈은 자동 중 첫 사람)
+// 예: 3명, 합계 90,000, 지은 20,000으로 정함 → 나·엄마가 70,000을 35,000씩
 const settlement = computed(() => {
-  const names = payerNames.value
-  if (names.length < 2 || payments.value.length === 0) return null
+  const list = companions.value
+  if (list.length < 2 || payments.value.length === 0) return null
   let total = 0
   const paid = {} // 이름 → 낸 돈
-  for (const name of names) paid[name] = 0
+  for (const companion of list) paid[companion.name] = 0
   for (const payment of payments.value) {
     total += payment.amount
     if (paid[payment.payer] !== undefined) paid[payment.payer] += payment.amount
   }
-  const share = Math.floor(total / names.length / 10) * 10 // 1인당 (10원 단위로 내림)
-  const people = [] // { name, paid, balance }. balance = 낸 돈 − 낼 돈 (+면 받을 사람, −면 보낼 사람)
-  for (let i = 0; i < names.length; i++) {
-    const should = i === 0 ? total - share * (names.length - 1) : share // 10원 단위로 남는 돈은 '나'가 냄
-    people.push({ name: names[i], paid: paid[names[i]], balance: paid[names[i]] - should })
+  let fixedTotal = 0     // 직접 정한 금액 합
+  const autoNames = []   // 자동으로 나눌 사람
+  for (const companion of list) {
+    if (companion.shareAmount !== null) fixedTotal += companion.shareAmount
+    else autoNames.push(companion.name)
   }
-  return { total: total, share: share, people: people, transfers: toTransfers(people) }
+  const rest = total - fixedTotal // 자동인 사람들이 나눌 돈
+  let autoShare = 0
+  if (autoNames.length > 0) autoShare = Math.floor(rest / autoNames.length / 10) * 10
+  const people = [] // { id, name, paid, should, isFixed, balance }. balance = 낸 돈 − 낼 돈 (+ 받을 사람, − 보낼 사람)
+  for (const companion of list) {
+    let should = companion.shareAmount
+    if (should === null) should = companion.name === autoNames[0] ? rest - autoShare * (autoNames.length - 1) : autoShare
+    people.push({ id: companion.id, name: companion.name, paid: paid[companion.name], should: should,
+      isFixed: companion.shareAmount !== null, balance: paid[companion.name] - should })
+  }
+  // 안 맞는 돈: 모두 직접 정했는데 합이 다르거나, 정한 금액이 합계보다 많으면
+  let gap = 0
+  if (autoNames.length === 0) gap = total - fixedTotal
+  else if (rest < 0) gap = rest
+  return { total: total, people: people, transfers: toTransfers(people), gap: gap }
 })
+
+// ---------- 더치페이 낼 돈 고치기
+const shareEdit = ref(null) // 고치는 중 { id, amount(글자) }. null이면 닫힘
+
+function startShareEdit(person) {
+  shareEdit.value = { id: person.id, amount: String(person.should) }
+}
+
+// 저장 (PUT …/share). amount가 null이면 자동으로 되돌림
+async function saveShare(companionId, amount) {
+  try {
+    companions.value = await put('/trips/' + route.query.id + '/companions/' + companionId + '/share', { amount: amount })
+    shareEdit.value = null
+  } catch (e) {
+    showToast(e.message)
+  }
+}
+
+// ---------- 결제 지우기
+const deletingId = ref(null) // "지울까요?"를 띄운 결제 번호. null이면 없음
+
+async function deletePayment(payment) {
+  try {
+    await del('/trips/' + route.query.id + '/payments/' + payment.id)
+    deletingId.value = null
+    await loadPayments()
+    showToast(payment.storeName + ' 결제를 지웠어요')
+  } catch (e) {
+    showToast(e.message)
+  }
+}
 
 // 보낼 사람(balance < 0)이 받을 사람(balance > 0)에게 차례로 보내기. 예: [{from:'동행 1', to:'나', amount:17600}]
 function toTransfers(people) {
@@ -991,12 +1037,20 @@ function toggleMapType() {
             <li v-for="payment in dayPayments" :key="payment.id">
               <span class="tn retro-paylist__time">{{ payment.paidAt }}</span>
               <span class="retro-paylist__body"><b>{{ payment.storeName }}</b><span class="t-cap">{{ placeOfPayment(payment) }}{{ payment.source === 'card' ? ' · 카드' : '' }}</span></span>
-              <b class="tn">{{ toWon(payment.amount) }}</b>
-              <!-- 낸 사람: 누를 때마다 다음 사람 (인원이 2명 이상일 때만) -->
-              <button v-if="payerNames.length > 1" type="button" class="chip chip--sm retro-payer" :aria-label="'낸 사람 ' + payment.payer + ', 눌러서 바꾸기'" @click="cyclePayer(payment)">{{ payment.payer }}</button>
+              <!-- 지울까요? 를 띄운 줄이면 금액·사람 대신 지우기·취소 -->
+              <template v-if="deletingId === payment.id">
+                <button type="button" class="btn btn--sm retro-del" @click="deletePayment(payment)">지우기</button>
+                <button type="button" class="btn btn--secondary btn--sm" @click="deletingId = null">취소</button>
+              </template>
+              <template v-else>
+                <b class="tn">{{ toWon(payment.amount) }}</b>
+                <!-- 낸 사람: 누를 때마다 다음 사람 (인원이 2명 이상일 때만) -->
+                <button v-if="payerNames.length > 1" type="button" class="chip chip--sm retro-payer" :aria-label="'낸 사람 ' + payment.payer + ', 눌러서 바꾸기'" @click="cyclePayer(payment)">{{ payment.payer }}</button>
+                <button type="button" class="iconbtn retro-trash" :aria-label="payment.storeName + ' 결제 지우기'" @click="deletingId = payment.id"><i class="ic ic--s i-trash" aria-hidden="true"></i></button>
+              </template>
             </li>
           </ul>
-          <p v-if="dayPayments.length > 0" class="retro-paytotal"><span>이 날 합계</span><b class="tn">{{ toWon(dayPaymentTotal) }}</b></p>
+          <p v-if="dayPayments.length > 0" class="retro-paytotal"><span>합계</span><b class="tn">{{ toWon(dayPaymentTotal) }}</b></p>
 
           <!-- 같이 간 사람: 칩을 누르면 이름 바꾸기('나' 빼고), [+ 추가]. 친구 기능(①)이 생기면 친구에서 고르기 -->
           <div class="retro-people">
@@ -1018,15 +1072,30 @@ function toggleMapType() {
 
           <!-- 정산: 여행 전체 (날짜 버튼과 상관없이) -->
           <div v-if="settlement" class="retro-settle">
-            <p class="retro-settle__title"><b>여행 전체 정산</b><span class="t-cap tn">{{ payerNames.length }}명 · 합계 {{ toWon(settlement.total) }} · 1인당 {{ toWon(settlement.share) }}</span></p>
+            <p class="retro-settle__title"><b>여행 전체 정산</b><span class="t-cap tn">{{ payerNames.length }}명 · 합계 {{ toWon(settlement.total) }}</span></p>
             <ul class="retro-settle__people">
-              <li v-for="person in settlement.people" :key="person.name"><span>{{ person.name }}</span><span class="tn">낸 돈 {{ toWon(person.paid) }}</span></li>
+              <li v-for="person in settlement.people" :key="person.id">
+                <span class="retro-settle__name">{{ person.name }}</span>
+                <span class="tn t-cap">낸 돈 {{ toWon(person.paid) }}</span>
+                <!-- 낼 돈: 누르면 고치기. 직접 정한 금액이면 "정함" 표시 + [자동] -->
+                <form v-if="shareEdit && shareEdit.id === person.id" class="retro-settle__edit" @submit.prevent="saveShare(person.id, Number(shareEdit.amount.replace(/\D/g, '')))">
+                  <input v-model="shareEdit.amount" type="text" inputmode="numeric" aria-label="낼 돈" />
+                  <button type="submit" class="btn btn--primary btn--sm">저장</button>
+                  <button type="button" class="btn btn--secondary btn--sm" @click="shareEdit = null">취소</button>
+                </form>
+                <template v-else>
+                  <button type="button" class="retro-settle__should tn" :aria-label="person.name + ' 낼 돈 ' + person.should + '원 고치기'" @click="startShareEdit(person)">낼 돈 <b>{{ toWon(person.should) }}</b> <i class="ic ic--s i-edit" aria-hidden="true"></i></button>
+                  <button v-if="person.isFixed" type="button" class="chip chip--sm" @click="saveShare(person.id, null)">자동</button>
+                </template>
+              </li>
             </ul>
+            <p v-if="settlement.gap !== 0" class="retro-settle__warn">
+              <i class="ic ic--s i-warning" aria-hidden="true"></i>정한 낼 돈이 합계와 {{ toWon(Math.abs(settlement.gap)) }} {{ settlement.gap > 0 ? '모자라요' : '넘어요' }}
+            </p>
             <p v-for="(transfer, n) in settlement.transfers" :key="n" class="retro-settle__send tn">
               <i class="ic ic--s i-send" aria-hidden="true"></i>{{ transfer.from }} → {{ transfer.to }} <b>{{ toWon(transfer.amount) }}</b>
             </p>
             <p v-if="settlement.transfers.length === 0" class="retro-settle__send">모두 똑같이 냈어요</p>
-            <p class="t-cap">결제 줄의 사람 칩을 누르면 낸 사람이 바뀌어요 (나 → 지은 → … 순서)</p>
           </div>
         </section>
         </div>
@@ -1134,9 +1203,17 @@ function toggleMapType() {
 .scr-Retro .retro-settle{margin-top:14px;padding:12px;border-radius:12px;background:var(--navy-soft);display:flex;flex-direction:column;gap:6px}
 .scr-Retro .retro-settle__title{display:flex;flex-direction:column;margin:0}
 .scr-Retro .retro-settle__people{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;font-size:14px}
-.scr-Retro .retro-settle__people li{display:flex;justify-content:space-between}
 .scr-Retro .retro-settle__send{display:flex;align-items:center;gap:6px;margin:0;font-size:15px;color:var(--navy)}
 .scr-Retro .retro-settle__send b{margin-left:auto}
+.scr-Retro .retro-settle__people li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:36px}
+.scr-Retro .retro-settle__name{font-weight:700;min-width:44px}
+.scr-Retro .retro-settle__should{margin-left:auto;border:0;background:none;font:inherit;font-size:14px;color:var(--ink);cursor:pointer;display:flex;align-items:center;gap:4px;padding:4px 0}
+.scr-Retro .retro-settle__should .ic{width:14px;height:14px;color:var(--ink-subtle)}
+.scr-Retro .retro-settle__edit{margin-left:auto;display:flex;gap:6px;align-items:center}
+.scr-Retro .retro-settle__edit input{width:96px;height:32px;border:1px solid var(--line-strong);border-radius:8px;padding:0 8px;font:inherit;font-size:14px;text-align:right}
+.scr-Retro .retro-settle__warn{display:flex;align-items:center;gap:6px;margin:0;font-size:13px;color:var(--warning,#B54708)}
+.scr-Retro .retro-trash{flex:none;width:32px;height:32px;color:var(--ink-subtle)}
+.scr-Retro .retro-del{flex:none;background:var(--danger,#D92D20);color:#fff}
 /* 카드 내역 가져오기 창 (화면 전체를 덮고 아래에서 올라온 상자) */
 .scr-Retro .retro-cards{position:absolute;inset:0;z-index:40;background:rgba(10,14,28,.45);display:flex;align-items:flex-end}
 .scr-Retro .retro-cards__box{width:100%;max-height:80%;background:var(--surface);border-radius:20px 20px 0 0;padding:16px 16px 28px;display:flex;flex-direction:column;gap:10px}
