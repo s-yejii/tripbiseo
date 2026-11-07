@@ -9,7 +9,7 @@ import BottomSheet from '@/components/common/BottomSheet.vue' // 끌어서 내�
 import PhotoViewer from '@/components/after/PhotoViewer.vue' // 사진 크게 보기 (앨범과 같은 것)
 import { toDurationText } from '@/utils/photoUpload' // 영상 길이 12 → "0:12"
 
-// 가짜 데이터: 다녀온 곳 (백엔드가 붙으면 GET /api/trips/{id}/retro)
+
 const visited = ref([
 
 ])
@@ -20,6 +20,7 @@ const playing = ref(false)
 const speed = ref(1) // 재생 속도(1,2,4배)
 const PLAY_STEP_1X = 0.375 // 1배속일 때 90ms마다 나아가는 % 100%까지 약 24초
 const infoNo = ref(null)
+const selectedDay  = ref(1)
 let timer = null
 
 const routePoints = computed(() => trackPoints.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
@@ -61,6 +62,74 @@ const skippedCount = computed(() => {
   return count
 })
 
+// 고른 날의 일정 칸만 담기. 예: 2일차 → [명동, 남산, 남대문시장]
+const dayStops = computed(() => {
+  const list = []
+  if (retro.value === null) return list
+  for (const place of retro.value.stops ) {
+    if(place.day===selectedDay.value)  {
+      list.push(place)
+    }
+
+  }
+      return list
+
+})
+
+
+// 고른 날의 GPS 점만 담기. 예: 2일차 → 09:40 ~ 13:40, 9점
+const dayTrack = computed(() => {
+  const gpslist = []
+  if (retro.value === null) return gpslist
+  for (const gps of retro.value.track) {
+    if(gps.day === selectedDay.value ){
+      gpslist.push(gps)
+    }
+  }
+  return gpslist
+})
+
+// 고른 날에 사진만 담기. 예: 1일차 → 12:20 사진
+
+const dayPhotos = computed(() => {
+  const list = []
+  for(const photo of photos.value){
+    if(photo.day === selectedDay.value){
+      list.push(photo)
+    }
+  }
+  return list
+})
+// 여행 날짜 목록. 예: 일정 칸 day가 1, 1, 2, 2, 2 → [1, 2]
+
+const dayList = computed(() => {
+  const list = []
+  if (retro.value === null) return list
+
+  let lastDay = 1
+  for (const place of retro.value.stops) {
+    if (place.day > lastDay) {
+      lastDay = place.day
+    }
+  }
+
+  for (let day = 1; day <= lastDay; day++) {
+    list.push(day)
+  }
+  return list
+})
+
+function changeDay(day) {
+  stop()                       // 재생 중이면 멈춤
+  selectedDay.value = day   // 누른 날
+  progress.value = 0      // 막대 처음으로
+  infoNo.value = null        // 열려 있던 핀 정보창 닫기
+  floatPhoto.value = null    // 떠 있던 사진 카드 내리기
+  if (selectedmap === null) return  // 지도가 아직 없으면 맞출 게 없음
+  const sheet = document.querySelector('.retro-sheet')
+ fitRoute(sheet.classList.contains('is-collapsed'))             // 시트가 내려가 있으면 true
+}
+
 // 재생 위치에 따라 현재 시각을 계산(시작 시간 + 진행률 + 도착 시간 - 시작 시간 + 진행률)
 const startMinutes = computed(() => { // 첫 점의 시각
   if (trackPoints.value.length === 0) return 0
@@ -81,7 +150,7 @@ const nowMinutes = computed(() => {
 const currentNo = computed(() => {
   if (retro.value === null) return null
 
-  const stops = retro.value.stops
+  const stops = dayStops.value
   for (let i = 0; i<stops.length; i++) {
     if (stops[i].actualArrive === null || stops[i].actualStay === null) continue
 
@@ -135,7 +204,7 @@ const errorMessage = ref(``) // 회고를 못 불러왔을 때 화면에 보여 
 const mapBox = ref(null) // 지도를 그릴 칸
 let selectedmap = null // 선택 한 지도로 변환
 const MAP_LEVEL = 5 // 지도 확대 단계, 숫자가 작을수록 가까이
-const MAP_PADDING_TOP = 60 // 위쪽 뒤로가기 버튼에 안 가리게
+const MAP_PADDING_TOP = 120 // 위쪽 버튼 줄(47 + 56 = 103)과 핀 반지름(14)만큼 비워서 핀이 버튼에 안 가리게
 const MAP_PADDING_SIDE = 40 // 핀이 화면 양옆에 잘리지 않게
 const MAP_PADDING_BOTTOM_OPEN = 600 // 시트 펼침: 재생 막대(위쪽 262) 위만 보임 → 844 − 262 + 18
 const MAP_PADDING_BOTTOM_CLOSED = 232 // 시트 내림: 재생 막대가 약 630까지 내려감 → 844 − 630 + 18
@@ -145,7 +214,7 @@ const timeline = computed(() => {
   const rows = []
   if (retro.value === null) return rows
 
-  const stops = retro.value.stops
+  const stops = dayStops.value
   for (let i = 0; i < stops.length; i++) { // i : 몇번째 장소인지 (다음 단계에서 '다음 장소를 볼때 i +1')
     rows.push({
       type: 'place',
@@ -246,7 +315,7 @@ const floatPhoto = ref(null)  // 지금 지도 위에 떠 있는 사진 { photo,
 // 재생이 before → after 시각으로 나아갔을 때, 그 사이에 찍은 사진이 있으면 지금 점(me) 위치에 띄움
 // 예: 12:18 → 12:21로 나아가면 12:20 사진이 뜸
 function checkPhotoPopup(before, after) {
-  for (const photo of photos.value) {
+  for (const photo of dayPhotos.value) {
     const minutes = toMinutes(photo.takenAt)
     if (minutes > before && minutes <= after) {
       floatPhoto.value = { photo: photo, x: me.value.x, y: me.value.y, until: after + PHOTO_SHOW_MINUTES }
@@ -277,7 +346,7 @@ const photoTicks = computed(() => {
   const ticks = []
   const range = endMinutes.value - startMinutes.value
   if (range <= 0) return ticks
-  for (const photo of photos.value) {
+  for (const photo of dayPhotos.value) {
     const percent = ((toMinutes(photo.takenAt) - startMinutes.value) / range) * 100
     if (percent >= 0 && percent <= 100) ticks.push({ id: photo.id, percent: percent })
   }
@@ -308,8 +377,8 @@ document.head.appendChild(script) // 페이지에 붙이는 순간 다운로드�
 }
 // 첫 번째 장소를 가운데로 해서 지도를 그림
 function drawMap() {
-  if (retro.value.stops.length === 0) return 
-  const firstStop = retro.value.stops[0]
+  if (dayStops.value.length === 0) return 
+  const firstStop = dayStops.value[0]
   const center = new kakao.maps.LatLng(firstStop.lat , firstStop.lng)
   const map = new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
   selectedmap = map
@@ -322,19 +391,19 @@ function fitRoute(isCollapsed) {// 시트가 펼쳐졌는지)false 내려갔는�
   { paddingBottom = MAP_PADDING_BOTTOM_CLOSED}
 
   const bounds = new kakao.maps.LatLngBounds() // LatLngBounds: 넣은 좌표가 모두 들어가는 네모 범위
-  for (const place of retro.value.stops) // place 장소 들른 곳의 목록 중 꺼낸거
+  for (const place of dayStops.value) // place 장소 들른 곳의 목록 중 꺼낸거
   bounds.extend(new kakao.maps.LatLng(place.lat , place.lng))
   map.setBounds(bounds,MAP_PADDING_TOP , MAP_PADDING_SIDE ,  paddingBottom , MAP_PADDING_SIDE) // 지도에 맞게 확대/축소 순서 : 위 , 왼쪽, 아래 , 오른쪽
 
   const points = [] // 장소별 핀 정보를 담을 목록
-  for (const place of retro.value.stops){
+  for (const place of dayStops.value){
     const latLng = new kakao.maps.LatLng(place.lat , place.lng)
     const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
     points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
   }
   visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
   const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
-  for (const gps of retro.value.track) { // gps: 실제로 이동한 기록
+  for (const gps of dayTrack.value) { // gps: 실제로 이동한 기록
     const latLng = new kakao.maps.LatLng(gps.lat , gps.lng) // gps 좌표를 실제 좌표로 바꾸고 카카오 맵에 넣어줌
     const point = map.getProjection().containerPointFromCoords(latLng) // 화면 좌푤 ㅗ마바꿔줌
     trackList.push({ x: point.x , y : point.y , time : gps.time }) 
@@ -359,6 +428,7 @@ function watchSheet() {
 
 
 
+
 function toggleInfo(no) {
   infoNo.value = infoNo.value === no ? null : no
 }
@@ -366,7 +436,7 @@ function toggleInfo(no) {
 
 // 타임라인 줄을 누르면 재생 위치를 그 장소 도착 시각으로 옮김. 예: 13:00 도착 → (780 − 770) / 260 × 100 ≈ 3.8%
 function moveToPlace(no) {
-  const place = retro.value.stops[no - 1] // 줄 번호는 1부터, 목록 번호는 0부터라 1을 뺌
+  const place = dayStops.value[no - 1] // 줄 번호는 1부터, 목록 번호는 0부터라 1을 뺌
   if (place.actualArrive === null) return // 안 간 곳은 옮길 시각이 없음
   if (endMinutes.value === startMinutes.value) return // GPS가 없거나 한 점이면 옮길 수 없음
   stop() // 재생 중이면 멈추고 옮김
@@ -447,7 +517,7 @@ function toggleMapType() {
 
       <header class="topbar topbar--float">
         <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
-                <button type="button" class="iconbtn iconbtn--float" style="margin-left: auto; width: auto; padding: 0 12px" @click="toggleMapType">
+        <button type="button" class="iconbtn iconbtn--float" style="margin-left: auto; width: auto; padding: 0 12px" @click="toggleMapType">
           {{ isHybrid ? '일반 지도' : '하이브리드 지도' }}
         </button>
       </header>
@@ -473,7 +543,13 @@ function toggleMapType() {
         <!-- 여행 제목과 날짜를 API 값으로 보여 줌 -->
         <div class="retro-sheet__head" data-drag>
           <h1 v-if="retro" id="retro-title" class="h-title">{{ retro.title }}</h1>
-          <p v-if="retro" class="t-cap">{{ retro.startDate }} ~ {{ retro.endDate }}</p>
+          <!-- 날짜 줄: 왼쪽 기간, 오른쪽 날짜 버튼(여러 날 여행일 때만). 누르면 그날 장소·GPS·사진만 보여 줌 -->
+          <div v-if="retro" class="retro-dayrow">
+            <p class="t-cap">{{ retro.startDate }} ~ {{ retro.endDate }}</p>
+            <span v-if="dayList.length > 1" class="retro-days" role="group" aria-label="날짜 고르기">
+              <button v-for="day in dayList" :key="day" type="button" class="chip chip--sm" :aria-pressed="selectedDay === day" @click="changeDay(day)">{{ day }}일차</button>
+            </span>
+          </div>
           <p v-if="errorMessage" class="t-cap">{{ errorMessage }}</p>
         </div>
         <div class="retro-scroll">
@@ -553,6 +629,11 @@ function toggleMapType() {
 .scr-Retro .retro-scroll{position:relative;flex:1;min-height:0;overflow-y:auto;padding:2px 16px 112px;display:flex;flex-direction:column;gap:14px}
 .scr-Retro .retro-scroll>*{flex-shrink:0}
 .scr-Retro .map{z-index: 0 }
+/* 날짜 줄: 기간 글자 + 날짜 버튼 (1일차 2일차 …). 날이 많으면 버튼만 옆으로 밀어서 봄 */
+.scr-Retro .retro-dayrow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px}
+.scr-Retro .retro-dayrow .t-cap{flex:none;margin:0}
+.scr-Retro .retro-days{display:flex;gap:6px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.scr-Retro .retro-days .chip{flex:none}
 .scr-Retro .retro-play{background:var(--navy);color:#fff;border-radius:50%;width:44px;height:44px}
 .scr-Retro .retro-speed{flex:none;min-width:40px;height:28px;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--navy);font:inherit;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
 .scr-Retro .retro-pay{color:var(--coral-ink);font-weight:600}
