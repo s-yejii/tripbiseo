@@ -9,6 +9,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.after.dto.CardTransaction;
@@ -19,6 +22,9 @@ import com.tripbiseo.after.dto.PaymentResponse;
 import com.tripbiseo.after.dto.RetroResponse;
 import com.tripbiseo.after.dto.RetroStop;
 import com.tripbiseo.after.mapper.PaymentMapper;
+import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.common.external.CodefApproval;
+import com.tripbiseo.common.external.CodefClient;
 import com.tripbiseo.common.util.Geo;
 
 import lombok.RequiredArgsConstructor;
@@ -26,6 +32,8 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
+
+    private static final Logger log = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
     private static final int CARD_DELAY_MINUTES = 20;      // 목업: 도착하고 이만큼 뒤에 결제했다고 봄
     private static final int LODGING_DELAY_MINUTES = 5;    // 목업: 숙소는 들어가자마자 결제
@@ -40,6 +48,13 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentMapper paymentMapper;
     private final RetroService retroService; // 같은 ⑤: 실제 도착·머문 시간, 머문 곳 (남의 여행이면 여기서 404)
+    private final CodefClient codefClient;   // CODEF 개인카드 승인내역 (11/07)
+
+    // TODO(⑤): card 테이블(이상재 확인)이 생기면 회원마다 저장한 connectedId로 바꾸기. 그 전까지 내 PC 시험용
+    @Value("${CODEF_ORGANIZATION:}")
+    private String testOrganization;   // 카드사 기관코드
+    @Value("${CODEF_CONNECTED_ID:}")
+    private String testConnectedId;    // 카드사 연결 번호
 
     /** 한 여행의 결제 내역, 결제 순 */
     @Override
@@ -67,11 +82,60 @@ public class PaymentServiceImpl implements PaymentService {
         return paymentMapper.selectPayment(payment.getPaymentId());
     }
 
-    /** 카드 승인내역 목업: 실제로 다녀온 곳·머문 곳마다 결제 한 건씩 (나중에 CODEF를 부르게 이 메서드만 바꿈) */
+    /**
+     * 카드 승인내역. CODEF 데모·정식 키 + 카드사 연결이 있으면 진짜 내역,
+     * 샌드박스면 연결만 확인하고(값이 **** 로 가려져 옴) 목업, 키가 없으면 목업
+     */
     @Override
     public List<CardTransaction> getCardTransactionList(long memberId, long tripId) {
         RetroResponse retro = retroService.getRetro(memberId, tripId);
         List<PaymentResponse> saved = paymentMapper.selectPaymentList(tripId);
+        if (codefClient.isRealData()) {
+            if (testConnectedId.isBlank()) throw fail(400, "카드사를 먼저 연결해 주세요.");
+            return toCodefTransactions(retro, saved);
+        }
+        if (codefClient.isReady()) checkSandbox(retro);
+        return toMockTransactions(retro, saved);
+    }
+
+    // CODEF 진짜 내역 → 우리 모양. 여행 기간 밖은 뺌
+    private List<CardTransaction> toCodefTransactions(RetroResponse retro, List<PaymentResponse> saved) {
+        String start = retro.getStartDate().replace("-", "");
+        String end = retro.getEndDate().replace("-", "");
+        List<CardTransaction> list = new ArrayList<>();
+        for (CodefApproval approval : codefClient.getApprovalList(testOrganization, testConnectedId, start, end)) {
+            String date = approval.getUsedDate();   // "20261104"
+            String time = approval.getUsedTime();   // "113500"
+            String paidAt = date.substring(0, 4) + "-" + date.substring(4, 6) + "-" + date.substring(6, 8)
+                    + "T" + time.substring(0, 2) + ":" + time.substring(2, 4);
+            int day = toDay(retro, paidAt);
+            if (day < 1 || date.compareTo(end) > 0) continue; // 여행 기간 밖
+            CardTransaction transaction = new CardTransaction();
+            transaction.setApprovalDate(date);
+            transaction.setApprovalTime(time);
+            transaction.setPaidAt(paidAt);
+            transaction.setDay(day);
+            transaction.setStoreName(approval.getStoreName());
+            transaction.setAmount(approval.getAmount());
+            transaction.setImported(isImported(saved, transaction));
+            list.add(transaction);
+        }
+        return list;
+    }
+
+    // 샌드박스: 진짜로 불러서 연결(토큰·호출·응답 읽기)만 확인. 실패해도 화면은 목업으로 계속
+    private void checkSandbox(RetroResponse retro) {
+        try {
+            int count = codefClient.getApprovalList("0309", "sandbox", retro.getStartDate().replace("-", ""),
+                    retro.getEndDate().replace("-", "")).size();
+            log.info("CODEF 샌드박스 연결 OK (쓸 수 있는 내역 {}건, 샌드박스는 값이 가려져 와서 0건이 정상)", count);
+        } catch (ApiException e) {
+            log.warn("CODEF 샌드박스 연결 실패: {}", e.getMessage());
+        }
+    }
+
+    // 목업: 실제로 다녀온 곳·머문 곳마다 결제 한 건씩
+    private List<CardTransaction> toMockTransactions(RetroResponse retro, List<PaymentResponse> saved) {
         List<CardTransaction> list = new ArrayList<>();
 
         for (RetroStop stop : retro.getStops()) {
