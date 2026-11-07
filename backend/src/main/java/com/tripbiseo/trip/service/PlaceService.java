@@ -63,4 +63,7 @@ public interface PlaceService {
 
     /** GET /api/places/locations/here: 내 좌표의 건물 이름·주소 (현재 위치로 출발) */
     FoundLocation getLocationHere(double lat, double lng);
+
+    /** GET /api/places/locations/stays: 숙소 위치 찍기. 숙박 분류만 최대 15개, 없으면 주소 (카카오) */
+    List<FoundLocation> getLocationStayList(String query);
 }

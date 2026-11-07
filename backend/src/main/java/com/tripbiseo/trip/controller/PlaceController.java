@@ -93,6 +93,12 @@ public class PlaceController {
         return placeService.getLocationHere(lat, lng);
     }
 
+    /** 숙소 위치 찍기: 숙소(호텔·모텔·게스트하우스 등)만 찾기 (카카오). 없으면 주소 */
+    @GetMapping("/locations/stays")
+    public List<FoundLocation> getLocationStayList(@RequestParam String q) {
+        return placeService.getLocationStayList(q);
+    }
+
     /** 장소 상세 */
     @GetMapping("/{id}")
     public PlaceDetail getPlaceDetail(@PathVariable String id) {
