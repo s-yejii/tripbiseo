@@ -283,7 +283,7 @@ function firstArriveMinutes(stops) {
 function toExtraRow(extra) {
   const arrive = toMinutes(extra.arrive)
   const leave = arrive + extra.stay
-  return { type: 'extra', kind: extra.kind, day: extra.day, arrive: arrive, leave: leave,
+  return { type: 'extra', kind: extra.kind, name: extra.name, day: extra.day, arrive: arrive, leave: leave,
     timeText: extra.arrive + ' ~ ' + toLeaveText(leave), stayText: toDuration(extra.stay) }
 }
 
@@ -696,7 +696,8 @@ function toggleMapType() {
               <div v-else-if="row.type === 'extra'" class="retro-tl__extra">
                 <span class="retro-tl__icon"><span><i class="ic" :class="row.kind === 'lodging' ? 'i-home' : 'i-pin'" aria-hidden="true"></i></span></span>
                 <span class="retro-tl__body">
-                  <b>{{ row.kind === 'lodging' ? '숙소로 보이는 곳' : '계획 없이 머문 곳' }}</b>
+                  <!-- 이름을 찾았으면 이름, 못 찾았으면 "계획 없이 머문 곳" -->
+                  <b>{{ row.name || (row.kind === 'lodging' ? '숙소로 보이는 곳' : '계획 없이 머문 곳') }}</b>
                   <span class="t-cap tn">{{ row.timeText }} · {{ row.stayText }}</span>
                   <!-- 머무는 동안 찍은 사진 (이동 줄과 같은 방식: 날짜·시간으로 고름) -->
                   <span v-if="photosOfMove(row).length > 0" class="retro-tl__photos">
@@ -707,7 +708,7 @@ function toggleMapType() {
                     </button>
                   </span>
                 </span>
-                <span class="retro-tl__tag retro-tl__tag--extra">계획 밖</span>
+                <span class="retro-tl__tag retro-tl__tag--extra">{{ row.kind === 'lodging' ? '숙소?' : '계획 밖' }}</span>
               </div>
               <!-- 이동 줄 -->
               <div v-else-if="row.type === 'move'" class="retro-tl__move">
