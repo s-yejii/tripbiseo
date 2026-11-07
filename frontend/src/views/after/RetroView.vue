@@ -25,7 +25,12 @@ const selectedDay  = ref(1)
 let timer = null
 
 const routePoints = computed(() => trackPoints.value.map((v) => v.x + ',' + v.y).join(' ')) // 다녀온 곳 좌표를 "x,y x,y x,y" 문자열로 만들어서 <polyline>에 넣음
-const info = computed(() => visited.value.find((v) => v.no === infoNo.value)) 
+// 열린 정보창의 핀. 계획 장소 핀(번호 1, 2, …)을 먼저 찾고, 없으면 머문 곳 핀('x0', 'x1', …)
+const info = computed(() => {
+  const place = visited.value.find((v) => v.no === infoNo.value)
+  if (place !== undefined) return place
+  return extraPoints.value.find((v) => v.no === infoNo.value)
+})
 //재생 위치(%)를 시각으로 바꾸고, 그 시각이 들어 있는 GPS 구간에서 점을 계산해요
 const me = computed(() => {
   const points = trackPoints.value
@@ -283,7 +288,8 @@ function firstArriveMinutes(stops) {
 function toExtraRow(extra) {
   const arrive = toMinutes(extra.arrive)
   const leave = arrive + extra.stay
-  return { type: 'extra', kind: extra.kind, name: extra.name, day: extra.day, arrive: arrive, leave: leave,
+  return { type: 'extra', no: 'x' + dayExtras.value.indexOf(extra), // 핀 번호와 같음 ('x0', 'x1', …)
+    kind: extra.kind, name: extra.name, lat: extra.lat, lng: extra.lng, day: extra.day, arrive: arrive, leave: leave,
     timeText: extra.arrive + ' ~ ' + toLeaveText(leave), stayText: toDuration(extra.stay) }
 }
 
@@ -520,8 +526,13 @@ function toScreenPoints() {
   for (const extra of dayExtras.value) { // 고른 날의 머문 곳
     const latLng = new kakao.maps.LatLng(extra.lat, extra.lng)
     const point = map.getProjection().containerPointFromCoords(latLng)
-    extraList.push({ x: point.x, y: point.y, kind: extra.kind, name: extra.name,
-      label: (extra.kind === 'lodging' ? '숙소로 보이는 곳 ' : '계획 없이 머문 곳 ') + extra.arrive })
+    const baseName = extra.kind === 'lodging' ? '숙소로 보이는 곳' : '계획 없이 머문 곳'
+    extraList.push({ no: 'x' + extraList.length, x: point.x, y: point.y, kind: extra.kind,
+      placeName: extra.name,                 // 핀 옆 작은 이름 (못 찾았으면 null)
+      name: extra.name || baseName,          // 정보창 제목
+      time: extra.arrive + ' ~ ' + toLeaveText(toMinutes(extra.arrive) + extra.stay), // 정보창 시각
+      pay: '',                               // 결제 메모 (결제 기능이 붙으면 채움)
+      label: baseName + ' ' + extra.arrive })
   }
   extraPoints.value = extraList // 화면에 보여 줄 머문 곳 핀
 }
@@ -540,6 +551,39 @@ function moveToPlace(no) {
   if (endMinutes.value === startMinutes.value) return // GPS가 없거나 한 점이면 옮길 수 없음
   stop() // 재생 중이면 멈추고 옮김
   progress.value = (toMinutes(place.actualArrive) - startMinutes.value) / (endMinutes.value  - startMinutes.value) * 100
+}
+
+// 재생 위치를 그 시각(분)으로 옮김. 예: 11:15(675) → (675 − 545) / (820 − 545) × 100 ≈ 47%
+function moveToMinutes(minutes) {
+  if (endMinutes.value === startMinutes.value) return
+  stop()
+  const percent = (minutes - startMinutes.value) / (endMinutes.value - startMinutes.value) * 100
+  progress.value = Math.max(0, Math.min(100, percent)) // 0 ~ 100 밖으로 안 나가게
+}
+
+// ============================== 줄을 누르면 지도를 그 마커로 확대해 가운데로 (11/07)
+const FOCUS_LEVEL = 3              // 이 단계까지 확대 (숫자가 작을수록 가까이). 이미 더 가까우면 그대로
+const VISIBLE_CENTER_Y_OPEN = 190  // 시트 펼침: 지도가 보이는 칸(위 버튼 120 ~ 재생 막대 262)의 가운데
+const VISIBLE_CENTER_Y_CLOSED = 375 // 시트 내림: 보이는 칸(120 ~ 630)의 가운데
+
+// 장소 줄 번호 → 그 장소로 지도 맞추기
+function focusPlace(no) {
+  const place = dayStops.value[no - 1]
+  focusOn(place.lat, place.lng)
+}
+
+// 좌표를 지도의 "보이는 칸" 가운데로. 지도 진짜 가운데(844 / 2 = 422)는 시트에 가려서, 마커가 보이는 칸 가운데에 오게 가운데 점을 아래로 내림
+function focusOn(lat, lng) {
+  if (selectedmap === null) return
+  const map = selectedmap
+  if (map.getLevel() > FOCUS_LEVEL) map.setLevel(FOCUS_LEVEL) // setLevel: 확대 단계 바꾸기
+  let targetY = VISIBLE_CENTER_Y_OPEN
+  const sheet = document.querySelector('.retro-sheet')
+  if (sheet !== null && sheet.classList.contains('is-collapsed')) targetY = VISIBLE_CENTER_Y_CLOSED
+  const projection = map.getProjection()
+  const marker = projection.containerPointFromCoords(new kakao.maps.LatLng(lat, lng)) // 마커의 화면 x, y
+  const center = new kakao.maps.Point(marker.x, marker.y + (MAP_HEIGHT / 2 - targetY)) // 가운데로 삼을 화면 점
+  map.panTo(projection.coordsFromContainerPoint(center)) // panTo: 부드럽게 그 좌표로 옮김
 }
 
 // 지도 핀을 누르면 타임라인의 그 장소 줄이 보이게 스크롤함. 예: ③ 핀 → id가 'tl-row-3'인 줄
@@ -582,10 +626,10 @@ function toggleMapType() {
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <!-- 계획 없이 머문 곳 핀 (코랄): 숙소로 보이는 곳은 집, 나머지는 핀 모양. 이름이 있으면 핀 옆에 작게 -->
-        <span v-for="(p, n) in extraPoints" :key="'x' + n" class="retro-xpin" :class="{ 'is-lodging': p.kind === 'lodging' }" :style="{ left: p.x + 'px', top: p.y + 'px' }" :title="p.label">
+        <button v-for="p in extraPoints" :key="p.no" type="button" class="retro-xpin" :class="{ 'is-sel': infoNo === p.no }" :style="{ left: p.x + 'px', top: p.y + 'px' }" :aria-label="p.label" @click="toggleInfo(p.no); scrollToRow(p.no)">
           <i class="ic" :class="p.kind === 'lodging' ? 'i-home' : 'i-pin'" aria-hidden="true"></i>
-          <span v-if="p.name" class="retro-xpin__name">{{ p.name }}</span>
-        </span>
+          <span v-if="p.placeName" class="retro-xpin__name">{{ p.placeName }}</span>
+        </button>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
         <!-- 재생 중 사진 카드: 사진 찍은 시각을 지나면 점 위에 떠요. 누르면 크게 보기 -->
         <button
@@ -675,7 +719,7 @@ function toggleMapType() {
             <template v-for="(row, index) in timeline" :key="index">
               <!-- 장소 줄 -->
               <div v-if="row.type === 'place'" :id="'tl-row-' + row.no" class="retro-tl__place" :class="{ 'is-skipped': row.skipped, 'is-sel': infoNo === row.no, 'is-now': currentNo === row.no }"
-@click="toggleInfo(row.no); moveToPlace(row.no)">
+@click="toggleInfo(row.no); moveToPlace(row.no); focusPlace(row.no)">
                 <span class="retro-tl__num">{{ row.no }}</span>
                 <span class="retro-tl__body">
                   <b>{{ row.name }}</b>
@@ -693,7 +737,7 @@ function toggleMapType() {
                 <span v-if="row.skipped" class="retro-tl__tag">건너뜀</span>
               </div>
               <!-- 계획 없이 머문 곳 줄 (GPS로 찾음). 숙소로 보이는 곳이면 집 모양 -->
-              <div v-else-if="row.type === 'extra'" class="retro-tl__extra">
+              <div v-else-if="row.type === 'extra'" :id="'tl-row-' + row.no" class="retro-tl__extra" :class="{ 'is-sel': infoNo === row.no }" @click="toggleInfo(row.no); moveToMinutes(row.arrive); focusOn(row.lat, row.lng)">
                 <span class="retro-tl__icon"><span><i class="ic" :class="row.kind === 'lodging' ? 'i-home' : 'i-pin'" aria-hidden="true"></i></span></span>
                 <span class="retro-tl__body">
                   <!-- 이름을 찾았으면 이름, 못 찾았으면 "계획 없이 머문 곳" -->
@@ -752,6 +796,10 @@ function toggleMapType() {
 /* 계획 없이 머문 곳 핀: 계획 장소 핀(남색 숫자)과 구별되게 코랄 동그라미 + 아이콘 */
 .scr-Retro .retro-xpin{position:absolute;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:50%;background:var(--coral);border:2px solid #fff;box-shadow:0 2px 6px rgba(24,33,58,.35);display:flex;align-items:center;justify-content:center;color:#fff}
 .scr-Retro .retro-xpin .ic{width:13px;height:13px}
+.scr-Retro button.retro-xpin{padding:0;cursor:pointer;font:inherit;pointer-events:auto}
+.scr-Retro .retro-xpin.is-sel{transform:scale(1.25);box-shadow:0 0 0 4px rgba(232,93,63,.25),0 2px 6px rgba(24,33,58,.35)}
+.scr-Retro .retro-tl__extra{cursor:pointer;margin:0 -8px;padding:0 8px;border-radius:10px}
+.scr-Retro .retro-tl__extra.is-sel{background:var(--coral-soft,#FDECE8)}
 .scr-Retro .retro-xpin__name{position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;font-size:11px;font-weight:700;color:var(--ink);background:rgba(255,255,255,.92);padding:1px 6px;border-radius:6px}
 /* 정보 시트: 처음엔 지도 아래(340px)부터. 안쪽만 스크롤 (TripPage의 trip-sheet와 같은 모양) */
 .scr-Retro .retro-sheet{top:340px;padding:8px 0 0;gap:10px}
