@@ -381,6 +381,8 @@ function drawMap() {
   const firstStop = dayStops.value[0]
   const center = new kakao.maps.LatLng(firstStop.lat , firstStop.lng)
   const map = new kakao.maps.Map(mapBox.value, { center : center, level: MAP_LEVEL })
+  kakao.maps.event.addListener(map, 'bounds_changed', toScreenPoints) // addListener: 지도에 일이 생기면(bounds_changed = 끌기·확대로 보이는 범위가 바뀜) 뒤의 함수를 불러 줌
+
   selectedmap = map
   fitRoute(false) // 처음엔 펄쳐져 있음
 }
@@ -395,20 +397,7 @@ function fitRoute(isCollapsed) {// 시트가 펼쳐졌는지)false 내려갔는�
   bounds.extend(new kakao.maps.LatLng(place.lat , place.lng))
   map.setBounds(bounds,MAP_PADDING_TOP , MAP_PADDING_SIDE ,  paddingBottom , MAP_PADDING_SIDE) // 지도에 맞게 확대/축소 순서 : 위 , 왼쪽, 아래 , 오른쪽
 
-  const points = [] // 장소별 핀 정보를 담을 목록
-  for (const place of dayStops.value){
-    const latLng = new kakao.maps.LatLng(place.lat , place.lng)
-    const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
-    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
-  }
-  visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
-  const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
-  for (const gps of dayTrack.value) { // gps: 실제로 이동한 기록
-    const latLng = new kakao.maps.LatLng(gps.lat , gps.lng) // gps 좌표를 실제 좌표로 바꾸고 카카오 맵에 넣어줌
-    const point = map.getProjection().containerPointFromCoords(latLng) // 화면 좌푤 ㅗ마바꿔줌
-    trackList.push({ x: point.x , y : point.y , time : gps.time }) 
-  }
-trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음 포인트에
+toScreenPoints() 
 }
 
 
@@ -426,6 +415,25 @@ function watchSheet() {
     sheetWatcher.observe(sheet, { attributes: true, attributeFilter: ['class'] }) // class가 바뀔 때만 알려 달라고 함
 }
 
+// 핀·GPS 점의 화면 좌표(x, y)를 지금 지도 기준으로 다시 계산. 지도를 끌거나 확대할 때마다 불림
+function toScreenPoints() {
+  const map = selectedmap
+    const points = [] // 장소별 핀 정보를 담을 목록
+  for (const place of dayStops.value){
+    const latLng = new kakao.maps.LatLng(place.lat , place.lng)
+    const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
+    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
+  }
+  visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
+  const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
+  for (const gps of dayTrack.value) { // gps: 실제로 이동한 기록
+    const latLng = new kakao.maps.LatLng(gps.lat , gps.lng) // gps 좌표를 실제 좌표로 바꾸고 카카오 맵에 넣어줌
+    const point = map.getProjection().containerPointFromCoords(latLng) // 화면 좌푤 ㅗ마바꿔줌
+    trackList.push({ x: point.x , y : point.y , time : gps.time }) 
+    
+  }
+trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음 포인트에
+}
 
 
 
@@ -477,7 +485,8 @@ function toggleMapType() {
           <polyline :points="routePoints" fill="none" stroke="#1F3A68" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </div>
-      <div class="retro-map">
+      <!-- 핀·점·사진 카드 판: 판 자체는 누름을 지도로 흘려보내고(끌기·확대), 핀·카드만 눌림 -->
+      <div class="retro-map retro-layer">
         <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no); scrollToRow(v.no)">
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
@@ -623,6 +632,9 @@ function toggleMapType() {
 
 <style>
 .scr-Retro .retro-map{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden}
+/* 핀 판이 지도를 덮어도 끌기·확대가 지도로 가게: 판은 안 눌리고, 안의 핀·정보창·사진 카드만 눌림 */
+.scr-Retro .retro-layer{pointer-events:none}
+.scr-Retro .retro-layer .pin,.scr-Retro .retro-layer .payinfo,.scr-Retro .retro-layer .retro-float{pointer-events:auto}
 /* 정보 시트: 처음엔 지도 아래(340px)부터. 안쪽만 스크롤 (TripPage의 trip-sheet와 같은 모양) */
 .scr-Retro .retro-sheet{top:340px;padding:8px 0 0;gap:10px}
 .scr-Retro .retro-sheet__head{padding:0 16px}
