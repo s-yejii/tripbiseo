@@ -315,7 +315,7 @@ onMounted(() => {
   <div class="scr scr-PlanAI">
     <div class="app" :class="{ 'pa-app--kind': step.id === 'kind' }">
       <header class="topbar">
-        <button type="button" class="iconbtn" aria-label="이전" @click="goPrev"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn" aria-label="내 여행으로" @click="router.push('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <div class="pa-bar" role="progressbar" :aria-valuenow="store.planStep + 1" aria-valuemin="1" :aria-valuemax="STEPS.length"><span :style="{ width: progress }"></span></div>
         <span class="topbar__side tn">{{ store.planStep + 1 }} / {{ STEPS.length }}</span>
       </header>
