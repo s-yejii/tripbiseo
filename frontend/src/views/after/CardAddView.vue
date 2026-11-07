@@ -73,7 +73,7 @@ function connect() {
 
       <div class="scroll" style="padding-top: 8px; gap: 18px; bottom: 102px">
         <p class="t-cap ca-note">
-          <i class="ic ic--s i-info c-navy" aria-hidden="true"></i>카드사에 연결하면 여행 기간에 쓴 카드 결제를 가져와 그 장소 핀에 붙여요. 결제는 하지 않아요.
+          <i class="ic ic--s i-info c-navy" aria-hidden="true"></i>카드사에 연결하면 여행 기간에 쓴 카드 결제 내역을 가져와 회고에서 장소별로 볼 수 있습니다.
         </p>
 
         <!-- 카드사 고르기 -->
@@ -91,7 +91,7 @@ function connect() {
         <div class="field">
           <label class="field__label" for="ca-pw">비밀번호</label>
           <div class="field__box"><input id="ca-pw" v-model="password" type="password" placeholder="카드사 홈페이지 비밀번호" autocomplete="off" /></div>
-          <p class="field__help ca-lock"><i class="ic ic--s i-lock" aria-hidden="true"></i>저장하지 않아요. 암호화해서 카드사 조회에만 써요</p>
+          <p class="field__help ca-lock"><i class="ic ic--s i-lock" aria-hidden="true"></i>아이디·비밀번호는 저장하지 않으며 암호화하여 카드 결제 내역 조회에만 사용합니다.</p>
         </div>
 
         <!-- 현대·KB·하나만: 카드 번호 + 카드 비밀번호 -->
@@ -111,8 +111,9 @@ function connect() {
         <button type="button" class="ca-agree" role="checkbox" :aria-checked="agreed" @click="agreed = !agreed">
           <span class="check" :class="{ 'is-on': agreed }"><i class="ic ic--s i-check" aria-hidden="true"></i></span>
           <span style="display: flex; flex-direction: column; gap: 2px">
-            <span class="t-strong" style="font-size: 14px">[필수] 카드 승인내역을 여행 기록에 쓰는 데 동의</span>
-            <span class="t-cap">여행 기간의 결제 시각·가맹점·금액만 가져와요</span>
+            <span class="t-strong" style="font-size: 14px">[필수] 카드 결제 내역 정보 조회 동의</span>
+            <span class="t-cap">대상: 여행 기간의 결제 일시, 가맹점 이름·주소·업종, 이용 금액, 승인번호, 취소 여부</span>
+            <span class="t-cap">가져온 결제 중 회고에 담은 것만 저장하고, 카드 번호 전체는 저장하지 않습니다.</span>
           </span>
         </button>
       </div>
