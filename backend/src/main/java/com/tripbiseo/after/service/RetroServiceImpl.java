@@ -8,8 +8,10 @@ import com.tripbiseo.after.dto.RetroStop;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.TrackPoint;
 import com.tripbiseo.live.service.TrackService;
+import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.dto.Trip;
+import com.tripbiseo.trip.service.PlaceService;
 import com.tripbiseo.trip.service.TripService;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -26,9 +28,13 @@ public class RetroServiceImpl implements RetroService {
     private static final int STAY_MIN_MINUTES = 15;     // 이만큼 넘게 있으면 "머묾" (신호·버스 대기는 보통 10분 안)
     private static final int PLAN_RADIUS_M = 150;       // 계획 장소와 이 안이면 계획 장소에 있던 것 (④ 도착 반경과 같음)
     private static final int MINUTES_PER_DAY = 24 * 60; // 하루 = 1440분. 떠난 시각이 이걸 넘으면 자정을 넘겨 머문 것(숙소)
+    private static final int NAME_RADIUS_M = 80;        // 머문 자리에서 이 안의 가장 가까운 장소 이름을 붙임 (없으면 이름 없이)
+    private static final int LODGING_NAME_RADIUS_M = 150; // 숙소로 보이는 곳은 숙박(STAY)만, 조금 더 넓게 찾음 (건물이 커서)
+    private static final int MERGE_GAP_MINUTES = 30;    // 같은 이름 조각 사이가 이 안이면 한 곳으로 합침 (넓은 곳 안을 걸어 다닌 것)
 
     private final TripService tripService;
     private final TrackService trackService;
+    private final PlaceService placeService; // ② 장소: 머문 곳 근처 장소 이름 찾기 (getNearbyPlaceList, 11/07)
 
     /** 회고: 계획 vs 실제 + GPS 선 */
 
@@ -50,12 +56,13 @@ public class RetroServiceImpl implements RetroService {
             response.getStops().add(toRetroStop(stop));
            
         }
-        
         response.setVisited(visited); // 
         List<TrackPoint> track = trackService.getTrackList(tripId); // gps 점 기록 
         response.setTrack(track);
         response.setMovedMeters(sumMovedMeters(track));
-        response.setExtraStops(findExtraStops(track, response.getStops())); // 계획 없이 머문 곳 (GPS로 찾음). 실제 도착·머문 분이 계산된 회고 칸을 넘김
+        List<ExtraStop> extras = findExtraStops(track, response.getStops()); // 계획 없이 머문 곳 (GPS로 찾음). 실제 도착·머문 분이 계산된 회고 칸을 넘김
+        fillNames(extras);                                // 근처 장소 이름 붙이기 (② PlaceService)
+        response.setExtraStops(mergeSameName(extras));    // 붙어 있는 같은 이름 조각은 하나로 (넓은 곳)
         return response;
     }
 
@@ -73,7 +80,12 @@ public class RetroServiceImpl implements RetroService {
 
     // GPS 점 시각을 "여행 첫날 0시부터 몇 분"으로. 예: 2일차 09:30 → 1440 + 570 = 2010
     private static int toTripMinutes(TrackPoint point) {
-        return (point.getDay() - 1) * MINUTES_PER_DAY + Geo.toMinutes(point.getTime());
+        return toTripMinutes(point.getDay(), point.getTime());
+    }
+
+    // 몇째 날 + HH:mm → "여행 첫날 0시부터 몇 분" (머문 곳 합치기에서도 씀)
+    private static int toTripMinutes(int day, String time) {
+        return (day - 1) * MINUTES_PER_DAY + Geo.toMinutes(time);
     }
 
     // GPS 점을 앞에서부터 "한 자리" 덩어리로 묶어, 오래 머문 곳 중 계획에 없던 곳만 담음
@@ -143,6 +155,47 @@ public class RetroServiceImpl implements RetroService {
             if (arrive <= minutes && minutes < leave) return true; // 도착 ≤ 그 시각 < 떠남
         }
         return false; // 그 시각에 있던 계획 장소가 없음
+    }
+
+    // 머문 곳마다 근처 장소 이름을 붙임. 숙소로 보이는 곳은 숙박(STAY)만 찾음. 못 찾으면 이름 없이 둠
+    private void fillNames(List<ExtraStop> extras) {
+        for (ExtraStop extra : extras) {
+            List<Place> places; // 반경 안 장소, 가까운 순
+            if ("lodging".equals(extra.getKind())) {
+                places = placeService.getNearbyPlaceList(extra.getLat(), extra.getLng(), LODGING_NAME_RADIUS_M, "STAY");
+            } else {
+                places = placeService.getNearbyPlaceList(extra.getLat(), extra.getLng(), NAME_RADIUS_M, null);
+            }
+            if (!places.isEmpty()) extra.setName(places.get(0).getName()); // 하나라도 찾았으면 가장 가까운 곳 이름
+        }
+    }
+
+    // 붙어 있는 머문 곳이 같은 이름이면 하나로 합침 (넓은 곳에 계획 없이 가서 여러 조각으로 잡힌 것)
+    // 예: 창덕궁 10:12 (23분) + 창덕궁 10:44 (36분) → 창덕궁 10:12 (68분)
+    private static List<ExtraStop> mergeSameName(List<ExtraStop> extras) {
+        List<ExtraStop> result = new ArrayList<>();
+        for (ExtraStop extra : extras) {
+            ExtraStop last = null; // 바로 앞에 담은 머문 곳
+            if (!result.isEmpty()) last = result.get(result.size() - 1);
+            if (isSamePlace(last, extra)) {
+                int lastArrive = toTripMinutes(last.getDay(), last.getArrive());
+                int extraLeave = toTripMinutes(extra.getDay(), extra.getArrive()) + extra.getStay();
+                last.setStay(extraLeave - lastArrive); // 앞 조각 도착 ~ 뒤 조각 떠남
+            } else {
+                result.add(extra);
+            }
+        }
+        return result;
+    }
+
+    // 두 머문 곳이 "같은 곳의 조각"인가: 이름·종류가 같고, 앞 조각을 떠나고 30분 안에 뒤 조각이 시작
+    private static boolean isSamePlace(ExtraStop last, ExtraStop extra) {
+        if (last == null || last.getName() == null) return false; // 이름을 모르면 합칠 수 없음
+        if (!last.getName().equals(extra.getName())) return false;
+        if (!last.getKind().equals(extra.getKind())) return false;
+        int lastLeave = toTripMinutes(last.getDay(), last.getArrive()) + last.getStay();
+        int extraArrive = toTripMinutes(extra.getDay(), extra.getArrive());
+        return extraArrive - lastLeave <= MERGE_GAP_MINUTES;
     }
 
     private static RetroStop toRetroStop(Stop stop) {
