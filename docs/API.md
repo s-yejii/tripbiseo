@@ -130,12 +130,12 @@
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
-| `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동). 누가 냈는지(나눠 내기)는 아직 | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
+| `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동, 낸 사람 `payer`) | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
 | `PUT /api/trips/{id}/payments/{paymentId}/payer` | 결제의 낸 사람 바꾸기 (정산용) | after/RetroView | 있음 (11/07) |
 | `DELETE /api/trips/{id}/payments/{paymentId}` | 결제 하나 지우기 | after/RetroView | 있음 (11/07) |
 | `PUT /api/trips/{id}/companions/{companionId}/share` | 더치페이 낼 돈 직접 정하기 (null이면 자동) | after/RetroView | 있음 (11/07) |
 | `GET·POST /api/trips/{id}/companions`, `PUT·DELETE /api/trips/{id}/companions/{companionId}` | 같이 간 사람 목록·추가·이름 바꾸기·빼기 (정산의 낸 사람) | after/RetroView | 있음 (11/07) |
-| `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (지금은 다녀온 곳으로 만든 목업, 나중에 CODEF) | after/RetroView | 있음 (11/07) |
+| `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (CODEF 연결, 샌드박스·키 없음이면 다녀온 곳으로 만든 목업) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
 | `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
 | `GET /api/trips/{id}/photos` | 한 여행의 사진·영상 전체 (찍은 순) | after/RetroView, after/AlbumView(더보기) | 있음 (11/06) |
@@ -1373,9 +1373,9 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | extraStops[] | object[] | 계획 없이 머문 곳 (11/07 추가). GPS로 찾음, 없으면 `[]`. `{day, name, lat, lng, arrive, stay, kind}` |
 | extraStops[].arrive, stay | string, number | 온 시각 `HH:mm`, 머문 분 |
 | extraStops[].kind | string | `visit`(들른 곳) / `lodging`(숙소로 보이는 곳: 자정을 넘겨 머묾) |
-| extraStops[].name | string (null 가능) | 장소 이름. 아직 안 채움(항상 `null`) |
+| extraStops[].name | string (null 가능) | 근처 장소 이름 (② `getNearbyPlaceList`): 들른 곳은 80m 안 가장 가까운 곳, 숙소로 보이는 곳은 150m 안 숙박(STAY). 못 찾으면 `null` |
 
-> 머문 곳 찾기 (11/07): GPS 점을 앞에서부터, 덩어리 첫 점에서 **100m** 안에 연달아 있는 점끼리 묶어요. 머문 분 = 덩어리를 벗어난 첫 점 시각 − 첫 점 시각 (날짜까지 넣어 계산해서 밤을 넘겨도 맞음). **15분** 이상이고, 같은 날 계획 장소에서 **150m** 밖이고, 그 시각에 같은 날 계획 장소의 실제 도착 ~ 떠남 기록 안이 아니면 머문 곳이에요. 마지막 덩어리는 끝을 몰라서 빼요. 넓은 곳(궁궐·공원)에 계획 없이 가면 여러 조각으로 나올 수 있어요 → 이름을 붙일 때 같은 이름끼리 합칠 예정.
+> 머문 곳 찾기 (11/07): GPS 점을 앞에서부터, 덩어리 첫 점에서 **100m** 안에 연달아 있는 점끼리 묶어요. 머문 분 = 덩어리를 벗어난 첫 점 시각 − 첫 점 시각 (날짜까지 넣어 계산해서 밤을 넘겨도 맞음). **15분** 이상이고, 같은 날 계획 장소에서 **150m** 밖이고, 그 시각에 같은 날 계획 장소의 실제 도착 ~ 떠남 기록 안이 아니면 머문 곳이에요. 마지막 덩어리는 끝을 몰라서 빼요. 넓은 곳(궁궐·공원)에 계획 없이 가면 여러 조각으로 나올 수 있어서, 이름을 붙인 뒤 바로 앞 조각과 이름·종류가 같고 30분 안에 이어지면 하나로 합쳐요.
 
 ```json
 { "id": 12, "title": "서울 하루", "startDate": "2026-10-20", "endDate": "2026-10-20", "visited": 1,
