@@ -13,6 +13,9 @@
 | `db/02_retrip_schema.sql` | 예전 결제·테마 `retrip_expense`, `retrip_theme` (+ FK 때문에 `retrip_trip`) | DB 총괄 |
 | `db/03~05_…` | 장소·리뷰 데이터 넣기 (04·05는 고치지 않음) | DB 총괄 |
 | `db/06_retrip_seed_tour_seoul.sql` | 서울 관광지·문화시설·쇼핑 (TourAPI, `source='tour'`). `db/tour/make_tour_seed.mjs`로 만들어요 (11/03) | DB 총괄 |
+| `db/08_retrip_cleanup.sql` | 여행 갈 곳이 아닌 관광공사 장소 22곳 지우기 (동상·기념비·어린이공원·~터, KBS온·국회의사당, 가게·방탈출·끝난 행사) + 편의시설 값을 네이버 표준 18개만 남기기. 06 다음에 실행 (11/06) | DB 총괄 |
+| `db/09_retrip_seed_yeongdeungpo.sql` | 시연 경로(문래·영등포·여의도) 주변 쇼핑 5·들를 곳 4·숙소 5곳(호텔 4, 비즈니스호텔 1) (`source='demo'`, 좌표 OpenStreetMap). 08 다음에 실행 (11/06) | DB 총괄 |
+| `db/10_retrip_update_demo_places.sql` | 시연 장소 평점·영업시간·소개를 네이버 지도 화면대로 고치기. 09 다음에 실행 (11/06) | DB 총괄 |
 | `db/11_member.sql` | ① 테이블 | ① |
 | `db/12_trip.sql` | ② 테이블 (`trip_chat`) | ② |
 | `db/13_plan.sql` | ③ 테이블 | ③ |
