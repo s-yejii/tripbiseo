@@ -353,6 +353,7 @@ onMounted(async () => {
   }
   loadPhotos()
   loadPayments()
+  loadCompanions()
 })
 
 // ============================== 사진 (11/06)
@@ -497,13 +498,55 @@ async function importCards() {
 }
 
 // ============================== 정산 (11/07): 결제마다 낸 사람 → 여행 전체를 인원으로 나눠 누가 누구에게 얼마
-// 낸 사람 이름 목록. 인원 3명이면 ['나', '동행 1', '동행 2']
+// 같이 간 사람 (GET /api/trips/{id}/companions). 처음 열면 서버가 여행 인원만큼 '나', '동행 1' … 을 만들어 줌
+const companions = ref([])        // [{ id, name, friendMemberId, sortNo }] sortNo 0이 '나'
+const companionEdit = ref(null)   // 이름 칸을 연 상태 { id, name }. id가 null이면 새로 추가. null이면 닫힘
+const savingCompanion = ref(false)
+
+async function loadCompanions() {
+  try {
+    companions.value = await get('/trips/' + route.query.id + '/companions')
+  } catch {
+    companions.value = []
+  }
+}
+
+// 낸 사람 이름 목록. 예: ['나', '지은', '엄마']. 못 불러왔으면 ['나']
 const payerNames = computed(() => {
-  const names = ['나']
-  const people = retro.value === null || !retro.value.people ? 1 : retro.value.people
-  for (let i = 1; i < people; i++) names.push('동행 ' + i)
+  const names = []
+  for (const companion of companions.value) names.push(companion.name)
+  if (names.length === 0) names.push('나')
   return names
 })
+
+// [+ 추가] → 빈 이름 칸 열기
+function startAddCompanion() {
+  companionEdit.value = { id: null, name: '' }
+}
+
+// 사람 칩 누르기 → 그 이름으로 칸 열기 ('나'는 못 바꿈)
+function startRenameCompanion(companion) {
+  if (companion.sortNo === 0) return
+  companionEdit.value = { id: companion.id, name: companion.name }
+}
+
+// 저장: 새로면 POST, 있던 사람이면 PUT. 이름이 바뀌면 그 사람이 낸 결제 이름도 서버가 같이 바꿔서 결제를 다시 불러옴
+async function saveCompanion() {
+  const edit = companionEdit.value
+  savingCompanion.value = true
+  try {
+    if (edit.id === null) {
+      companions.value = await post('/trips/' + route.query.id + '/companions', { name: edit.name })
+    } else {
+      companions.value = await put('/trips/' + route.query.id + '/companions/' + edit.id, { name: edit.name })
+      await loadPayments()
+    }
+    companionEdit.value = null
+  } catch (e) {
+    showToast(e.message)
+  }
+  savingCompanion.value = false
+}
 
 // 낸 사람 칩을 누르면 다음 사람으로 (나 → 동행 1 → 동행 2 → 나 …) 바꾸고 서버에 저장
 async function cyclePayer(payment) {
@@ -955,6 +998,24 @@ function toggleMapType() {
           </ul>
           <p v-if="dayPayments.length > 0" class="retro-paytotal"><span>이 날 합계</span><b class="tn">{{ toWon(dayPaymentTotal) }}</b></p>
 
+          <!-- 같이 간 사람: 칩을 누르면 이름 바꾸기('나' 빼고), [+ 추가]. 친구 기능(①)이 생기면 친구에서 고르기 -->
+          <div class="retro-people">
+            <p class="retro-people__title"><b>같이 간 사람</b><span class="t-cap">{{ payerNames.length }}명</span></p>
+            <div class="retro-people__chips">
+              <button v-for="companion in companions" :key="companion.id" type="button" class="chip chip--sm" :class="{ 'is-on': companion.sortNo === 0 }" :aria-label="companion.sortNo === 0 ? '나' : companion.name + ' 이름 바꾸기'" @click="startRenameCompanion(companion)">
+                {{ companion.name }}<i v-if="companion.sortNo !== 0" class="ic ic--s i-edit" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="chip chip--sm" @click="startAddCompanion"><i class="ic ic--s i-plus" aria-hidden="true"></i>추가</button>
+              <button type="button" class="chip chip--sm" disabled title="친구 기능이 생기면 열려요"><i class="ic ic--s i-users" aria-hidden="true"></i>친구에서 고르기</button>
+            </div>
+            <!-- 이름 칸 (추가·바꾸기 같이 씀) -->
+            <form v-if="companionEdit" class="retro-people__edit" @submit.prevent="saveCompanion">
+              <input v-model="companionEdit.name" type="text" maxlength="20" :placeholder="companionEdit.id === null ? '같이 간 사람 이름' : '바꿀 이름'" aria-label="이름" />
+              <button type="submit" class="btn btn--primary btn--sm" :disabled="savingCompanion || !companionEdit.name.trim()">{{ companionEdit.id === null ? '추가' : '바꾸기' }}</button>
+              <button type="button" class="btn btn--secondary btn--sm" @click="companionEdit = null">취소</button>
+            </form>
+          </div>
+
           <!-- 정산: 여행 전체 (날짜 버튼과 상관없이) -->
           <div v-if="settlement" class="retro-settle">
             <p class="retro-settle__title"><b>여행 전체 정산</b><span class="t-cap tn">{{ payerNames.length }}명 · 합계 {{ toWon(settlement.total) }} · 1인당 {{ toWon(settlement.share) }}</span></p>
@@ -965,7 +1026,7 @@ function toggleMapType() {
               <i class="ic ic--s i-send" aria-hidden="true"></i>{{ transfer.from }} → {{ transfer.to }} <b>{{ toWon(transfer.amount) }}</b>
             </p>
             <p v-if="settlement.transfers.length === 0" class="retro-settle__send">모두 똑같이 냈어요</p>
-            <p class="t-cap">결제 줄의 사람 칩을 누르면 낸 사람이 바뀌어요</p>
+            <p class="t-cap">결제 줄의 사람 칩을 누르면 낸 사람이 바뀌어요 (나 → 지은 → … 순서)</p>
           </div>
         </section>
         </div>
@@ -1061,6 +1122,14 @@ function toggleMapType() {
 .scr-Retro .retro-paylist__body b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .scr-Retro .retro-paytotal{display:flex;justify-content:space-between;margin:10px 0 0;font-size:15px}
 .scr-Retro .retro-payer{flex:none;min-width:52px;justify-content:center}
+/* 같이 간 사람 */
+.scr-Retro .retro-people{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.scr-Retro .retro-people__title{display:flex;align-items:baseline;gap:8px;margin:0}
+.scr-Retro .retro-people__chips{display:flex;flex-wrap:wrap;gap:6px}
+.scr-Retro .retro-people__chips .ic{width:14px;height:14px}
+.scr-Retro .retro-people__chips button:disabled{opacity:.45;cursor:default}
+.scr-Retro .retro-people__edit{display:flex;gap:6px;align-items:center}
+.scr-Retro .retro-people__edit input{flex:1;min-width:0;height:36px;border:1px solid var(--line-strong);border-radius:10px;padding:0 10px;font:inherit;font-size:14px}
 /* 정산 */
 .scr-Retro .retro-settle{margin-top:14px;padding:12px;border-radius:12px;background:var(--navy-soft);display:flex;flex-direction:column;gap:6px}
 .scr-Retro .retro-settle__title{display:flex;flex-direction:column;margin:0}
