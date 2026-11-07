@@ -108,6 +108,22 @@ function pickMode(i, mode) {
   openLeg.value = null
   if (mode !== props.stops[i].leg.mode) emit('change-mode', i, mode)
 }
+
+const REVIEW_PART = /^리뷰 \d+개/ // 정규식: "리뷰 + 숫자 + 개"로 시작하는 조각을 찾음 (숫자가 매번 달라서 글자 비교로는 못 찾음)
+
+// 메모에서 리뷰 근거("분위기 좋아요 · 리뷰 10개 중 6개")를 빼고 남은 글. 남는 게 없으면 ''
+function memoText(memo) {
+  if (!memo) return ''
+  const kept = []
+  for (const part of memo.split(' · ')) {
+    if (REVIEW_PART.test(part)) {
+      kept.pop() // 바로 앞 조각이 태그 이름이라 같이 뺌
+    } else {
+      kept.push(part)
+    }
+  }
+  return kept.join(' · ')
+}
 </script>
 
 <template>
@@ -152,7 +168,7 @@ function pickMode(i, mode) {
             <span class="stop__body">
               <span class="stop__name"><small v-if="stop.isAi" class="stop__ai">AI</small>{{ stop.name }}</span>
               <span class="stop__meta" :class="stop.metaCls"><i v-if="stop.metaIcon" class="ic ic--s" :class="stop.metaIcon" aria-hidden="true"></i>{{ stop.meta }}</span>
-              <span v-if="stop.memo" class="stop__memo">{{ stop.memo }}</span>
+              <span v-if="memoText(stop.memo)" class="stop__memo">{{ memoText(stop.memo) }}</span>
             </span>
             <span class="stop__side">
               <small v-if="stop.costText" class="stop__cost tn">{{ stop.costText }}</small>
