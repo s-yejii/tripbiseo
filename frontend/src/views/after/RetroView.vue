@@ -842,6 +842,7 @@ function focusPlace(no) {
 // 좌표를 지도의 "보이는 칸" 가운데로. 지도 진짜 가운데(844 / 2 = 422)는 시트에 가려서, 마커가 보이는 칸 가운데에 오게 가운데 점을 아래로 내림
 function focusOn(lat, lng) {
   if (selectedmap === null) return
+  if (lat === null || lng === null) return // 좌표 없는 칸(직접 입력)은 옮길 곳이 없음
   const map = selectedmap
   if (map.getLevel() > FOCUS_LEVEL) map.setLevel(FOCUS_LEVEL) // setLevel: 확대 단계 바꾸기
   let targetY = VISIBLE_CENTER_Y_OPEN
