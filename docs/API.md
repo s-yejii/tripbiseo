@@ -130,7 +130,8 @@
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
-| `GET·POST /api/trips/{id}/payments` | 장소 핀에 결제 금액·누가 냈는지 적기 | after/PayMemoView, member/LockPayView | 확인 필요 |
+| `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동). 누가 냈는지(나눠 내기)는 아직 | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
+| `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (지금은 다녀온 곳으로 만든 목업, 나중에 CODEF) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
 | `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
 | `GET /api/trips/{id}/photos` | 한 여행의 사진·영상 전체 (찍은 순) | after/RetroView, after/AlbumView(더보기) | 있음 (11/06) |
@@ -1280,6 +1281,37 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 > 도보 TMAP 보행자, 택시 TMAP 자동차(예상 택시비), 버스·지하철은 TMAP 대중교통(상품 신청 필요) → 실패하면 ODsay. 버스는 버스만 타는 경로, 지하철은 지하철이 들어간 경로를 골라요. 같은 요청은 1분 동안 다시 부르지 않아요.
 
 **오류** 400 "출발·도착 좌표가 필요해요." · 400 "이동 수단은 walk·bus·subway·car 중 하나예요."
+
+### `GET /api/trips/{id}/payments`
+한 여행의 결제 내역, 결제 순. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{id, stopId, day, paidAt, storeName, amount, method, source, memo}]`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| stopId | number (null 가능) | 결제 시각에 실제로 있던 일정 칸 (실제 도착 ≤ 결제 < 떠남). `null`이면 이동 중·계획 밖 |
+| day | number | 결제 날짜 − 시작 날짜 + 1 |
+| paidAt | string | `HH:mm` |
+| method | string | `card` / `cash` |
+| source | string | `manual`(직접 입력) / `card`(카드 내역 가져옴) / `capture`(나중에) |
+
+**오류** 404 "여행을 찾을 수 없어요." (남의 여행 포함)
+
+### `POST /api/trips/{id}/payments`
+결제 하나 저장. 일정 칸(`stopId`)은 서버가 결제 시각으로 붙여요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{paidAt: "2026-11-04T11:35", storeName, amount, method?, source?, memo?}` — `method` 없거나 모르는 값이면 `card`, `source` 없거나 모르는 값이면 `manual`
+
+**응답** 저장한 결제 하나 (위 목록과 같은 모양)
+
+**오류** 400 "가게 이름을 적어 주세요." · 400 "가게 이름은 100자까지예요." · 400 "금액은 1원 이상이에요." · 400 "메모는 200자까지예요." · 400 "결제 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 400 "여행 기간 안의 결제만 넣을 수 있어요." · 404 "여행을 찾을 수 없어요."
+
+### `GET /api/trips/{id}/card-transactions`
+카드 승인내역. **지금은 목업**: 실제로 다녀온 곳마다 (도착 + 20분, 분류로 정한 금액), 계획 없이 머문 곳마다 (도착 + 20분, 9,800원), 숙소로 보이는 곳은 (도착 + 5분, 89,000원). 나중에 CODEF 카드 승인내역으로 바꿀 자리(사업자 없이 샌드박스만 가능, 11/07 조사). · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{approvalDate: "20261104", approvalTime: "113500", paidAt: "2026-11-04T11:35", day, storeName, amount, imported}]` 결제 시각 순. `approvalDate`·`approvalTime`은 CODEF 모양, `paidAt`은 가져올 때 POST에 그대로 씀. `imported`: 같은 날·시각·가게·금액이 이미 결제 내역에 있으면 `true`
+
+**오류** 404 "여행을 찾을 수 없어요."
 
 ### `GET /api/trips/{id}/retro`
 회고: 계획과 실제를 비교하고 GPS 선을 줘요. · 로그인 필요 · 화면: after/RetroView

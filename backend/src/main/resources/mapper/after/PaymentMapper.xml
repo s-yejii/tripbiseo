@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ⑤ 결제 내역 (payment). PaymentMapper.java의 메서드 이름과 id가 같아야 이어져요 -->
+<mapper namespace="com.tripbiseo.after.mapper.PaymentMapper">
+
+  <!-- 화면에 보낼 모양: day = 결제 날짜 − 여행 시작 날짜 + 1, paidAt = HH:mm -->
+  <sql id="paymentColumns">
+    p.payment_id AS id, p.stop_id, (p.paid_at::date - t.start_date + 1) AS day,
+    to_char(p.paid_at, 'HH24:MI') AS paid_at, p.store_name, p.amount, p.method, p.source, p.memo
+  </sql>
+
+  <!-- 결제 한 줄 저장. paidAt은 글자("2026-11-04T11:35")라서 ::timestamp로 바꿔 넣어요.
+       useGeneratedKeys: 저장하면서 DB가 만든 payment_id를 payment.paymentId에 넣어 줌 -->
+  <insert id="insertPayment" useGeneratedKeys="true" keyProperty="paymentId" keyColumn="payment_id">
+    INSERT INTO payment (trip_id, stop_id, paid_at, store_name, amount, method, source, memo)
+    VALUES (#{tripId}, #{stopId}, #{paidAt}::timestamp, #{storeName}, #{amount}, #{method}, #{source}, #{memo})
+  </insert>
+
+  <!-- 한 여행의 결제 내역, 결제 순 -->
+  <select id="selectPaymentList" resultType="com.tripbiseo.after.dto.PaymentResponse">
+    SELECT <include refid="paymentColumns"/>
+    FROM payment p
+    JOIN trip t ON t.trip_id = p.trip_id
+    WHERE p.trip_id = #{tripId}
+    ORDER BY p.paid_at, p.payment_id
+  </select>
+
+  <!-- 결제 하나 -->
+  <select id="selectPayment" resultType="com.tripbiseo.after.dto.PaymentResponse">
+    SELECT <include refid="paymentColumns"/>
+    FROM payment p
+    JOIN trip t ON t.trip_id = p.trip_id
+    WHERE p.payment_id = #{paymentId}
+  </select>
+</mapper>
