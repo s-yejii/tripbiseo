@@ -45,6 +45,8 @@ const FOCUS_RADIUS_M = 400 // 칸을 고르면 핀에서 이만큼(m)까지의 �
 const hasCoords = computed(() => props.trip.stops.length > 0 && props.trip.stops.every((stop) => stop.lat != null && stop.lng != null))
 const isKakao = computed(() => hasCoords.value && useRealMap.value)
 
+// 지도를 다시 맞출 때를 알리는 값: 그날 장소 목록이 바뀌면(일차 바꾸기·장소 넣고 빼기) 달라짐. 정렬해서 순서만 바꿀 땐 그대로
+const mapFitKey = computed(() => props.trip.stops.map((stop) => String(stop.id)).sort().join('|'))
 const mapPins = computed(() => props.trip.stops.map((stop, i) => ({
   key: i,
   index: i,
@@ -204,7 +206,7 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
