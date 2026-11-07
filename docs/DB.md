@@ -49,7 +49,7 @@
 | ③ | `theme`, `theme_stop` | 테마 코스 | ② 읽기 | 만들 예정 |
 | ③ | `vector_store` | RAG 임베딩 (768차원) | | 만들 예정 (여유) |
 | ④ | `trip_track` | GPS 기록 | ⑤① 읽기 | 있음 |
-| ⑤ | `payment` | 결제 메모 | | 만들 예정 |
+| ⑤ | `payment` | 결제 내역 (직접 입력·카드 내역) | | 있음 (11/07) |
 | ⑤ | `card` | 결제 카드 | | 만들 예정 |
 | ⑤ | `photo` | 사진·영상 (앨범·회고) | | 있음 (11/06) |
 | ⑤ | `extra_visit` | 일정에 없던 곳 "들렀어요" | | 만들 예정 (여유) |
@@ -239,3 +239,20 @@
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 올린 시각 |
 
 인덱스 `idx_photo_trip (trip_id, taken_at)`. 파일 자체는 DB에 넣지 않고 서버 폴더에 둬요.
+
+### payment · 결제 내역 (⑤, `15_after.sql`, 11/07, 이상재 확인)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| payment_id | BIGSERIAL PK | |
+| trip_id | BIGINT NOT NULL → trip (ON DELETE CASCADE) | 여행 |
+| stop_id | BIGINT → trip_stop (ON DELETE SET NULL) | 결제 시각에 있던 일정 칸 (실제 도착 ~ 떠남). NULL이면 이동 중·계획 밖 |
+| paid_at | TIMESTAMP NOT NULL | 결제 시각 |
+| store_name | VARCHAR(100) NOT NULL | 가게 이름 |
+| amount | INT NOT NULL CHECK (amount > 0) | 금액(원) |
+| method | VARCHAR(10) NOT NULL DEFAULT 'card' | card / cash |
+| source | VARCHAR(10) NOT NULL DEFAULT 'manual' | manual(직접 입력) / card(카드 내역 가져옴) / capture(결제 캡처, 나중에) |
+| memo | VARCHAR(200) | 메모 |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 저장 시각 |
+
+인덱스 `idx_payment_trip (trip_id, paid_at)`. `card`(카드 등록)는 아직 안 만듦.

@@ -17,3 +17,21 @@ CREATE TABLE IF NOT EXISTS photo (
 );
 
 CREATE INDEX IF NOT EXISTS idx_photo_trip ON photo (trip_id, taken_at);
+
+-- ---------------------------------------------------------------- payment · 결제 내역 (11/07 박석진, DB 총괄 이상재 확인)
+--  stop_id는 결제 시각에 있던 일정 칸(실제 도착 ~ 떠남)으로 서버가 붙여요. NULL이면 이동 중·계획 밖
+--  source: manual(직접 입력) / card(카드 내역 가져옴, 지금은 목업 → CODEF) / capture(결제 캡처, 나중에)
+CREATE TABLE IF NOT EXISTS payment (
+  payment_id  BIGSERIAL PRIMARY KEY,
+  trip_id     BIGINT NOT NULL REFERENCES trip(trip_id) ON DELETE CASCADE,
+  stop_id     BIGINT REFERENCES trip_stop(stop_id) ON DELETE SET NULL,
+  paid_at     TIMESTAMP NOT NULL,
+  store_name  VARCHAR(100) NOT NULL,
+  amount      INT NOT NULL CHECK (amount > 0),
+  method      VARCHAR(10) NOT NULL DEFAULT 'card',
+  source      VARCHAR(10) NOT NULL DEFAULT 'manual',
+  memo        VARCHAR(200),
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_trip ON payment (trip_id, paid_at);
