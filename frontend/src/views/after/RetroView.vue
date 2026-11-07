@@ -3,7 +3,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { get } from '@/api/http'
-import { toTime, toMinutes } from '@/utils/time'
+import { toTime, toMinutes, toDuration } from '@/utils/time'
 import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
 import BottomSheet from '@/components/common/BottomSheet.vue' // 끌어서 내리고 올리는 아래 시트 (다른 화면과 같은 것)
 import PhotoViewer from '@/components/after/PhotoViewer.vue' // 사진 크게 보기 (앨범과 같은 것)
@@ -215,13 +215,15 @@ const timeline = computed(() => {
   if (retro.value === null) return rows
 
   const stops = dayStops.value
+  // 첫 장소에 오기 전에 머문 곳 (예: 아침 카페)은 맨 앞에
+  for (const extra of extrasBetween(0, firstArriveMinutes(stops))) rows.push(toExtraRow(extra))
+
   let lastVisited  = null // 바로 앞에 실제로 간 장소, 건너 뛴 곳은 지나치고 이걸로 이동 줄을 이음
   for(let i = 0; i < stops.length; i++) {
     // 실제로 간 곳이면: 앞에 간 곳 → 여기 이동 줄을 먼저 넣고, 이제 여기가 "바로 앞에 간 곳"
     if(stops[i].actualArrive !== null) {
       if(lastVisited !== null) {
-        const move = toMoveRow(lastVisited, stops[i])
-        if (move !== null) rows.push(move)
+        pushMoveWithExtras(rows, lastVisited, stops[i]) // 이동 줄. 사이에 머문 곳이 있으면 잘라서 끼워 넣음
       }
       lastVisited = stops[i];
     }
@@ -235,15 +237,88 @@ const timeline = computed(() => {
     })
   }
 
+  // 마지막 장소를 떠난 뒤에 머문 곳 (예: 숙소로 보이는 곳)은 맨 뒤에
+  if (lastVisited !== null && lastVisited.actualStay !== null) {
+    const lastLeave = toMinutes(lastVisited.actualArrive) + lastVisited.actualStay
+    for (const extra of extrasBetween(lastLeave, MINUTES_PER_DAY)) rows.push(toExtraRow(extra))
+  }
   return rows
 })
+
+// ============================== 계획 없이 머문 곳 (11/07, 서버가 GPS로 찾아 extraStops로 줌)
+const MINUTES_PER_DAY = 24 * 60 // 하루 = 1440분
+
+// 고른 날의 머문 곳만. 예: 2일차 → [카페 11:15 45분]
+const dayExtras = computed(() => {
+  const list = []
+  if (retro.value === null) return list
+  for (const extra of retro.value.extraStops) {
+    if (extra.day === selectedDay.value) list.push(extra)
+  }
+  return list
+})
+
+// from ≤ 온 시각 < to 인 머문 곳. 예: (660, 750) = 11:00 ~ 12:30 → [카페 11:15]
+function extrasBetween(from, to) {
+  const list = []
+  for (const extra of dayExtras.value) {
+    const arrive = toMinutes(extra.arrive) // "11:15" → 675
+    if (from <= arrive && arrive < to) list.push(extra)
+  }
+  return list
+}
+
+
+// 그날 처음 실제로 도착한 시각(분). 간 곳이 없으면 하루 끝(1440) → 머문 곳이 전부 맨 앞에 나옴
+function firstArriveMinutes(stops) {
+  for (const stop of stops) {
+    if (stop.actualArrive !== null) return toMinutes(stop.actualArrive)
+  }
+  return MINUTES_PER_DAY
+}
+
+// 머문 곳 줄. 예: { type: 'extra', kind: 'visit', timeText: '11:15 ~ 12:00', stayText: '45분' }
+// day·leave·arrive는 이동 줄과 같은 이름이라 photosOfMove로 그 사이 사진을 그대로 고를 수 있음
+function toExtraRow(extra) {
+  const arrive = toMinutes(extra.arrive)
+  const leave = arrive + extra.stay
+  return { type: 'extra', kind: extra.kind, day: extra.day, arrive: arrive, leave: leave,
+    timeText: extra.arrive + ' ~ ' + toLeaveText(leave), stayText: toDuration(extra.stay) }
+}
+
+// 떠난 시각 글자. 자정을 넘기면 "다음 날 09:30"
+function toLeaveText(minutes) {
+  if (minutes >= MINUTES_PER_DAY) return '다음 날 ' + toTime(minutes - MINUTES_PER_DAY)
+  return toTime(minutes)
+}
+
+// 이동 줄 한 토막. 예: (660, 675) → { type: 'move', text: '이동 15분', timeText: '11:00 ~ 11:15' }
+function toMoveSegment(day, leave, arrive) {
+  return { type: 'move', text: '이동 ' + (arrive - leave) + '분', timeText: toTime(leave) + ' ~ ' + toTime(arrive),
+    day: day, leave: leave, arrive: arrive }
+}
+
+// 두 장소 사이 이동 줄을 넣음. 사이에 머문 곳이 있으면 이동 줄을 잘라 끼워 넣음
+// 예: 명동(11:00 떠남) → 남대문(12:30 도착), 카페 11:15~12:00 → [이동 15분] [카페] [이동 30분]
+function pushMoveWithExtras(rows, from, to) {
+  const move = toMoveRow(from, to)
+  if (move === null) return // 기록이 없어 계산 못 하면 안 넣음
+  let leave = move.leave // 지금 토막이 시작하는 시각
+  for (const extra of extrasBetween(move.leave, move.arrive)) {
+    const extraRow = toExtraRow(extra)
+    rows.push(toMoveSegment(move.day, leave, extraRow.arrive)) // 머문 곳 앞 이동 토막: 지금 토막 시작 → 머문 곳 도착
+    rows.push(extraRow)                                           // 머문 곳 줄
+    leave = extraRow.leave // 다음 토막은 머문 곳을 떠난 시각부터
+  }
+  rows.push(toMoveSegment(move.day, leave, move.arrive)) // 마지막 토막 (머문 곳이 없으면 이게 원래 이동 줄 하나)
+}
 
 function toTimeRange(place) { // 실제 시각 ~ 떠난 시각 글자 : 예 : 13:00에 와서 80분 -> 13:00 ~ 14:20
   if(place.actualArrive === null) return '기록 없음' // 안 간 곳
   if(place.actualStay === null) return place.actualArrive + ' 떠난 시간이 없어요'
   const leave = toMinutes(place.actualArrive) + place.actualStay
 
-  return place.actualArrive + ' ~ ' + toTime(leave) // 도착  + 머문시간
+  return place.actualArrive + ' ~ ' + toLeaveText(leave) // 도착 + 머문 시간. 숙소처럼 자정을 넘기면 "다음 날 09:30"
 }
 
 // 두 장소 사이 이동 줄. 예: 14:20에 나와서 14:50에 도착 → { type: 'move', text: '이동 30분', timeText: '14:20 ~ 14:50' }
@@ -437,7 +512,7 @@ function toScreenPoints() {
     trackList.push({ x: point.x , y : point.y , time : gps.time }) 
     
   }
-trackPoints.value = trackList // 화면에 보여줄 gps ㅈ점 좌표를 넣음 포인트에
+  trackPoints.value = trackList // 화면에 보여 줄 GPS 점 좌표
 }
 
 
@@ -601,8 +676,25 @@ function toggleMapType() {
                 </span>
                 <span v-if="row.skipped" class="retro-tl__tag">건너뜀</span>
               </div>
+              <!-- 계획 없이 머문 곳 줄 (GPS로 찾음). 숙소로 보이는 곳이면 집 모양 -->
+              <div v-else-if="row.type === 'extra'" class="retro-tl__extra">
+                <span class="retro-tl__icon"><span><i class="ic" :class="row.kind === 'lodging' ? 'i-home' : 'i-pin'" aria-hidden="true"></i></span></span>
+                <span class="retro-tl__body">
+                  <b>{{ row.kind === 'lodging' ? '숙소로 보이는 곳' : '계획 없이 머문 곳' }}</b>
+                  <span class="t-cap tn">{{ row.timeText }} · {{ row.stayText }}</span>
+                  <!-- 머무는 동안 찍은 사진 (이동 줄과 같은 방식: 날짜·시간으로 고름) -->
+                  <span v-if="photosOfMove(row).length > 0" class="retro-tl__photos">
+                    <button v-for="photo in photosOfMove(row)" :key="photo.id" type="button" class="retro-tl__thumb" :aria-label="photo.takenAt + ' 사진 크게 보기'" @click="openPhoto(photo)">
+                      <video v-if="photo.mediaType === 'video'" :src="photo.url + '#t=0.1'" preload="metadata" muted playsinline></video>
+                      <img v-else :src="photo.url" alt="" loading="lazy" />
+                      <span v-if="photo.mediaType === 'video'" class="retro-tl__dur tn">{{ toDurationText(photo.durationSec) }}</span>
+                    </button>
+                  </span>
+                </span>
+                <span class="retro-tl__tag retro-tl__tag--extra">계획 밖</span>
+              </div>
               <!-- 이동 줄 -->
-              <div v-else class="retro-tl__move">
+              <div v-else-if="row.type === 'move'" class="retro-tl__move">
                 <span class="retro-tl__icon"><span><i class="ic i-walk" aria-hidden="true"></i></span></span>
                 <span class="retro-tl__body">
                   <span class="t-cap">{{ row.text  }} · <span class="tn">{{ row.timeText }}</span></span>
@@ -670,6 +762,11 @@ function toggleMapType() {
 .scr-Retro .retro-tl__place.is-skipped .retro-tl__num{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong);box-shadow:none}
 .scr-Retro .retro-tl__place.is-skipped b{color:var(--ink-subtle)}
 .scr-Retro .retro-tl__move{display:flex;align-items:center;gap:12px;min-height:32px}
+/* 계획 없이 머문 곳 줄: 장소 줄보다 작고, 코랄 아이콘 + "계획 밖" 표시 */
+.scr-Retro .retro-tl__extra{display:flex;align-items:center;gap:12px;min-height:48px}
+.scr-Retro .retro-tl__extra .retro-tl__icon>span{background:var(--coral-soft,#FDECE8);border-color:var(--coral);color:var(--coral)}
+.scr-Retro .retro-tl__extra b{font-size:14px}
+.scr-Retro .retro-tl__tag--extra{color:var(--coral);background:var(--coral-soft,#FDECE8)}
 .scr-Retro .retro-barwrap{position:relative;display:block}
 .scr-Retro .retro-barwrap .bar{display:block}
 .scr-Retro .retro-tick{position:absolute;top:-4px;width:3px;height:16px;margin-left:-1.5px;border-radius:2px;background:var(--coral);pointer-events:none}
