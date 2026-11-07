@@ -971,7 +971,9 @@ public class PlanServiceImpl implements PlanService {
              + limitRule
              + "- 앞 칸 장소와 주소(구·동)가 가까운 곳으로 이어서 동선이 짧게.\n"
              + "- 꼭 갈 곳과 시간 고정 일정은 slot을 null로, time은 고정 시각(꼭 갈 곳은 알맞은 시각)으로 넣어. 고정 일정의 day는 적힌 일차 그대로. 그 시간과 겹치는 칸은 비워.\n"
-             + "- reason은 왜 골랐는지 30자 이내. 후보 목록에 있는 정보(종류·평점·리뷰 근거·위치)만 근거로 써.\n"
+             + "- reason은 왜 골랐는지 30자 이내 해요체 한마디. 후보 목록에 있는 정보(종류·평점·리뷰 근거·위치)만 근거로 써.\n"
+             + "  '~입니다', '대표적인', '인기 있는', '즐길 수 있는' 같은 뻔한 말 말고 그곳만의 근거를 써 (예: \"리뷰에 단체석 넓다는 말이 많아요\", \"평점 4.8 · 다음 장소까지 걸어서 5분\").\n"
+             + "  시간 고정 일정은 reason을 비워 (예약 시각이 칸에 이미 보여서).\n"
              + "후보(id | 이름 | 종류 | 분류 | 평점(리뷰 수) | 리뷰 근거 | 주소):\n" + makeCandidateText(conditions, candidates, reasons)
              + "JSON만: {\"title\": \"여행 이름\", \"stops\": [{\"day\": 1, \"slot\": \"S1 또는 null\", \"id\": \"후보 id 또는 null\", "
              + "\"name\": \"장소 이름\", \"time\": \"HH:mm\", \"stay\": 머무는 분, \"fixed\": false, \"reason\": \"고른 이유\"}]}";
@@ -1033,6 +1035,7 @@ public class PlanServiceImpl implements PlanService {
                     pick.setTime(fixed.getTime());
                     pick.setFixed(true);
                     pick.setSlot(null);
+                    pick.setReason(null); // 고정 일정은 "1일차 저녁 식사 고정 일정입니다" 같은 말 대신 칸의 예약 시각만 (11/07 문구 점검)
                 }
             }
         }
