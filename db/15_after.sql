@@ -35,3 +35,6 @@ CREATE TABLE IF NOT EXISTS payment (
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_trip ON payment (trip_id, paid_at);
+
+-- 11/07 박석진: 정산용 "낸 사람" (나 / 동행 1 / 동행 2 …). 이미 만든 payment에 칸만 추가
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS payer VARCHAR(20) NOT NULL DEFAULT '나';

@@ -253,6 +253,7 @@
 | method | VARCHAR(10) NOT NULL DEFAULT 'card' | card / cash |
 | source | VARCHAR(10) NOT NULL DEFAULT 'manual' | manual(직접 입력) / card(카드 내역 가져옴) / capture(결제 캡처, 나중에) |
 | memo | VARCHAR(200) | 메모 |
+| payer | VARCHAR(20) NOT NULL DEFAULT '나' | 낸 사람: 나 / 동행 1 / 동행 2 … (정산용, 11/07 ALTER로 추가) |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 저장 시각 |
 
 인덱스 `idx_payment_trip (trip_id, paid_at)`. `card`(카드 등록)는 아직 안 만듦.
