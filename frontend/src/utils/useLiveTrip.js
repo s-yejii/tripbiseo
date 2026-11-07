@@ -13,7 +13,8 @@ import { useTripStore } from '@/stores/trip'
 const STATUS_INTERVAL_MS = 30000 // 지금 상황 다시 계산 간격
 const TRACK_MIN_GAP_MS = 20000 // GPS 저장 최소 간격
 const DEMO_STEP_MS = 4000 // 시연 모드: 한 걸음 간격
-const DEMO_STEPS_PER_STOP = 3 // 시연 모드: 장소 사이를 몇 걸음에 가는지 (도착 판정은 두 번 연속이라 장소마다 2번 머묾)
+const DEMO_STEPS_PER_STOP = 3 // 시연 모드: 장소 사이를 몇 걸음에 가는지
+const DEMO_STAY_POINTS = 4 // 시연 모드: 장소마다 찍는 점 수 (서버는 최근 4점이 멈춰 있어야 도착으로 봄)
 
 export function useLiveTrip() {
   const store = useTripStore()
@@ -125,7 +126,7 @@ export function useLiveTrip() {
     )
   }
 
-  // 시연용 가짜 GPS: 오늘 남은 장소를 차례로 지나감 (장소마다 2번 찍어서 도착 판정)
+  // 시연용 가짜 GPS: 오늘 남은 장소를 차례로 지나감 (장소마다 4번 찍어서 도착 판정)
   async function startDemo() {
     const route = await makeDemoRoute()
     if (!route.length) return
@@ -145,7 +146,9 @@ export function useLiveTrip() {
       const first = await getLiveStatus(tripId.value, 37.5665, 126.978) // 서울시청 (아무 곳이나 한 번)
       const stops = first.stops.filter((stop) => stop.lat != null && stop.reach !== 'done')
       for (let i = 0; i < stops.length; i++) {
-        route.push({ lat: stops[i].lat, lng: stops[i].lng }, { lat: stops[i].lat, lng: stops[i].lng })
+        for (let k = 0; k < DEMO_STAY_POINTS; k++) {
+          route.push({ lat: stops[i].lat, lng: stops[i].lng })
+        }
         const next = stops[i + 1]
         if (!next) break
         for (let k = 1; k < DEMO_STEPS_PER_STOP; k++) {
