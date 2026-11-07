@@ -18,4 +18,5 @@ public class RetroResponse {
     private List<RetroStop> stops = new ArrayList<>();
     private List<TrackPoint> track = new ArrayList<>(); // GPS 점 (기록 순)
     private int movedMeters; // 이동 거리 (m)
+    private List<ExtraStop> extraStops = new ArrayList<>(); // 계획 없이 머문 곳 (GPS로 찾음). 없으면 빈 목록
 }
