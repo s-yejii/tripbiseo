@@ -3,6 +3,7 @@ package com.tripbiseo.after.service;
 import java.util.List;
 
 import com.tripbiseo.after.dto.CardTransaction;
+import com.tripbiseo.after.dto.PayerRequest;
 import com.tripbiseo.after.dto.PaymentRequest;
 import com.tripbiseo.after.dto.PaymentResponse;
 
@@ -14,6 +15,9 @@ public interface PaymentService {
 
     /** 결제 하나 저장. 일정 칸(stopId)은 결제 시각으로 서버가 붙임 */
     PaymentResponse createPayment(long memberId, long tripId, PaymentRequest request);
+
+    /** 결제의 낸 사람 바꾸기 (정산용). 바꾼 결제를 돌려줌 */
+    PaymentResponse updatePayer(long memberId, long tripId, long paymentId, PayerRequest request);
 
     /** 카드 승인내역. 지금은 실제로 다녀온 곳으로 만든 목업 (나중에 CODEF) */
     List<CardTransaction> getCardTransactionList(long memberId, long tripId);

@@ -14,4 +14,5 @@ public class PaymentResponse {
     private String method;    // card / cash
     private String source;    // manual / card / capture
     private String memo;
+    private String payer;     // 낸 사람: 나 / 동행 1 / 동행 2 …
 }

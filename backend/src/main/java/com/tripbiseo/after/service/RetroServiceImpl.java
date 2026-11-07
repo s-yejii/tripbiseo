@@ -46,6 +46,7 @@ public class RetroServiceImpl implements RetroService {
         response.setTitle(trip.getTitle());
         response.setStartDate(trip.getStartDate());
         response.setEndDate(trip.getEndDate());
+        response.setPeople(trip.getPeople()); // 정산 1인당 금액에 씀
         int visited = 0; // 실제로 다녀온 장소 수
         for (Stop stop : trip.getStops()) {
 

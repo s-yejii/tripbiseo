@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.after.dto.CardTransaction;
+import com.tripbiseo.after.dto.PayerRequest;
 import com.tripbiseo.after.dto.ExtraStop;
 import com.tripbiseo.after.dto.Payment;
 import com.tripbiseo.after.dto.PaymentRequest;
@@ -45,6 +46,8 @@ public class PaymentServiceImpl implements PaymentService {
     private static final int OTHER_AMOUNT = 9800;          // 그 밖 (계획 없이 머문 곳 등)
     private static final int STORE_NAME_MAX = 100;         // store_name VARCHAR(100)
     private static final int MEMO_MAX = 200;               // memo VARCHAR(200)
+    private static final int PAYER_MAX = 20;               // payer VARCHAR(20)
+    private static final String DEFAULT_PAYER = "나";
 
     private final PaymentMapper paymentMapper;
     private final RetroService retroService; // 같은 ⑤: 실제 도착·머문 시간, 머문 곳 (남의 여행이면 여기서 404)
@@ -78,8 +81,20 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setMethod("cash".equals(request.getMethod()) ? "cash" : "card"); // 조건 ? 참일 때 값 : 거짓일 때 값. 모르는 값이면 card
         payment.setSource(toSource(request.getSource()));
         payment.setMemo(request.getMemo());
+        payment.setPayer(toPayer(request.getPayer()));
         paymentMapper.insertPayment(payment);
         return paymentMapper.selectPayment(payment.getPaymentId());
+    }
+
+    /** 결제의 낸 사람 바꾸기. 이 여행 결제가 아니면 404 */
+    @Override
+    public PaymentResponse updatePayer(long memberId, long tripId, long paymentId, PayerRequest request) {
+        retroService.getRetro(memberId, tripId); // 내 여행인지 확인 (남의 여행이면 404)
+        if (request.getPayer() == null || request.getPayer().isBlank()) throw fail(400, "낸 사람을 골라 주세요.");
+        if (request.getPayer().trim().length() > PAYER_MAX) throw fail(400, "낸 사람 이름은 20자까지예요.");
+        int changed = paymentMapper.updatePayer(tripId, paymentId, request.getPayer().trim());
+        if (changed == 0) throw fail(404, "결제를 찾을 수 없어요.");
+        return paymentMapper.selectPayment(paymentId);
     }
 
     /**
@@ -192,6 +207,14 @@ public class PaymentServiceImpl implements PaymentService {
     private static int toDay(RetroResponse retro, String paidAt) {
         LocalDate start = LocalDate.parse(retro.getStartDate());
         return (int) ChronoUnit.DAYS.between(start, toDate(paidAt)) + 1;
+    }
+
+    // 낸 사람: 비었으면 "나", 길면 20자까지
+    private static String toPayer(String payer) {
+        if (payer == null || payer.isBlank()) return DEFAULT_PAYER;
+        String trimmed = payer.trim();
+        if (trimmed.length() > PAYER_MAX) return trimmed.substring(0, PAYER_MAX);
+        return trimmed;
     }
 
     // source는 정해진 세 값만. 모르는 값이면 manual

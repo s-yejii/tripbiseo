@@ -5,10 +5,12 @@ import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tripbiseo.after.dto.CardTransaction;
+import com.tripbiseo.after.dto.PayerRequest;
 import com.tripbiseo.after.dto.PaymentRequest;
 import com.tripbiseo.after.dto.PaymentResponse;
 import com.tripbiseo.after.service.PaymentService;
@@ -34,6 +36,12 @@ public class PaymentController {
     @PostMapping("/api/trips/{id}/payments")
     public PaymentResponse createPayment(@PathVariable long id, @RequestBody PaymentRequest request) {
         return paymentService.createPayment(loginUser.id(), id, request);
+    }
+
+    /** 결제의 낸 사람 바꾸기 (정산용) */
+    @PutMapping("/api/trips/{id}/payments/{paymentId}/payer")
+    public PaymentResponse updatePayer(@PathVariable long id, @PathVariable long paymentId, @RequestBody PayerRequest request) {
+        return paymentService.updatePayer(loginUser.id(), id, paymentId, request);
     }
 
     /** 카드 승인내역 (목업. 나중에 CODEF) */

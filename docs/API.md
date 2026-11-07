@@ -131,6 +131,7 @@
 |---|---|---|---|
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
 | `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동). 누가 냈는지(나눠 내기)는 아직 | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
+| `PUT /api/trips/{id}/payments/{paymentId}/payer` | 결제의 낸 사람 바꾸기 (정산용) | after/RetroView | 있음 (11/07) |
 | `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (지금은 다녀온 곳으로 만든 목업, 나중에 CODEF) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
 | `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
@@ -1285,7 +1286,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ### `GET /api/trips/{id}/payments`
 한 여행의 결제 내역, 결제 순. · 로그인 필요 · 화면: after/RetroView (11/07)
 
-**응답** `[{id, stopId, day, paidAt, storeName, amount, method, source, memo}]`
+**응답** `[{id, stopId, day, paidAt, storeName, amount, method, source, memo, payer}]`
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -1294,17 +1295,25 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | paidAt | string | `HH:mm` |
 | method | string | `card` / `cash` |
 | source | string | `manual`(직접 입력) / `card`(카드 내역 가져옴) / `capture`(나중에) |
+| payer | string | 낸 사람: `나` / `동행 1` / `동행 2` … (정산용, 11/07). 기본 `나` |
 
 **오류** 404 "여행을 찾을 수 없어요." (남의 여행 포함)
 
 ### `POST /api/trips/{id}/payments`
 결제 하나 저장. 일정 칸(`stopId`)은 서버가 결제 시각으로 붙여요. · 로그인 필요 · 화면: after/RetroView (11/07)
 
-**요청** `{paidAt: "2026-11-04T11:35", storeName, amount, method?, source?, memo?}` — `method` 없거나 모르는 값이면 `card`, `source` 없거나 모르는 값이면 `manual`
+**요청** `{paidAt: "2026-11-04T11:35", storeName, amount, method?, source?, memo?, payer?}` — `payer` 없으면 `나` — `method` 없거나 모르는 값이면 `card`, `source` 없거나 모르는 값이면 `manual`
 
 **응답** 저장한 결제 하나 (위 목록과 같은 모양)
 
 **오류** 400 "가게 이름을 적어 주세요." · 400 "가게 이름은 100자까지예요." · 400 "금액은 1원 이상이에요." · 400 "메모는 200자까지예요." · 400 "결제 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 400 "여행 기간 안의 결제만 넣을 수 있어요." · 404 "여행을 찾을 수 없어요."
+
+### `PUT /api/trips/{id}/payments/{paymentId}/payer`
+결제의 낸 사람 바꾸기. 정산(1인당 금액, 누가 누구에게)은 화면에서 계산해요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{payer: "동행 1"}` · **응답** 바꾼 결제 하나 (목록과 같은 모양)
+
+**오류** 400 "낸 사람을 골라 주세요." · 400 "낸 사람 이름은 20자까지예요." · 404 "여행을 찾을 수 없어요." · 404 "결제를 찾을 수 없어요." (이 여행 결제가 아님)
 
 ### `GET /api/trips/{id}/card-transactions`
 카드 승인내역. **지금은 목업**: 실제로 다녀온 곳마다 (도착 + 20분, 분류로 정한 금액), 계획 없이 머문 곳마다 (도착 + 20분, 9,800원), 숙소로 보이는 곳은 (도착 + 5분, 89,000원). CODEF 개인카드 승인내역(`/v1/kr/card/p/account/approval-list`)과 연결함(11/07): `CODEF_SERVICE_TYPE`이 `demo`·`product`이고 카드사 연결(connectedId)이 있으면 **진짜 내역**(정상 승인만, 부분취소는 뺀 금액, 여행 기간 안만), `sandbox`면 연결만 확인하고(샌드박스는 값이 `****`로 가려져 옴) 목업, 키가 없으면 목업. 카드사 연결이 없는데 데모 키면 400 "카드사를 먼저 연결해 주세요." CODEF 실패는 502. · 로그인 필요 · 화면: after/RetroView (11/07)
@@ -1323,6 +1332,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | id, title, startDate, endDate | | 여행 정보 |
+| people | number | 여행 인원 (정산 1인당 금액, 11/07 추가) |
 | visited | number | 실제 도착 기록(`arrivedAt`)이 있는 일정 칸 수 |
 | stops[] | object[] | 모든 일정 칸 (skipped 포함): `id, day, name, category, lat, lng, time, stay, state` + 아래 |
 | stops[].actualArrive | string (null 가능) | 실제 도착 시각 `HH:mm`. 안 갔으면 `null` |

@@ -11,4 +11,5 @@ public class PaymentRequest {
     private String method;    // card / cash (없으면 card)
     private String source;    // manual / card / capture (없으면 manual)
     private String memo;      // 메모 (없어도 됨)
+    private String payer;     // 낸 사람 (없으면 "나")
 }
