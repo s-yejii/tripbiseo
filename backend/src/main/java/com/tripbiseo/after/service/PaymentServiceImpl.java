@@ -152,6 +152,23 @@ public class PaymentServiceImpl implements PaymentService {
         return companionMapper.selectCompanionList(tripId);
     }
 
+    /** 같이 간 사람 빼기. 그 사람이 낸 결제를 '나'로 바꾸고 지움 → 두 번 쓰니까 @Transactional */
+    @Override
+    @Transactional
+    public List<Companion> deleteCompanion(long memberId, long tripId, long companionId) {
+        RetroResponse retro = retroService.getRetro(memberId, tripId);
+        List<Companion> list = loadOrCreateCompanions(tripId, retro.getPeople());
+        Companion target = null; // 뺄 사람
+        for (Companion companion : list) {
+            if (companion.getId() == companionId) target = companion;
+        }
+        if (target == null) throw fail(404, "같이 간 사람을 찾을 수 없어요.");
+        if (target.getSortNo() == 0) throw fail(400, "'나'는 뺄 수 없어요.");
+        companionMapper.updatePayerName(tripId, target.getName(), DEFAULT_PAYER); // 그 사람이 낸 결제 → 나
+        companionMapper.deleteCompanion(tripId, companionId);
+        return companionMapper.selectCompanionList(tripId);
+    }
+
     /** 더치페이 낼 돈 정하기. null이면 자동 (나머지를 똑같이 나누는 쪽)으로 되돌림 */
     @Override
     public List<Companion> updateShare(long memberId, long tripId, long companionId, ShareRequest request) {

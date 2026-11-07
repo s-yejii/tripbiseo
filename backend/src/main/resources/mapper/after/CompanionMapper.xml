@@ -23,6 +23,10 @@
     UPDATE trip_companion SET share_amount = #{amount} WHERE companion_id = #{companionId} AND trip_id = #{tripId}
   </update>
 
+  <delete id="deleteCompanion">
+    DELETE FROM trip_companion WHERE companion_id = #{companionId} AND trip_id = #{tripId}
+  </delete>
+
   <!-- 남의 테이블 아님: payment도 ⑤ 테이블 -->
   <update id="updatePayerName">
     UPDATE payment SET payer = #{newName} WHERE trip_id = #{tripId} AND payer = #{oldName}

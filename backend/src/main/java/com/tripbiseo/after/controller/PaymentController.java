@@ -72,6 +72,12 @@ public class PaymentController {
         return paymentService.updateCompanion(loginUser.id(), id, companionId, request);
     }
 
+    /** 같이 간 사람 빼기 (그 사람이 낸 결제는 '나'로) */
+    @DeleteMapping("/api/trips/{id}/companions/{companionId}")
+    public List<Companion> deleteCompanion(@PathVariable long id, @PathVariable long companionId) {
+        return paymentService.deleteCompanion(loginUser.id(), id, companionId);
+    }
+
     /** 더치페이 낼 돈 정하기 (amount가 null이면 자동) */
     @PutMapping("/api/trips/{id}/companions/{companionId}/share")
     public List<Companion> updateShare(@PathVariable long id, @PathVariable long companionId, @RequestBody ShareRequest request) {

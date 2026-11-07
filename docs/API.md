@@ -134,7 +134,7 @@
 | `PUT /api/trips/{id}/payments/{paymentId}/payer` | 결제의 낸 사람 바꾸기 (정산용) | after/RetroView | 있음 (11/07) |
 | `DELETE /api/trips/{id}/payments/{paymentId}` | 결제 하나 지우기 | after/RetroView | 있음 (11/07) |
 | `PUT /api/trips/{id}/companions/{companionId}/share` | 더치페이 낼 돈 직접 정하기 (null이면 자동) | after/RetroView | 있음 (11/07) |
-| `GET·POST /api/trips/{id}/companions`, `PUT /api/trips/{id}/companions/{companionId}` | 같이 간 사람 목록·추가·이름 바꾸기 (정산의 낸 사람) | after/RetroView | 있음 (11/07) |
+| `GET·POST /api/trips/{id}/companions`, `PUT·DELETE /api/trips/{id}/companions/{companionId}` | 같이 간 사람 목록·추가·이름 바꾸기·빼기 (정산의 낸 사람) | after/RetroView | 있음 (11/07) |
 | `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (지금은 다녀온 곳으로 만든 목업, 나중에 CODEF) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
 | `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
@@ -1329,7 +1329,10 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ### `PUT /api/trips/{id}/companions/{companionId}`
 이름 바꾸기. 그 사람이 낸 결제의 `payer`도 같이 바꿔요. **요청** `{name}` · **응답** 바뀐 목록
 
-**오류 (셋 공통)** 400 "이름을 적어 주세요." · 400 "이름은 20자까지예요." · 400 "같은 이름이 있어요." · 400 "'나'는 이름을 바꿀 수 없어요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
+### `DELETE /api/trips/{id}/companions/{companionId}`
+같이 간 사람 빼기. 그 사람이 낸 결제는 `나`가 낸 것으로 바꿔요. `나`는 못 빼요. **응답** 바뀐 목록
+
+**오류 (넷 공통)** 400 "이름을 적어 주세요." · 400 "이름은 20자까지예요." · 400 "같은 이름이 있어요." · 400 "'나'는 이름을 바꿀 수 없어요." · 400 "'나'는 뺄 수 없어요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
 
 ### `DELETE /api/trips/{id}/payments/{paymentId}`
 결제 하나 지우기. · 로그인 필요 · 화면: after/RetroView (11/07) · 응답 없음(200)

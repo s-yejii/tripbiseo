@@ -34,6 +34,9 @@ public interface PaymentService {
     /** 같이 간 사람 이름 바꾸기 (그 사람이 낸 결제의 이름도 같이). 바뀐 목록을 돌려줌 */
     List<Companion> updateCompanion(long memberId, long tripId, long companionId, CompanionRequest request);
 
+    /** 같이 간 사람 빼기 ('나'는 못 뺌). 그 사람이 낸 결제는 '나'가 낸 것으로. 바뀐 목록을 돌려줌 */
+    List<Companion> deleteCompanion(long memberId, long tripId, long companionId);
+
     /** 더치페이 낼 돈 정하기 (null이면 자동). 바뀐 목록을 돌려줌 */
     List<Companion> updateShare(long memberId, long tripId, long companionId, ShareRequest request);
 
