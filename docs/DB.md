@@ -50,7 +50,8 @@
 | ③ | `vector_store` | RAG 임베딩 (768차원) | | 만들 예정 (여유) |
 | ④ | `trip_track` | GPS 기록 | ⑤① 읽기 | 있음 |
 | ⑤ | `payment` | 결제 내역 (직접 입력·카드 내역) | | 있음 (11/07) |
-| ⑤ | `card` | 결제 카드 | | 만들 예정 |
+| ⑤ | `card` | 카드사 연결 (CODEF connected_id) | | 있음 (11/07, 쓰는 건 다음) |
+| ⑤ | `trip_companion` | 같이 간 사람 (정산) | | 있음 (11/07) |
 | ⑤ | `photo` | 사진·영상 (앨범·회고) | | 있음 (11/06) |
 | ⑤ | `extra_visit` | 일정에 없던 곳 "들렀어요" | | 만들 예정 (여유) |
 | ⑤ | `amenity` | 화장실·쓰레기통 (공공데이터) | | 만들 예정 (여유) |
@@ -256,4 +257,30 @@
 | payer | VARCHAR(20) NOT NULL DEFAULT '나' | 낸 사람: 나 / 동행 1 / 동행 2 … (정산용, 11/07 ALTER로 추가) |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 저장 시각 |
 
-인덱스 `idx_payment_trip (trip_id, paid_at)`. `card`(카드 등록)는 아직 안 만듦.
+인덱스 `idx_payment_trip (trip_id, paid_at)`.
+
+### trip_companion · 같이 간 사람 (⑤, `15_after.sql`, 11/07, 이상재 확인)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| companion_id | BIGSERIAL PK | |
+| trip_id | BIGINT NOT NULL → trip (ON DELETE CASCADE) | 여행 |
+| name | VARCHAR(20) NOT NULL | 이름. `UNIQUE (trip_id, name)` — 정산의 "낸 사람"(`payment.payer`)과 같은 글자 |
+| friend_member_id | BIGINT → member (ON DELETE SET NULL) | 친구 기능(①)이 생기면 친구 회원 번호. 지금은 NULL |
+| sort_no | INT NOT NULL DEFAULT 0 | 보이는 순서. 0은 '나' |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+처음 열 때 여행 인원(`trip.people`)만큼 '나', '동행 1' … 을 만들어 둬요. 이름을 바꾸면 그 여행 결제의 `payer`도 같이 바꿔요.
+
+### card · 카드사 연결 (⑤, `15_after.sql`, 11/07, 이상재 확인)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| card_id | BIGSERIAL PK | |
+| member_id | BIGINT NOT NULL → member (ON DELETE CASCADE) | 회원 |
+| organization | VARCHAR(4) NOT NULL | CODEF 카드사 기관코드 |
+| organization_name | VARCHAR(20) NOT NULL | 카드사 이름 (화면용) |
+| connected_id | VARCHAR(100) NOT NULL | CODEF 카드사 연결 번호 |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+`UNIQUE (member_id, organization)`. **카드사 아이디·비밀번호·카드 번호는 저장하지 않아요** (연결할 때 암호화해서 CODEF로만 보냄).

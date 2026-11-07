@@ -38,3 +38,28 @@ CREATE INDEX IF NOT EXISTS idx_payment_trip ON payment (trip_id, paid_at);
 
 -- 11/07 박석진: 정산용 "낸 사람" (나 / 동행 1 / 동행 2 …). 이미 만든 payment에 칸만 추가
 ALTER TABLE payment ADD COLUMN IF NOT EXISTS payer VARCHAR(20) NOT NULL DEFAULT '나';
+
+-- ---------------------------------------------------------------- trip_companion · 같이 간 사람 (11/07 박석진, 이상재 확인)
+--  정산의 "낸 사람" 목록. sort_no 0은 '나'. 처음 열 때 여행 인원만큼(나, 동행 1 …) 만들어 둠
+--  friend_member_id: 친구 기능(①)이 생기면 친구 회원 번호. 지금은 NULL
+CREATE TABLE IF NOT EXISTS trip_companion (
+  companion_id     BIGSERIAL PRIMARY KEY,
+  trip_id          BIGINT NOT NULL REFERENCES trip(trip_id) ON DELETE CASCADE,
+  name             VARCHAR(20) NOT NULL,
+  friend_member_id BIGINT REFERENCES member(member_id) ON DELETE SET NULL,
+  sort_no          INT NOT NULL DEFAULT 0,
+  created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (trip_id, name)
+);
+
+-- ---------------------------------------------------------------- card · 카드사 연결 (11/07 박석진, 이상재 확인)
+--  CODEF 카드사 연결 번호(connected_id)만 저장. 카드사 아이디·비밀번호·카드 번호는 저장하지 않음
+CREATE TABLE IF NOT EXISTS card (
+  card_id           BIGSERIAL PRIMARY KEY,
+  member_id         BIGINT NOT NULL REFERENCES member(member_id) ON DELETE CASCADE,
+  organization      VARCHAR(4) NOT NULL,
+  organization_name VARCHAR(20) NOT NULL,
+  connected_id      VARCHAR(100) NOT NULL,
+  created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (member_id, organization)
+);
