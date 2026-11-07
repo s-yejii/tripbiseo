@@ -11,7 +11,7 @@ import RangeCalendar from '@/components/plan/RangeCalendar.vue'
 import WishLinks from '@/components/plan/WishLinks.vue'
 import { getAreaStats, getRecommendedLinks } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
-import { addDays, daysBetween, toMonthDay } from '@/utils/dates'
+import { addDays, daysBetween, toMonthDay, todayText } from '@/utils/dates'
 import TripWeather from '@/components/plan/TripWeather.vue'
 import { goBack } from '@/utils/back'
 import { imageFor } from '@/utils/mapView'
@@ -156,9 +156,14 @@ const weatherSpot = computed(() => (store.planArea && store.planArea.lat != null
 const weatherDays = computed(() => {
   if (!store.planStartDate) return []
   const list = []
-  for (let i = 0; i <= Math.min(nights.value, WEATHER_PREVIEW_DAYS - 1); i++) list.push(addDays(store.planStartDate, i))
+  const lastForecast = addDays(todayText(), WEATHER_PREVIEW_DAYS) // 기상청 단기예보는 오늘부터 3일 뒤까지
+  for (let i = 0; i <= Math.min(nights.value, WEATHER_PREVIEW_DAYS - 1); i++) {
+    const date = addDays(store.planStartDate, i)
+    if (date <= lastForecast) list.push(date) // 예보가 없는 날은 날마다 같은 안내를 반복하지 않게 뺌 (11/07 문구 점검)
+  }
   return list
 })
+const isWeatherLater = computed(() => !!store.planStartDate && weatherDays.value.length === 0)
 const whenLabel = computed(() => (nights.value ? `${nights.value}박 ${nights.value + 1}일 · ${toShortDate(store.planStartDate)}–${toShortDate(store.planEndDate)}` : `당일치기 · ${toShortDate(store.planStartDate)}`))
 // 여행 날짜를 바꿔서 기간 밖으로 나간 숙소 (목록에 "고쳐 주세요" 표시)
 function isOutside(stay) {
@@ -412,6 +417,7 @@ function useRecommendedTime() {
           <div v-if="weatherDays.length" class="pa-when-wx">
             <TripWeather v-for="date in weatherDays" :key="date" :date="date" :stops="[weatherSpot]" />
           </div>
+          <p v-else-if="isWeatherLater" class="t-cap" style="margin: 0">날씨·옷차림은 여행 3일 전부터 보여요</p>
         </section>
 
         <section v-else-if="step.id === 'time'" class="pa-cards" aria-label="시간">
