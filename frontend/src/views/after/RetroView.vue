@@ -215,8 +215,17 @@ const timeline = computed(() => {
   if (retro.value === null) return rows
 
   const stops = dayStops.value
-  for (let i = 0; i < stops.length; i++) { // i : 몇번째 장소인지 (다음 단계에서 '다음 장소를 볼때 i +1')
-    rows.push({
+  let lastVisited  = null // 바로 앞에 실제로 간 장소, 건너 뛴 곳은 지나치고 이걸로 이동 줄을 이음
+  for(let i = 0; i < stops.length; i++) {
+    // 실제로 간 곳이면: 앞에 간 곳 → 여기 이동 줄을 먼저 넣고, 이제 여기가 "바로 앞에 간 곳"
+    if(stops[i].actualArrive !== null) {
+      if(lastVisited !== null) {
+        const move = toMoveRow(lastVisited, stops[i])
+        if (move !== null) rows.push(move)
+      }
+      lastVisited = stops[i];
+    }
+      rows.push({
       type: 'place',
       no : i + 1,
       stopId: stops[i].id, // 사진을 고를 때 씀
@@ -224,10 +233,6 @@ const timeline = computed(() => {
       timeText : toTimeRange(stops[i]),
       skipped: stops[i].state === 'skipped',
     })
-    if (i + 1 < stops.length) { // 마지막 장소 뒤에는 이동이 없음
-      const move = toMoveRow(stops[i], stops[i + 1])
-      if (move !== null) rows.push(move) // 기록이 없어 계산 못 하면 안 넣음
-    }
   }
 
   return rows
