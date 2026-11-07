@@ -427,7 +427,7 @@ function toScreenPoints() {
   for (const place of dayStops.value){
     const latLng = new kakao.maps.LatLng(place.lat , place.lng)
     const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
-    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : place.time, pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
+    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : toTimeRange(place), pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
   }
   visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
   const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
