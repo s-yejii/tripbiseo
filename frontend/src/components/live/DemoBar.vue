@@ -7,7 +7,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain } from '@/api/dev'
 import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
-import { addDays } from '@/utils/dates'
+import { addDays, daysBetween } from '@/utils/dates'
+import { isPracticeTrip, PRACTICE_MARK } from '@/utils/practice'
 import { devMode, setClockOffset } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
@@ -211,10 +212,13 @@ async function startDemoTrip() {
   if (isBusy.value) return
   isBusy.value = true
   try {
-    const planned = (await getTripList()).filter((item) => item.status === 'planned').sort((a, b) => b.id - a.id)
+    const planned = (await getTripList()).filter((item) => item.status === 'planned' && !isPracticeTrip(item)).sort((a, b) => b.id - a.id)
     if (!planned.length) throw new Error('복사할 예정 여행이 없어요. 먼저 여행을 하나 저장해 주세요')
     const source = await getTrip(planned[0].id)
-    const copy = await createTrip({ ...source, id: null, title: source.title + ' (연습)', stops: source.stops.map((stop) => ({ ...stop, id: null })) })
+    // 복사본은 오늘부터로 옮겨요: 원본 날짜가 지났어도(발표 날) 만들고 시작할 수 있고, 날씨도 오늘 예보로 나와요 (11/07 점검)
+    const today = (await getDevStatus()).now.slice(0, 10) // 서버가 보는 오늘 (시연 시계를 맞춰 뒀으면 그 날짜)
+    const shift = daysBetween(source.startDate, today)
+    const copy = await createTrip({ ...source, id: null, title: source.title + ' ' + PRACTICE_MARK, startDate: today, endDate: addDays(source.endDate, shift), stops: source.stops.map((stop) => ({ ...stop, id: null })) })
     const first = copy.stops.slice().sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))[0]
     await setClock(copy.startDate, toMinutes(first.time) - 10)
     await startTrip(copy.id)
