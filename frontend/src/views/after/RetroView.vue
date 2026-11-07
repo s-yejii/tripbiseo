@@ -586,7 +586,7 @@ const settlement = computed(() => {
   for (const companion of list) {
     let should = companion.shareAmount
     if (should === null) should = companion.name === autoNames[0] ? rest - autoShare * (autoNames.length - 1) : autoShare
-    people.push({ id: companion.id, name: companion.name, paid: paid[companion.name], should: should,
+    people.push({ id: companion.id, name: companion.name, isMe: companion.sortNo === 0, paid: paid[companion.name], should: should,
       isFixed: companion.shareAmount !== null, balance: paid[companion.name] - should })
   }
   // 안 맞는 돈: 모두 직접 정했는데 합이 다르거나, 정한 금액이 합계보다 많으면
@@ -608,6 +608,20 @@ async function saveShare(companionId, amount) {
   try {
     companions.value = await put('/trips/' + route.query.id + '/companions/' + companionId + '/share', { amount: amount })
     shareEdit.value = null
+  } catch (e) {
+    showToast(e.message)
+  }
+}
+
+// ---------- 같이 간 사람 빼기 (정산 칸의 X). 그 사람이 낸 결제는 서버가 '나'로 바꿈
+const removingId = ref(null) // "뺄까요?"를 띄운 사람 번호. null이면 없음
+
+async function removeCompanion(person) {
+  try {
+    companions.value = await del('/trips/' + route.query.id + '/companions/' + person.id)
+    removingId.value = null
+    await loadPayments()
+    showToast(person.name + '을(를) 정산에서 뺐어요')
   } catch (e) {
     showToast(e.message)
   }
@@ -1075,6 +1089,14 @@ function toggleMapType() {
             <p class="retro-settle__title"><b>여행 전체 정산</b><span class="t-cap tn">{{ payerNames.length }}명 · 합계 {{ toWon(settlement.total) }}</span></p>
             <ul class="retro-settle__people">
               <li v-for="person in settlement.people" :key="person.id">
+                <!-- 빼기(X)를 누르면 이 줄에서 "뺄까요?" -->
+                <template v-if="removingId === person.id">
+                  <span class="retro-settle__name">{{ person.name }}</span>
+                  <span class="t-cap">뺄까요? 낸 결제는 '나'로 바뀌어요</span>
+                  <button type="button" class="btn btn--sm retro-del" style="margin-left: auto" @click="removeCompanion(person)">빼기</button>
+                  <button type="button" class="btn btn--secondary btn--sm" @click="removingId = null">취소</button>
+                </template>
+                <template v-else>
                 <span class="retro-settle__name">{{ person.name }}</span>
                 <span class="tn t-cap">낸 돈 {{ toWon(person.paid) }}</span>
                 <!-- 낼 돈: 누르면 고치기. 직접 정한 금액이면 "정함" 표시 + [자동] -->
@@ -1086,6 +1108,10 @@ function toggleMapType() {
                 <template v-else>
                   <button type="button" class="retro-settle__should tn" :aria-label="person.name + ' 낼 돈 ' + person.should + '원 고치기'" @click="startShareEdit(person)">낼 돈 <b>{{ toWon(person.should) }}</b> <i class="ic ic--s i-edit" aria-hidden="true"></i></button>
                   <button v-if="person.isFixed" type="button" class="chip chip--sm" @click="saveShare(person.id, null)">자동</button>
+                </template>
+                <!-- 빼기 X ('나'는 못 뺌) -->
+                <button v-if="!person.isMe" type="button" class="iconbtn retro-remove" :aria-label="person.name + ' 정산에서 빼기'" @click="removingId = person.id"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
+                <span v-else class="retro-remove" aria-hidden="true"></span>
                 </template>
               </li>
             </ul>
@@ -1213,6 +1239,8 @@ function toggleMapType() {
 .scr-Retro .retro-settle__edit input{width:96px;height:32px;border:1px solid var(--line-strong);border-radius:8px;padding:0 8px;font:inherit;font-size:14px;text-align:right}
 .scr-Retro .retro-settle__warn{display:flex;align-items:center;gap:6px;margin:0;font-size:13px;color:var(--warning,#B54708)}
 .scr-Retro .retro-trash{flex:none;width:32px;height:32px;color:var(--ink-subtle)}
+.scr-Retro .retro-remove{flex:none;width:28px;height:28px;color:var(--ink-subtle)}
+.scr-Retro span.retro-remove{display:inline-block}
 .scr-Retro .retro-del{flex:none;background:var(--danger,#D92D20);color:#fff}
 /* 카드 내역 가져오기 창 (화면 전체를 덮고 아래에서 올라온 상자) */
 .scr-Retro .retro-cards{position:absolute;inset:0;z-index:40;background:rgba(10,14,28,.45);display:flex;align-items:flex-end}
