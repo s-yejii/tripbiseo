@@ -53,9 +53,10 @@
 | ③ | `theme`, `theme_stop` | 테마 코스 | ② 읽기 | 만들 예정 |
 | ③ | `vector_store` | RAG 임베딩 (768차원) | | 만들 예정 (여유) |
 | ④ | `trip_track` | GPS 기록 | ⑤① 읽기 | 있음 |
-| ⑤ | `payment` | 결제 메모 | | 만들 예정 |
-| ⑤ | `card` | 결제 카드 | | 만들 예정 |
-| ⑤ | `photo` | 앨범 사진 | | 만들 예정 (여유) |
+| ⑤ | `payment` | 결제 내역 (직접 입력·카드 내역) | | 있음 (11/07) |
+| ⑤ | `card` | 카드사 연결 (CODEF connected_id) | | 있음 (11/07, 쓰는 건 다음) |
+| ⑤ | `trip_companion` | 같이 간 사람 (정산) | | 있음 (11/07) |
+| ⑤ | `photo` | 사진·영상 (앨범·회고) | | 있음 (11/06) |
 | ⑤ | `extra_visit` | 일정에 없던 곳 "들렀어요" | | 만들 예정 (여유) |
 | ⑤ | `amenity` | 화장실·쓰레기통 (공공데이터) | | 만들 예정 (여유) |
 | - | `api_key` | 예전 관리자 API 키 | | 정리함 (키는 환경변수, 10/29 결정) |
@@ -244,3 +245,64 @@
 
 ### ⑤ 여행 후 (박석진)
 (payment, card, photo, extra_visit, amenity)
+
+### photo · 사진·영상 (⑤, `15_after.sql`, 11/06)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| photo_id | BIGSERIAL PK | |
+| trip_id | BIGINT NOT NULL → trip (ON DELETE CASCADE) | 여행 |
+| stop_id | BIGINT → trip_stop (ON DELETE SET NULL) | 찍은 시각으로 분류한 장소. NULL이면 이동 중(장소와 장소 사이) |
+| media_type | VARCHAR(10) NOT NULL DEFAULT 'photo' | photo / video |
+| file_name | VARCHAR(100) NOT NULL | 서버 폴더(`PHOTO_DIR`)에 저장한 파일 이름 (겹치지 않게 새로 지음) |
+| original_name | VARCHAR(200) | 올릴 때 원래 파일 이름 |
+| duration_sec | INT | 영상 길이(초). 사진이면 NULL |
+| taken_at | TIMESTAMP NOT NULL | 찍은 시각 (분류 기준) |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 올린 시각 |
+
+인덱스 `idx_photo_trip (trip_id, taken_at)`. 파일 자체는 DB에 넣지 않고 서버 폴더에 둬요.
+
+### payment · 결제 내역 (⑤, `15_after.sql`, 11/07, 이상재 확인)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| payment_id | BIGSERIAL PK | |
+| trip_id | BIGINT NOT NULL → trip (ON DELETE CASCADE) | 여행 |
+| stop_id | BIGINT → trip_stop (ON DELETE SET NULL) | 결제 시각에 있던 일정 칸 (실제 도착 ~ 떠남). NULL이면 이동 중·계획 밖 |
+| paid_at | TIMESTAMP NOT NULL | 결제 시각 |
+| store_name | VARCHAR(100) NOT NULL | 가게 이름 |
+| amount | INT NOT NULL CHECK (amount > 0) | 금액(원) |
+| method | VARCHAR(10) NOT NULL DEFAULT 'card' | card / cash |
+| source | VARCHAR(10) NOT NULL DEFAULT 'manual' | manual(직접 입력) / card(카드 내역 가져옴) / capture(결제 캡처, 나중에) |
+| memo | VARCHAR(200) | 메모 |
+| payer | VARCHAR(20) NOT NULL DEFAULT '나' | 낸 사람: 나 / 동행 1 / 동행 2 … (정산용, 11/07 ALTER로 추가) |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | 저장 시각 |
+
+인덱스 `idx_payment_trip (trip_id, paid_at)`.
+
+### trip_companion · 같이 간 사람 (⑤, `15_after.sql`, 11/07, 이상재 확인)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| companion_id | BIGSERIAL PK | |
+| trip_id | BIGINT NOT NULL → trip (ON DELETE CASCADE) | 여행 |
+| name | VARCHAR(20) NOT NULL | 이름. `UNIQUE (trip_id, name)` — 정산의 "낸 사람"(`payment.payer`)과 같은 글자 |
+| friend_member_id | BIGINT → member (ON DELETE SET NULL) | 친구 기능(①)이 생기면 친구 회원 번호. 지금은 NULL |
+| sort_no | INT NOT NULL DEFAULT 0 | 보이는 순서. 0은 '나' |
+| share_amount | INT (>= 0) | 더치페이 낼 돈을 직접 정한 금액. NULL이면 자동 (합계 − 정한 금액들을 나머지 사람이 똑같이 나눔). 11/07 ALTER로 추가 |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+처음 열 때 여행 인원(`trip.people`)만큼 '나', '동행 1' … 을 만들어 둬요. 이름을 바꾸면 그 여행 결제의 `payer`도 같이 바꿔요.
+
+### card · 카드사 연결 (⑤, `15_after.sql`, 11/07, 이상재 확인)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| card_id | BIGSERIAL PK | |
+| member_id | BIGINT NOT NULL → member (ON DELETE CASCADE) | 회원 |
+| organization | VARCHAR(4) NOT NULL | CODEF 카드사 기관코드 |
+| organization_name | VARCHAR(20) NOT NULL | 카드사 이름 (화면용) |
+| connected_id | VARCHAR(100) NOT NULL | CODEF 카드사 연결 번호 |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+`UNIQUE (member_id, organization)`. **카드사 아이디·비밀번호·카드 번호는 저장하지 않아요** (연결할 때 암호화해서 CODEF로만 보냄).

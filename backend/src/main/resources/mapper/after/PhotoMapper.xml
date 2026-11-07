@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ⑤ 사진·영상 (photo). PhotoMapper.java의 메서드 이름과 id가 같아야 이어져요 -->
+<mapper namespace="com.tripbiseo.after.mapper.PhotoMapper">
+
+  <!-- 사진 한 줄 저장. takenAt은 글자("2026-11-01T10:20")라서 ::timestamp로 바꿔 넣어요 -->
+  <insert id="insertPhoto">
+    INSERT INTO photo (trip_id, stop_id, media_type, file_name, original_name, duration_sec, taken_at)
+    VALUES (#{tripId}, #{stopId}, #{mediaType}, #{fileName}, #{originalName}, #{durationSec}, #{takenAt}::timestamp)
+  </insert>
+
+  <!-- 한 여행의 사진·영상, 찍은 순 (화면에 보낼 모양).
+       url = 파일 주소, day = 찍은 날짜 − 여행 시작 날짜 + 1, takenAt = HH:mm -->
+  <select id="selectPhotoList" resultType="com.tripbiseo.after.dto.PhotoResponse">
+    SELECT p.photo_id AS id,
+           p.stop_id,
+           p.media_type,
+           '/api/photos/' || p.photo_id || '/file' AS url,
+           p.duration_sec,
+           (p.taken_at::date - t.start_date + 1) AS day,
+           to_char(p.taken_at, 'HH24:MI') AS taken_at
+    FROM photo p
+    JOIN trip t ON t.trip_id = p.trip_id
+    WHERE p.trip_id = #{tripId}
+    ORDER BY p.taken_at, p.photo_id
+  </select>
+
+  <!-- 사진 한 줄 (파일 이름 확인용). 여행 주인이 memberId일 때만 나와요 → 남의 사진이면 null -->
+  <select id="selectPhotoFile" resultType="com.tripbiseo.after.dto.Photo">
+    SELECT p.photo_id, p.trip_id, p.stop_id, p.media_type, p.file_name, p.original_name, p.duration_sec,
+           to_char(p.taken_at, 'YYYY-MM-DD"T"HH24:MI') AS taken_at
+    FROM photo p
+    JOIN trip t ON t.trip_id = p.trip_id
+    WHERE p.photo_id = #{photoId}
+      AND t.member_id = #{memberId}
+      AND t.deleted_at IS NULL
+  </select>
+
+  <!-- 앨범: 내 지난 여행(휴지통 제외), 최근 여행이 위로.
+       곳 수는 건너뛴 칸을 빼고, 사진·영상 수는 media_type으로 나눠 세요. photos는 Service가 채워요 -->
+  <select id="selectAlbumList" resultType="com.tripbiseo.after.dto.AlbumResponse">
+    SELECT t.trip_id,
+           t.title,
+           t.start_date::text AS start_date,
+           t.end_date::text AS end_date,
+           (SELECT COUNT(*) FROM trip_stop s WHERE s.trip_id = t.trip_id AND s.state &lt;&gt; 'skipped') AS place_count,
+           (SELECT COUNT(*) FROM photo p WHERE p.trip_id = t.trip_id AND p.media_type = 'photo') AS photo_count,
+           (SELECT COUNT(*) FROM photo p WHERE p.trip_id = t.trip_id AND p.media_type = 'video') AS video_count
+    FROM trip t
+    WHERE t.member_id = #{memberId}
+      AND t.status = 'done'
+      AND t.deleted_at IS NULL
+    ORDER BY t.start_date DESC, t.trip_id DESC
+  </select>
+
+</mapper>

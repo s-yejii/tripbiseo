@@ -35,3 +35,6 @@ build/
 ### 개인 설정 (API 키·DB 비밀번호) ###
 application-local.properties
 .env
+
+### ⑤ 올린 사진·영상 (photo.dir)
+uploads/
