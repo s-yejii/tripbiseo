@@ -22,3 +22,13 @@ ODSAY_API_KEY=
 # 공공데이터포털 (TourAPI 장소 찾기, 기상청 단기예보). Decoding 키
 TOUR_API_KEY=
 KMA_SERVICE_KEY=
+
+# CODEF (카드 승인내역, ⑤ 11/07). 콘솔 "키 관리"의 값 3개. 샌드박스면 CODEF_SERVICE_TYPE=sandbox, 데모 승인 후 demo
+# public_key는 줄바꿈 없이 한 줄로 붙여 넣어요
+CODEF_CLIENT_ID=
+CODEF_CLIENT_SECRET=
+CODEF_PUBLIC_KEY=
+CODEF_SERVICE_TYPE=sandbox
+# 카드사 연결 전 시험용 (card 테이블이 생기기 전까지, 데모에서만 씀): 카드사 기관코드, 카드사 연결 번호
+CODEF_ORGANIZATION=
+CODEF_CONNECTED_ID=
