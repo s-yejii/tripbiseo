@@ -1309,7 +1309,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ### `GET /api/trips/{id}/card-transactions`
 카드 승인내역. **지금은 목업**: 실제로 다녀온 곳마다 (도착 + 20분, 분류로 정한 금액), 계획 없이 머문 곳마다 (도착 + 20분, 9,800원), 숙소로 보이는 곳은 (도착 + 5분, 89,000원). 나중에 CODEF 카드 승인내역으로 바꿀 자리(사업자 없이 샌드박스만 가능, 11/07 조사). · 로그인 필요 · 화면: after/RetroView (11/07)
 
-**응답** `[{approvalDate: "20261104", approvalTime: "113500", paidAt: "2026-11-04T11:35", day, storeName, amount, imported}]` 결제 시각 순. `approvalDate`·`approvalTime`은 CODEF 모양, `paidAt`은 가져올 때 POST에 그대로 씀. `imported`: 같은 날·시각·가게·금액이 이미 결제 내역에 있으면 `true`
+**응답** `[{approvalDate: "20261104", approvalTime: "113500", paidAt: "2026-11-04T11:35", day, storeName, amount, imported}]` 결제 시각 순. `approvalDate`·`approvalTime`은 CODEF 승인내역의 `resUsedDate`·`resUsedTime` 모양, `paidAt`은 가져올 때 POST에 그대로 씀. `imported`: 같은 날·시각·가게·금액이 이미 결제 내역에 있으면 `true`
 
 **오류** 404 "여행을 찾을 수 없어요."
 

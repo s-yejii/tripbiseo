@@ -4,15 +4,16 @@ import lombok.Data;
 
 /**
  * 카드 승인내역 한 줄 (GET /api/trips/{id}/card-transactions).
- * 지금은 서버가 만든 목업. 나중에 CODEF 카드 승인내역(resApprovalDate·resApprovalTime·resMemberStoreName·resUsedAmount)으로 바꿀 자리
+ * 지금은 서버가 만든 목업. 나중에 CODEF 개인카드 승인내역(/v1/kr/card/p/account/approval-list)의
+ * resUsedDate·resUsedTime·resMemberStoreName·resUsedAmount로 바꿀 자리 (resCancelYN "0"=정상만)
  */
 @Data
 public class CardTransaction {
-    private String approvalDate; // 승인 날짜 "20261104" (CODEF resApprovalDate 모양)
-    private String approvalTime; // 승인 시각 "113500" (CODEF resApprovalTime 모양)
+    private String approvalDate; // 사용 날짜 "20261104" (CODEF resUsedDate 모양)
+    private String approvalTime; // 사용 시각 "113500" (CODEF resUsedTime 모양)
     private String paidAt;       // 우리 모양 "2026-11-04T11:35" → 가져올 때 그대로 POST에 씀
     private int day;             // 몇째 날
-    private String storeName;    // 가맹점 이름
-    private int amount;          // 금액(원)
+    private String storeName;    // 가맹점 이름 (CODEF resMemberStoreName)
+    private int amount;          // 금액(원) (CODEF resUsedAmount, 글자라 숫자로 바꿔야 함)
     private boolean imported;    // 이미 결제 내역에 가져왔나 (JSON 이름: imported)
 }
