@@ -32,6 +32,11 @@
     JOIN trip t ON t.trip_id = p.trip_id
     WHERE p.payment_id = #{paymentId}
   </select>
+  <!-- 결제 하나 지우기. trip_id까지 같이 봐서 남의 여행 결제는 못 지움 -->
+  <delete id="deletePayment">
+    DELETE FROM payment WHERE payment_id = #{paymentId} AND trip_id = #{tripId}
+  </delete>
+
   <!-- 낸 사람 바꾸기. trip_id까지 같이 봐서 남의 여행 결제는 못 바꿈 -->
   <update id="updatePayer">
     UPDATE payment SET payer = #{payer} WHERE payment_id = #{paymentId} AND trip_id = #{tripId}

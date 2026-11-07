@@ -2,6 +2,7 @@ package com.tripbiseo.after.controller;
 
 import java.util.List;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +14,7 @@ import com.tripbiseo.after.dto.CardTransaction;
 import com.tripbiseo.after.dto.Companion;
 import com.tripbiseo.after.dto.CompanionRequest;
 import com.tripbiseo.after.dto.PayerRequest;
+import com.tripbiseo.after.dto.ShareRequest;
 import com.tripbiseo.after.dto.PaymentRequest;
 import com.tripbiseo.after.dto.PaymentResponse;
 import com.tripbiseo.after.service.PaymentService;
@@ -40,6 +42,12 @@ public class PaymentController {
         return paymentService.createPayment(loginUser.id(), id, request);
     }
 
+    /** 결제 하나 지우기 */
+    @DeleteMapping("/api/trips/{id}/payments/{paymentId}")
+    public void deletePayment(@PathVariable long id, @PathVariable long paymentId) {
+        paymentService.deletePayment(loginUser.id(), id, paymentId);
+    }
+
     /** 결제의 낸 사람 바꾸기 (정산용) */
     @PutMapping("/api/trips/{id}/payments/{paymentId}/payer")
     public PaymentResponse updatePayer(@PathVariable long id, @PathVariable long paymentId, @RequestBody PayerRequest request) {
@@ -62,6 +70,12 @@ public class PaymentController {
     @PutMapping("/api/trips/{id}/companions/{companionId}")
     public List<Companion> updateCompanion(@PathVariable long id, @PathVariable long companionId, @RequestBody CompanionRequest request) {
         return paymentService.updateCompanion(loginUser.id(), id, companionId, request);
+    }
+
+    /** 더치페이 낼 돈 정하기 (amount가 null이면 자동) */
+    @PutMapping("/api/trips/{id}/companions/{companionId}/share")
+    public List<Companion> updateShare(@PathVariable long id, @PathVariable long companionId, @RequestBody ShareRequest request) {
+        return paymentService.updateShare(loginUser.id(), id, companionId, request);
     }
 
     /** 카드 승인내역 (목업. 나중에 CODEF) */

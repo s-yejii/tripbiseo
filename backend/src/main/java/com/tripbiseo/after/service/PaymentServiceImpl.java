@@ -19,6 +19,7 @@ import com.tripbiseo.after.dto.CardTransaction;
 import com.tripbiseo.after.dto.Companion;
 import com.tripbiseo.after.dto.CompanionRequest;
 import com.tripbiseo.after.dto.PayerRequest;
+import com.tripbiseo.after.dto.ShareRequest;
 import com.tripbiseo.after.dto.ExtraStop;
 import com.tripbiseo.after.dto.Payment;
 import com.tripbiseo.after.dto.PaymentRequest;
@@ -91,6 +92,14 @@ public class PaymentServiceImpl implements PaymentService {
         return paymentMapper.selectPayment(payment.getPaymentId());
     }
 
+    /** 결제 하나 지우기. 이 여행 결제가 아니면 404 */
+    @Override
+    public void deletePayment(long memberId, long tripId, long paymentId) {
+        retroService.getRetro(memberId, tripId); // 내 여행인지 확인 (남의 여행이면 404)
+        int deleted = paymentMapper.deletePayment(tripId, paymentId);
+        if (deleted == 0) throw fail(404, "결제를 찾을 수 없어요.");
+    }
+
     /** 결제의 낸 사람 바꾸기. 이 여행 결제가 아니면 404 */
     @Override
     public PaymentResponse updatePayer(long memberId, long tripId, long paymentId, PayerRequest request) {
@@ -140,6 +149,17 @@ public class PaymentServiceImpl implements PaymentService {
         String name = checkName(request, list);
         companionMapper.updateCompanionName(tripId, companionId, name);
         companionMapper.updatePayerName(tripId, target.getName(), name);
+        return companionMapper.selectCompanionList(tripId);
+    }
+
+    /** 더치페이 낼 돈 정하기. null이면 자동 (나머지를 똑같이 나누는 쪽)으로 되돌림 */
+    @Override
+    public List<Companion> updateShare(long memberId, long tripId, long companionId, ShareRequest request) {
+        retroService.getRetro(memberId, tripId); // 내 여행인지 확인
+        Integer amount = request.getAmount();
+        if (amount != null && amount < 0) throw fail(400, "금액은 0원 이상이에요.");
+        int changed = companionMapper.updateShareAmount(tripId, companionId, amount);
+        if (changed == 0) throw fail(404, "같이 간 사람을 찾을 수 없어요.");
         return companionMapper.selectCompanionList(tripId);
     }
 

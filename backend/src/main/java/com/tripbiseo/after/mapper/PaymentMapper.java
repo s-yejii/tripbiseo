@@ -21,6 +21,9 @@ public interface PaymentMapper {
     /** 결제 하나 (방금 저장한 것을 화면 모양으로 돌려줄 때) */
     PaymentResponse selectPayment(long paymentId);
 
+    /** 결제 하나 지우기. 이 여행 결제가 아니면 0줄 */
+    int deletePayment(@Param("tripId") long tripId, @Param("paymentId") long paymentId);
+
     /** 낸 사람 바꾸기. 이 여행의 결제가 아니면 0줄 */
     int updatePayer(@Param("tripId") long tripId, @Param("paymentId") long paymentId, @Param("payer") String payer);
 }

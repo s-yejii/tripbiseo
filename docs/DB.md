@@ -268,6 +268,7 @@
 | name | VARCHAR(20) NOT NULL | 이름. `UNIQUE (trip_id, name)` — 정산의 "낸 사람"(`payment.payer`)과 같은 글자 |
 | friend_member_id | BIGINT → member (ON DELETE SET NULL) | 친구 기능(①)이 생기면 친구 회원 번호. 지금은 NULL |
 | sort_no | INT NOT NULL DEFAULT 0 | 보이는 순서. 0은 '나' |
+| share_amount | INT (>= 0) | 더치페이 낼 돈을 직접 정한 금액. NULL이면 자동 (합계 − 정한 금액들을 나머지 사람이 똑같이 나눔). 11/07 ALTER로 추가 |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
 
 처음 열 때 여행 인원(`trip.people`)만큼 '나', '동행 1' … 을 만들어 둬요. 이름을 바꾸면 그 여행 결제의 `payer`도 같이 바꿔요.

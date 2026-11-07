@@ -4,7 +4,7 @@
 <mapper namespace="com.tripbiseo.after.mapper.CompanionMapper">
 
   <select id="selectCompanionList" resultType="com.tripbiseo.after.dto.Companion">
-    SELECT companion_id AS id, trip_id, name, friend_member_id, sort_no
+    SELECT companion_id AS id, trip_id, name, friend_member_id, sort_no, share_amount
     FROM trip_companion
     WHERE trip_id = #{tripId}
     ORDER BY sort_no, companion_id
@@ -17,6 +17,10 @@
 
   <update id="updateCompanionName">
     UPDATE trip_companion SET name = #{name} WHERE companion_id = #{companionId} AND trip_id = #{tripId}
+  </update>
+
+  <update id="updateShareAmount">
+    UPDATE trip_companion SET share_amount = #{amount} WHERE companion_id = #{companionId} AND trip_id = #{tripId}
   </update>
 
   <!-- 남의 테이블 아님: payment도 ⑤ 테이블 -->

@@ -63,3 +63,6 @@ CREATE TABLE IF NOT EXISTS card (
   created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
   UNIQUE (member_id, organization)
 );
+
+-- 11/07 박석진: 더치페이 금액 직접 정하기. NULL이면 자동(나머지를 똑같이 나눔)
+ALTER TABLE trip_companion ADD COLUMN IF NOT EXISTS share_amount INT CHECK (share_amount >= 0);
