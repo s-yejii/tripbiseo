@@ -6,14 +6,14 @@
   <!-- 화면에 보낼 모양: day = 결제 날짜 − 여행 시작 날짜 + 1, paidAt = HH:mm -->
   <sql id="paymentColumns">
     p.payment_id AS id, p.stop_id, (p.paid_at::date - t.start_date + 1) AS day,
-    to_char(p.paid_at, 'HH24:MI') AS paid_at, p.store_name, p.amount, p.method, p.source, p.memo
+    to_char(p.paid_at, 'HH24:MI') AS paid_at, p.store_name, p.amount, p.method, p.source, p.memo, p.payer
   </sql>
 
   <!-- 결제 한 줄 저장. paidAt은 글자("2026-11-04T11:35")라서 ::timestamp로 바꿔 넣어요.
        useGeneratedKeys: 저장하면서 DB가 만든 payment_id를 payment.paymentId에 넣어 줌 -->
   <insert id="insertPayment" useGeneratedKeys="true" keyProperty="paymentId" keyColumn="payment_id">
-    INSERT INTO payment (trip_id, stop_id, paid_at, store_name, amount, method, source, memo)
-    VALUES (#{tripId}, #{stopId}, #{paidAt}::timestamp, #{storeName}, #{amount}, #{method}, #{source}, #{memo})
+    INSERT INTO payment (trip_id, stop_id, paid_at, store_name, amount, method, source, memo, payer)
+    VALUES (#{tripId}, #{stopId}, #{paidAt}::timestamp, #{storeName}, #{amount}, #{method}, #{source}, #{memo}, #{payer})
   </insert>
 
   <!-- 한 여행의 결제 내역, 결제 순 -->
@@ -32,4 +32,8 @@
     JOIN trip t ON t.trip_id = p.trip_id
     WHERE p.payment_id = #{paymentId}
   </select>
+  <!-- 낸 사람 바꾸기. trip_id까지 같이 봐서 남의 여행 결제는 못 바꿈 -->
+  <update id="updatePayer">
+    UPDATE payment SET payer = #{payer} WHERE payment_id = #{paymentId} AND trip_id = #{tripId}
+  </update>
 </mapper>
