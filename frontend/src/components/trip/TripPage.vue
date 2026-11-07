@@ -243,7 +243,7 @@ async function select(i) {
       <slot name="right" :selected="selected"></slot>
     </TopBar>
 
-    <BottomSheet class="sheet--peek trip-sheet" aria-labelledby="trip-title">
+    <BottomSheet class="sheet--peek trip-sheet" expandable aria-labelledby="trip-title">
       <div class="trip-head">
         <div style="flex: 1; min-width: 0">
           <h1 id="trip-title" class="h-title">{{ trip.title }}</h1>
