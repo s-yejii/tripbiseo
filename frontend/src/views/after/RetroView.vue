@@ -15,7 +15,7 @@ const visited = ref([
 ])
 const trackPoints = ref([]) // gps 점 목록 drawMap에서 채워짐
 
-const progress = ref(68) // 재생 위치 (%)
+const progress = ref(0) // 재생 위치 (%)
 const playing = ref(false)
 const speed = ref(1) // 재생 속도(1,2,4배)
 const PLAY_STEP_1X = 0.375 // 1배속일 때 90ms마다 나아가는 % 100%까지 약 24초
