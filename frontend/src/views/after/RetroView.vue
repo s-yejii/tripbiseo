@@ -2,8 +2,9 @@
 // S19-a 지난 여행 다시보기 (⑤): 다녀온 동선을 재생하고, 핀을 누르면 시간·결제 메모를 봐요. 계획과 실제도 비교해요
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { get } from '@/api/http'
-import { toTime, toMinutes, toDuration } from '@/utils/time'
+import { get, post } from '@/api/http'
+import { toTime, toMinutes, toDuration, toWon } from '@/utils/time'
+import { showToast } from '@/utils/toast' // 아래에 잠깐 뜨는 알림
 import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
 import BottomSheet from '@/components/common/BottomSheet.vue' // 끌어서 내리고 올리는 아래 시트 (다른 화면과 같은 것)
 import PhotoViewer from '@/components/after/PhotoViewer.vue' // 사진 크게 보기 (앨범과 같은 것)
@@ -351,6 +352,7 @@ onMounted(async () => {
 
   }
   loadPhotos()
+  loadPayments()
 })
 
 // ============================== 사진 (11/06)
@@ -393,6 +395,105 @@ function photosOfMove(row) {
 // 사진을 누르면 크게 보기. 여행 사진 전체에서 몇 번째인지로 열어요 (◁ ▷로 다른 장소 사진도 넘겨 봄)
 function openPhoto(photo) {
   viewerStart.value = photos.value.indexOf(photo)
+}
+
+// ============================== 결제 내역 (11/07, GET·POST /api/trips/{id}/payments + 카드 승인내역 목업)
+const payments = ref([])       // 이 여행 결제 전부, 결제 순
+const cardList = ref(null)     // "카드 내역 가져오기" 창의 목록. null이면 창 닫힘
+const checkedCards = ref([])   // 가져오려고 체크한 카드 내역 번호 (목록 순서)
+const importing = ref(false)   // 가져오는 중이면 버튼 막기
+
+// 결제 내역 불러오기. 실패해도 회고는 그대로 보이게 따로 try
+async function loadPayments() {
+  try {
+    payments.value = await get('/trips/' + route.query.id + '/payments')
+  } catch {
+    payments.value = []
+  }
+}
+
+// 고른 날 결제만
+const dayPayments = computed(() => {
+  const list = []
+  for (const payment of payments.value) {
+    if (payment.day === selectedDay.value) list.push(payment)
+  }
+  return list
+})
+
+// 고른 날 결제 합계
+const dayPaymentTotal = computed(() => {
+  let total = 0
+  for (const payment of dayPayments.value) total += payment.amount
+  return total
+})
+
+// 이 결제가 이 핀의 것인가. 계획 장소 핀은 일정 칸 번호(stopId)로, 머문 곳 핀은 그 시간 안의 (일정 칸 없는) 결제로
+function isPaymentOfPin(payment, pin) {
+  if (pin.stopId !== undefined) return payment.stopId === pin.stopId
+  if (payment.stopId !== null) return false
+  const minutes = toMinutes(payment.paidAt)
+  return pin.arriveMinutes <= minutes && minutes < pin.leaveMinutes
+}
+
+// 핀 정보창에 쓸 결제 글자. 예: "10:20 명동 45,000원". 없으면 빈 글자
+function payTextOf(pin) {
+  const lines = []
+  for (const payment of dayPayments.value) {
+    if (isPaymentOfPin(payment, pin)) lines.push(payment.paidAt + ' ' + payment.storeName + ' ' + toWon(payment.amount))
+  }
+  return lines.join('\n') // 줄바꿈으로 이어 붙임
+}
+
+// 결제 줄에 붙일 장소 이름: 일정 칸 → 그 장소, 머문 곳 시간 안 → 머문 곳, 아니면 이동 중
+function placeOfPayment(payment) {
+  for (const pin of visited.value) {
+    if (isPaymentOfPin(payment, pin)) return pin.name
+  }
+  for (const pin of extraPoints.value) {
+    if (isPaymentOfPin(payment, pin)) return pin.name
+  }
+  return '이동 중'
+}
+
+// "카드 내역 가져오기" 창 열기. 아직 안 가져온 건 미리 체크
+async function openCardList() {
+  try {
+    const list = await get('/trips/' + route.query.id + '/card-transactions')
+    checkedCards.value = []
+    for (let i = 0; i < list.length; i++) {
+      if (!list[i].imported) checkedCards.value.push(i)
+    }
+    cardList.value = list
+  } catch (e) {
+    showToast(e.message)
+  }
+}
+
+// 체크 칸을 누르면 넣었다 뺐다
+function toggleCard(i) {
+  const at = checkedCards.value.indexOf(i)
+  if (at === -1) checkedCards.value.push(i)
+  else checkedCards.value.splice(at, 1) // splice: 그 자리에서 1개 지우기
+}
+
+// 체크한 카드 내역을 결제 내역으로 저장 (하나씩 POST, source: card)
+async function importCards() {
+  importing.value = true
+  let count = 0
+  try {
+    for (const i of checkedCards.value) {
+      const card = cardList.value[i]
+      await post('/trips/' + route.query.id + '/payments', { paidAt: card.paidAt, storeName: card.storeName, amount: card.amount, source: 'card' })
+      count++
+    }
+    showToast(count + '건 가져왔어요')
+    cardList.value = null
+  } catch (e) {
+    showToast(e.message)
+  }
+  await loadPayments()
+  importing.value = false
 }
 
 // ============================== 재생 중 사진 띄우기 + 막대 눈금
@@ -509,7 +610,7 @@ function toScreenPoints() {
   for (const place of dayStops.value){
     const latLng = new kakao.maps.LatLng(place.lat , place.lng)
     const point = map.getProjection().containerPointFromCoords(latLng) // 방금 받은 지도좌표를 X,Y 화면 좌표로 바꿔줌
-    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : toTimeRange(place), pay : '' , skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
+    points.push({ no : points.length + 1, x : point.x , y : point.y, name : place.name , time : toTimeRange(place), stopId: place.id, skipped : place.state === 'skipped' }) // point.length : 핀 번호에 번호붙이기
   }
   visited.value=points // 화면에 보여줄 핀 좌표를 visited에 넣음 vistied : 화면에 실제로 방문한 잠소를 담는 ref
   const trackList = [] // gps 점마다 {x,y, time}을 담을 목록
@@ -531,7 +632,7 @@ function toScreenPoints() {
       placeName: extra.name,                 // 핀 옆 작은 이름 (못 찾았으면 null)
       name: extra.name || baseName,          // 정보창 제목
       time: extra.arrive + ' ~ ' + toLeaveText(toMinutes(extra.arrive) + extra.stay), // 정보창 시각
-      pay: '',                               // 결제 메모 (결제 기능이 붙으면 채움)
+      arriveMinutes: toMinutes(extra.arrive), leaveMinutes: toMinutes(extra.arrive) + extra.stay, // 이 시간 안의 결제를 붙임
       label: baseName + ' ' + extra.arrive })
   }
   extraPoints.value = extraList // 화면에 보여 줄 머문 곳 핀
@@ -623,7 +724,7 @@ function toggleMapType() {
       <!-- 핀·점·사진 카드 판: 판 자체는 누름을 지도로 흘려보내고(끌기·확대), 핀·카드만 눌림 -->
       <div class="retro-map retro-layer">
         <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no); scrollToRow(v.no)">
-          {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
+          {{ v.no }}<span v-if="payTextOf(v)" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
         <!-- 계획 없이 머문 곳 핀 (코랄): 숙소로 보이는 곳은 집, 나머지는 핀 모양. 이름이 있으면 핀 옆에 작게 -->
         <button v-for="p in extraPoints" :key="p.no" type="button" class="retro-xpin" :class="{ 'is-sel': infoNo === p.no }" :style="{ left: p.x + 'px', top: p.y + 'px' }" :aria-label="p.label" @click="toggleInfo(p.no); scrollToRow(p.no)">
@@ -656,9 +757,9 @@ function toggleMapType() {
         >
           <b>{{ info.name }}</b>
           <span class="t-cap tn">{{ info.time }}</span>
-          <template v-if="info.pay">
-            <span class="t-cap tn retro-pay"><i class="ic ic--s i-won" aria-hidden="true"></i> 결제 메모</span>
-            <pre>{{ info.pay }}</pre>
+          <template v-if="payTextOf(info)">
+            <span class="t-cap tn retro-pay"><i class="ic ic--s i-won" aria-hidden="true"></i> 결제</span>
+            <pre>{{ payTextOf(info) }}</pre>
           </template>
           <span v-else class="t-cap">결제 내역 없음</span>
         </div>
@@ -772,6 +873,23 @@ function toggleMapType() {
             </template>
           </div>
         </section>
+
+        <!-- 결제 내역: 고른 날 결제 + 합계. 카드 내역(지금은 목업)에서 가져오기 -->
+        <section class="card card--pad" aria-labelledby="pay-h">
+          <div class="retro-payhead">
+            <h2 id="pay-h" class="t-sub">결제 내역</h2>
+            <button type="button" class="btn btn--secondary btn--sm" @click="openCardList"><i class="ic ic--s i-receipt" aria-hidden="true"></i>카드 내역 가져오기</button>
+          </div>
+          <p v-if="dayPayments.length === 0" class="t-cap">이 날 결제 내역이 없어요</p>
+          <ul v-else class="retro-paylist">
+            <li v-for="payment in dayPayments" :key="payment.id">
+              <span class="tn retro-paylist__time">{{ payment.paidAt }}</span>
+              <span class="retro-paylist__body"><b>{{ payment.storeName }}</b><span class="t-cap">{{ placeOfPayment(payment) }}{{ payment.source === 'card' ? ' · 카드' : '' }}</span></span>
+              <b class="tn">{{ toWon(payment.amount) }}</b>
+            </li>
+          </ul>
+          <p v-if="dayPayments.length > 0" class="retro-paytotal"><span>합계</span><b class="tn">{{ toWon(dayPaymentTotal) }}</b></p>
+        </section>
         </div>
       </BottomSheet>
 
@@ -784,6 +902,31 @@ function toggleMapType() {
 
       <!-- 사진 크게 보기 (◁ ▷로 이 여행 사진 전체를 넘겨 봄) -->
       <PhotoViewer v-if="viewerStart !== null" :photos="photos" :start="viewerStart" @close="viewerStart = null" />
+
+      <!-- 카드 내역 가져오기 (지금은 목업 → 나중에 CODEF). 이미 가져온 건 회색으로 막음 -->
+      <div v-if="cardList !== null" class="retro-cards" role="dialog" aria-modal="true" aria-label="카드 내역 가져오기" @click.self="cardList = null">
+        <div class="retro-cards__box">
+          <div class="retro-cards__head">
+            <b>카드 내역 가져오기</b>
+            <button type="button" class="iconbtn" aria-label="닫기" @click="cardList = null"><i class="ic i-close" aria-hidden="true"></i></button>
+          </div>
+          <p class="t-cap">연습용 카드 내역이에요. 카드사 연결은 준비 중이에요</p>
+          <p v-if="cardList.length === 0" class="t-cap">이 여행 기간의 카드 내역이 없어요</p>
+          <ul class="retro-cards__list">
+            <li v-for="(card, i) in cardList" :key="i">
+              <label :class="{ 'is-done': card.imported }">
+                <input type="checkbox" :checked="card.imported || checkedCards.includes(i)" :disabled="card.imported" @change="toggleCard(i)" />
+                <span class="tn retro-cards__time">{{ card.day }}일차 {{ card.paidAt.substring(11) }}</span>
+                <span class="retro-cards__name">{{ card.storeName }}<small v-if="card.imported"> · 가져옴</small></span>
+                <b class="tn">{{ toWon(card.amount) }}</b>
+              </label>
+            </li>
+          </ul>
+          <button type="button" class="btn btn--primary btn--lg" :disabled="importing || checkedCards.length === 0" @click="importCards">
+            {{ importing ? '가져오는 중…' : checkedCards.length + '건 가져오기' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -831,6 +974,25 @@ function toggleMapType() {
 .scr-Retro .retro-tl__place.is-skipped .retro-tl__num{background:#fff;color:var(--ink-subtle);border:1.5px dashed var(--line-strong);box-shadow:none}
 .scr-Retro .retro-tl__place.is-skipped b{color:var(--ink-subtle)}
 .scr-Retro .retro-tl__move{display:flex;align-items:center;gap:12px;min-height:32px}
+/* 결제 내역 카드 */
+.scr-Retro .retro-payhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.scr-Retro .retro-paylist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.scr-Retro .retro-paylist li{display:flex;align-items:center;gap:10px;min-height:48px;border-bottom:1px solid var(--line)}
+.scr-Retro .retro-paylist__time{flex:none;width:40px;font-size:13px;color:var(--ink-subtle)}
+.scr-Retro .retro-paylist__body{flex:1;min-width:0;display:flex;flex-direction:column}
+.scr-Retro .retro-paylist__body b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scr-Retro .retro-paytotal{display:flex;justify-content:space-between;margin:10px 0 0;font-size:15px}
+/* 카드 내역 가져오기 창 (화면 전체를 덮고 아래에서 올라온 상자) */
+.scr-Retro .retro-cards{position:absolute;inset:0;z-index:40;background:rgba(10,14,28,.45);display:flex;align-items:flex-end}
+.scr-Retro .retro-cards__box{width:100%;max-height:80%;background:var(--surface);border-radius:20px 20px 0 0;padding:16px 16px 28px;display:flex;flex-direction:column;gap:10px}
+.scr-Retro .retro-cards__head{display:flex;align-items:center;justify-content:space-between}
+.scr-Retro .retro-cards__head b{font-size:18px}
+.scr-Retro .retro-cards__list{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1;min-height:0}
+.scr-Retro .retro-cards__list label{display:flex;align-items:center;gap:10px;min-height:52px;border-bottom:1px solid var(--line);cursor:pointer}
+.scr-Retro .retro-cards__list input{width:20px;height:20px;accent-color:var(--navy);flex:none}
+.scr-Retro .retro-cards__time{flex:none;width:86px;font-size:13px;color:var(--ink-subtle)}
+.scr-Retro .retro-cards__name{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scr-Retro .retro-cards__list .is-done{opacity:.5;cursor:default}
 /* 계획 없이 머문 곳 줄: 장소 줄보다 작고, 코랄 아이콘 + "계획 밖" 표시 */
 .scr-Retro .retro-tl__extra{display:flex;align-items:center;gap:12px;min-height:48px}
 .scr-Retro .retro-tl__extra .retro-tl__icon>span{background:var(--coral-soft,#FDECE8);border-color:var(--coral);color:var(--coral)}
