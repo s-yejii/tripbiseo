@@ -14,6 +14,7 @@ const visited = ref([
 
 ])
 const trackPoints = ref([]) // gps 점 목록 drawMap에서 채워짐
+const extraPoints = ref([]) // 계획 없이 머문 곳 핀 {x, y, kind, name, label}. toScreenPoints에서 채워짐
 
 const progress = ref(0) // 재생 위치 (%)
 const playing = ref(false)
@@ -513,6 +514,16 @@ function toScreenPoints() {
     
   }
   trackPoints.value = trackList // 화면에 보여 줄 GPS 점 좌표
+
+  // 계획 없이 머문 곳 핀 좌표. 지도를 끌 때마다 같이 다시 계산됨
+  const extraList = []
+  for (const extra of dayExtras.value) { // 고른 날의 머문 곳
+    const latLng = new kakao.maps.LatLng(extra.lat, extra.lng)
+    const point = map.getProjection().containerPointFromCoords(latLng)
+    extraList.push({ x: point.x, y: point.y, kind: extra.kind, name: extra.name,
+      label: (extra.kind === 'lodging' ? '숙소로 보이는 곳 ' : '계획 없이 머문 곳 ') + extra.arrive })
+  }
+  extraPoints.value = extraList // 화면에 보여 줄 머문 곳 핀
 }
 
 
@@ -570,6 +581,11 @@ function toggleMapType() {
         <button v-for="v in visited" :key="v.no" type="button" class="pin pin--visited" :class="{ 'pin--sel': infoNo === v.no, 'pin--skipped' : v.skipped }" :style="{ left: v.x + 'px', top: v.y + 'px' }" :aria-label="v.no + ' ' + v.name" @click="toggleInfo(v.no); scrollToRow(v.no)">
           {{ v.no }}<span v-if="v.pay" class="paydot" aria-hidden="true"><i class="ic i-won"></i></span>
         </button>
+        <!-- 계획 없이 머문 곳 핀 (코랄): 숙소로 보이는 곳은 집, 나머지는 핀 모양. 이름이 있으면 핀 옆에 작게 -->
+        <span v-for="(p, n) in extraPoints" :key="'x' + n" class="retro-xpin" :class="{ 'is-lodging': p.kind === 'lodging' }" :style="{ left: p.x + 'px', top: p.y + 'px' }" :title="p.label">
+          <i class="ic" :class="p.kind === 'lodging' ? 'i-home' : 'i-pin'" aria-hidden="true"></i>
+          <span v-if="p.name" class="retro-xpin__name">{{ p.name }}</span>
+        </span>
         <span class="me" :style="{ left: me.x + 'px', top: me.y + 'px' }" aria-hidden="true"></span>
         <!-- 재생 중 사진 카드: 사진 찍은 시각을 지나면 점 위에 떠요. 누르면 크게 보기 -->
         <button
@@ -732,6 +748,10 @@ function toggleMapType() {
 /* 핀 판이 지도를 덮어도 끌기·확대가 지도로 가게: 판은 안 눌리고, 안의 핀·정보창·사진 카드만 눌림 */
 .scr-Retro .retro-layer{pointer-events:none}
 .scr-Retro .retro-layer .pin,.scr-Retro .retro-layer .payinfo,.scr-Retro .retro-layer .retro-float{pointer-events:auto}
+/* 계획 없이 머문 곳 핀: 계획 장소 핀(남색 숫자)과 구별되게 코랄 동그라미 + 아이콘 */
+.scr-Retro .retro-xpin{position:absolute;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:50%;background:var(--coral);border:2px solid #fff;box-shadow:0 2px 6px rgba(24,33,58,.35);display:flex;align-items:center;justify-content:center;color:#fff}
+.scr-Retro .retro-xpin .ic{width:13px;height:13px}
+.scr-Retro .retro-xpin__name{position:absolute;left:26px;top:50%;transform:translateY(-50%);white-space:nowrap;font-size:11px;font-weight:700;color:var(--ink);background:rgba(255,255,255,.92);padding:1px 6px;border-radius:6px}
 /* 정보 시트: 처음엔 지도 아래(340px)부터. 안쪽만 스크롤 (TripPage의 trip-sheet와 같은 모양) */
 .scr-Retro .retro-sheet{top:340px;padding:8px 0 0;gap:10px}
 .scr-Retro .retro-sheet__head{padding:0 16px}
