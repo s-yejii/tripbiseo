@@ -1297,6 +1297,12 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | stops[].actualStay | number (null 가능) | 실제 머문 분. 출발 기록이 없으면 `null` |
 | track[] | object[] | GPS 점 (기록 순) `{lat, lng, day, time}`. `day` = 기록 날짜 − 시작 날짜 + 1 |
 | movedMeters | number | 이동 거리(m). GPS 점 사이 거리를 기록 순서대로 더한 값. 탈것으로 이동한 거리도 포함. 점이 2개 미만이면 `0` |
+| extraStops[] | object[] | 계획 없이 머문 곳 (11/07 추가). GPS로 찾음, 없으면 `[]`. `{day, name, lat, lng, arrive, stay, kind}` |
+| extraStops[].arrive, stay | string, number | 온 시각 `HH:mm`, 머문 분 |
+| extraStops[].kind | string | `visit`(들른 곳) / `lodging`(숙소로 보이는 곳: 자정을 넘겨 머묾) |
+| extraStops[].name | string (null 가능) | 장소 이름. 아직 안 채움(항상 `null`) |
+
+> 머문 곳 찾기 (11/07): GPS 점을 앞에서부터, 덩어리 첫 점에서 **100m** 안에 연달아 있는 점끼리 묶어요. 머문 분 = 덩어리를 벗어난 첫 점 시각 − 첫 점 시각 (날짜까지 넣어 계산해서 밤을 넘겨도 맞음). **15분** 이상이고, 같은 날 계획 장소에서 **150m** 밖이고, 그 시각에 같은 날 계획 장소의 실제 도착 ~ 떠남 기록 안이 아니면 머문 곳이에요. 마지막 덩어리는 끝을 몰라서 빼요. 넓은 곳(궁궐·공원)에 계획 없이 가면 여러 조각으로 나올 수 있어요 → 이름을 붙일 때 같은 이름끼리 합칠 예정.
 
 ```json
 { "id": 12, "title": "서울 하루", "startDate": "2026-10-20", "endDate": "2026-10-20", "visited": 1,
