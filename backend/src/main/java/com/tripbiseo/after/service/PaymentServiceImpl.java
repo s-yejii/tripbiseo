@@ -13,8 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.tripbiseo.after.dto.CardTransaction;
+import com.tripbiseo.after.dto.Companion;
+import com.tripbiseo.after.dto.CompanionRequest;
 import com.tripbiseo.after.dto.PayerRequest;
 import com.tripbiseo.after.dto.ExtraStop;
 import com.tripbiseo.after.dto.Payment;
@@ -22,6 +25,7 @@ import com.tripbiseo.after.dto.PaymentRequest;
 import com.tripbiseo.after.dto.PaymentResponse;
 import com.tripbiseo.after.dto.RetroResponse;
 import com.tripbiseo.after.dto.RetroStop;
+import com.tripbiseo.after.mapper.CompanionMapper;
 import com.tripbiseo.after.mapper.PaymentMapper;
 import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.CodefApproval;
@@ -50,6 +54,7 @@ public class PaymentServiceImpl implements PaymentService {
     private static final String DEFAULT_PAYER = "나";
 
     private final PaymentMapper paymentMapper;
+    private final CompanionMapper companionMapper; // 같이 간 사람 (⑤ trip_companion)
     private final RetroService retroService; // 같은 ⑤: 실제 도착·머문 시간, 머문 곳 (남의 여행이면 여기서 404)
     private final CodefClient codefClient;   // CODEF 개인카드 승인내역 (11/07)
 
@@ -95,6 +100,73 @@ public class PaymentServiceImpl implements PaymentService {
         int changed = paymentMapper.updatePayer(tripId, paymentId, request.getPayer().trim());
         if (changed == 0) throw fail(404, "결제를 찾을 수 없어요.");
         return paymentMapper.selectPayment(paymentId);
+    }
+
+    /** 같이 간 사람 목록. 처음이면 여행 인원만큼 만들어 둠 (여러 줄 저장이라 @Transactional) */
+    @Override
+    @Transactional
+    public List<Companion> getCompanionList(long memberId, long tripId) {
+        RetroResponse retro = retroService.getRetro(memberId, tripId);
+        return loadOrCreateCompanions(tripId, retro.getPeople());
+    }
+
+    /** 같이 간 사람 추가 (맨 뒤에) */
+    @Override
+    @Transactional
+    public List<Companion> createCompanion(long memberId, long tripId, CompanionRequest request) {
+        RetroResponse retro = retroService.getRetro(memberId, tripId);
+        List<Companion> list = loadOrCreateCompanions(tripId, retro.getPeople());
+        String name = checkName(request, list);
+        Companion companion = new Companion();
+        companion.setTripId(tripId);
+        companion.setName(name);
+        companion.setSortNo(list.get(list.size() - 1).getSortNo() + 1); // 맨 뒤 번호 + 1
+        companionMapper.insertCompanion(companion);
+        return companionMapper.selectCompanionList(tripId);
+    }
+
+    /** 이름 바꾸기. 결제의 낸 사람(payer)도 이름 글자라서 같이 바꿈 → 두 번 쓰니까 @Transactional */
+    @Override
+    @Transactional
+    public List<Companion> updateCompanion(long memberId, long tripId, long companionId, CompanionRequest request) {
+        RetroResponse retro = retroService.getRetro(memberId, tripId);
+        List<Companion> list = loadOrCreateCompanions(tripId, retro.getPeople());
+        Companion target = null; // 바꿀 사람
+        for (Companion companion : list) {
+            if (companion.getId() == companionId) target = companion;
+        }
+        if (target == null) throw fail(404, "같이 간 사람을 찾을 수 없어요.");
+        if (target.getSortNo() == 0) throw fail(400, "'나'는 이름을 바꿀 수 없어요.");
+        String name = checkName(request, list);
+        companionMapper.updateCompanionName(tripId, companionId, name);
+        companionMapper.updatePayerName(tripId, target.getName(), name);
+        return companionMapper.selectCompanionList(tripId);
+    }
+
+    // 저장된 목록. 없으면 '나' + 동행 1 … (인원 − 1)을 저장하고 돌려줌. 예: 인원 3 → 나, 동행 1, 동행 2
+    private List<Companion> loadOrCreateCompanions(long tripId, Integer people) {
+        List<Companion> list = companionMapper.selectCompanionList(tripId);
+        if (!list.isEmpty()) return list;
+        int count = (people == null || people < 1) ? 1 : people;
+        for (int i = 0; i < count; i++) {
+            Companion companion = new Companion();
+            companion.setTripId(tripId);
+            companion.setName(i == 0 ? DEFAULT_PAYER : "동행 " + i);
+            companion.setSortNo(i);
+            companionMapper.insertCompanion(companion);
+        }
+        return companionMapper.selectCompanionList(tripId);
+    }
+
+    // 이름 확인: 비었나, 20자 넘나, 이미 있나. 앞뒤 빈칸 뺀 이름을 돌려줌
+    private static String checkName(CompanionRequest request, List<Companion> list) {
+        if (request.getName() == null || request.getName().isBlank()) throw fail(400, "이름을 적어 주세요.");
+        String name = request.getName().trim();
+        if (name.length() > PAYER_MAX) throw fail(400, "이름은 20자까지예요.");
+        for (Companion companion : list) {
+            if (companion.getName().equals(name)) throw fail(400, "같은 이름이 있어요.");
+        }
+        return name;
     }
 
     /**

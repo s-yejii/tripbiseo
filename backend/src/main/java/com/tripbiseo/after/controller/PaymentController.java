@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tripbiseo.after.dto.CardTransaction;
+import com.tripbiseo.after.dto.Companion;
+import com.tripbiseo.after.dto.CompanionRequest;
 import com.tripbiseo.after.dto.PayerRequest;
 import com.tripbiseo.after.dto.PaymentRequest;
 import com.tripbiseo.after.dto.PaymentResponse;
@@ -42,6 +44,24 @@ public class PaymentController {
     @PutMapping("/api/trips/{id}/payments/{paymentId}/payer")
     public PaymentResponse updatePayer(@PathVariable long id, @PathVariable long paymentId, @RequestBody PayerRequest request) {
         return paymentService.updatePayer(loginUser.id(), id, paymentId, request);
+    }
+
+    /** 같이 간 사람 목록 (처음이면 여행 인원만큼 만들어 둠) */
+    @GetMapping("/api/trips/{id}/companions")
+    public List<Companion> getCompanionList(@PathVariable long id) {
+        return paymentService.getCompanionList(loginUser.id(), id);
+    }
+
+    /** 같이 간 사람 추가 */
+    @PostMapping("/api/trips/{id}/companions")
+    public List<Companion> createCompanion(@PathVariable long id, @RequestBody CompanionRequest request) {
+        return paymentService.createCompanion(loginUser.id(), id, request);
+    }
+
+    /** 같이 간 사람 이름 바꾸기 */
+    @PutMapping("/api/trips/{id}/companions/{companionId}")
+    public List<Companion> updateCompanion(@PathVariable long id, @PathVariable long companionId, @RequestBody CompanionRequest request) {
+        return paymentService.updateCompanion(loginUser.id(), id, companionId, request);
     }
 
     /** 카드 승인내역 (목업. 나중에 CODEF) */

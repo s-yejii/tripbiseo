@@ -132,6 +132,7 @@
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
 | `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동). 누가 냈는지(나눠 내기)는 아직 | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
 | `PUT /api/trips/{id}/payments/{paymentId}/payer` | 결제의 낸 사람 바꾸기 (정산용) | after/RetroView | 있음 (11/07) |
+| `GET·POST /api/trips/{id}/companions`, `PUT /api/trips/{id}/companions/{companionId}` | 같이 간 사람 목록·추가·이름 바꾸기 (정산의 낸 사람) | after/RetroView | 있음 (11/07) |
 | `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (지금은 다녀온 곳으로 만든 목업, 나중에 CODEF) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
 | `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
@@ -1314,6 +1315,19 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 **요청** `{payer: "동행 1"}` · **응답** 바꾼 결제 하나 (목록과 같은 모양)
 
 **오류** 400 "낸 사람을 골라 주세요." · 400 "낸 사람 이름은 20자까지예요." · 404 "여행을 찾을 수 없어요." · 404 "결제를 찾을 수 없어요." (이 여행 결제가 아님)
+
+### `GET /api/trips/{id}/companions`
+같이 간 사람 목록, 보이는 순서대로. **처음 부르면** 여행 인원(`people`)만큼 `나`, `동행 1` … 을 만들어 저장해요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{id, tripId, name, friendMemberId, sortNo}]` — `sortNo` 0이 `나`. `friendMemberId`는 친구 기능(①)이 생기면 친구 회원 번호, 지금은 `null`
+
+### `POST /api/trips/{id}/companions`
+같이 간 사람 추가 (맨 뒤). **요청** `{name}` · **응답** 바뀐 목록
+
+### `PUT /api/trips/{id}/companions/{companionId}`
+이름 바꾸기. 그 사람이 낸 결제의 `payer`도 같이 바꿔요. **요청** `{name}` · **응답** 바뀐 목록
+
+**오류 (셋 공통)** 400 "이름을 적어 주세요." · 400 "이름은 20자까지예요." · 400 "같은 이름이 있어요." · 400 "'나'는 이름을 바꿀 수 없어요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
 
 ### `GET /api/trips/{id}/card-transactions`
 카드 승인내역. **지금은 목업**: 실제로 다녀온 곳마다 (도착 + 20분, 분류로 정한 금액), 계획 없이 머문 곳마다 (도착 + 20분, 9,800원), 숙소로 보이는 곳은 (도착 + 5분, 89,000원). CODEF 개인카드 승인내역(`/v1/kr/card/p/account/approval-list`)과 연결함(11/07): `CODEF_SERVICE_TYPE`이 `demo`·`product`이고 카드사 연결(connectedId)이 있으면 **진짜 내역**(정상 승인만, 부분취소는 뺀 금액, 여행 기간 안만), `sandbox`면 연결만 확인하고(샌드박스는 값이 `****`로 가려져 옴) 목업, 키가 없으면 목업. 카드사 연결이 없는데 데모 키면 400 "카드사를 먼저 연결해 주세요." CODEF 실패는 502. · 로그인 필요 · 화면: after/RetroView (11/07)

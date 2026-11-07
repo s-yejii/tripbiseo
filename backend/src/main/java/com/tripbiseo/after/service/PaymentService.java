@@ -3,6 +3,8 @@ package com.tripbiseo.after.service;
 import java.util.List;
 
 import com.tripbiseo.after.dto.CardTransaction;
+import com.tripbiseo.after.dto.Companion;
+import com.tripbiseo.after.dto.CompanionRequest;
 import com.tripbiseo.after.dto.PayerRequest;
 import com.tripbiseo.after.dto.PaymentRequest;
 import com.tripbiseo.after.dto.PaymentResponse;
@@ -18,6 +20,15 @@ public interface PaymentService {
 
     /** 결제의 낸 사람 바꾸기 (정산용). 바꾼 결제를 돌려줌 */
     PaymentResponse updatePayer(long memberId, long tripId, long paymentId, PayerRequest request);
+
+    /** 같이 간 사람 목록 (정산의 낸 사람). 처음이면 여행 인원만큼 '나', '동행 1' … 을 만들어 둠 */
+    List<Companion> getCompanionList(long memberId, long tripId);
+
+    /** 같이 간 사람 추가. 바뀐 목록을 돌려줌 */
+    List<Companion> createCompanion(long memberId, long tripId, CompanionRequest request);
+
+    /** 같이 간 사람 이름 바꾸기 (그 사람이 낸 결제의 이름도 같이). 바뀐 목록을 돌려줌 */
+    List<Companion> updateCompanion(long memberId, long tripId, long companionId, CompanionRequest request);
 
     /** 카드 승인내역. 지금은 실제로 다녀온 곳으로 만든 목업 (나중에 CODEF) */
     List<CardTransaction> getCardTransactionList(long memberId, long tripId);
