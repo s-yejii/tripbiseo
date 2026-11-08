@@ -18,7 +18,11 @@ const isFake = !!places[route.query.id] || !route.query.id
 const id = places[route.query.id] ? route.query.id : 'daelim'
 const server = ref(null) // 서버 장소 상세 (화면이 쓰는 모양으로 바꾼 것)
 const place = computed(() => server.value || places[id])
-const inPlan = concertTrip.stops.some((stop) => stop.id === id)
+// 실제 장소는 지금 만드는 여행 초안(draft)에 담겼는지로 확인. id가 숫자·글자 섞일 수 있어 글자로 바꿔 비교. 담으면 바로 바뀌게 computed
+const inPlan = computed(() => {
+  if (isFake) return concertTrip.stops.some((stop) => stop.id === id)
+  return store.draft.stops.some((stop) => stop.placeId != null && String(stop.placeId) === String(route.query.id))
+})
 const saved = ref(false)
 
 onMounted(async () => {
