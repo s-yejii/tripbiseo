@@ -278,7 +278,9 @@ const head = computed(() => {
   const now = toMinutes(status.value.now)
   const current = currentStop.value
   if (current) {
-    const start = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
+    const arrived = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
+    const isFromPlan = current.fixed || /숙소|호텔|숙박|모텔|게스트하우스/.test(current.category || '') // 예약·숙소는 일찍 와도 계획 시각부터 (서버 LiveStopFinder와 같음)
+    const start = isFromPlan ? Math.max(arrived, toMinutes(current.time)) : arrived
     const leaveAt = start + (current.stay || 0)
     const left = leaveAt - now
     if (left >= 0) {

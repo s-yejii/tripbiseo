@@ -105,6 +105,10 @@ public class LiveStopFinder {
             // "2026-11-01T13:30:00"에서 "13:30" 부분만
             arrived = Geo.toMinutes(current.getArrivedAt().substring(11, 16));
         }
+        // 예약(고정)·숙소는 일찍 도착해도 계획 시각부터 머묾 (11/08: 회식 18:30에 17:33 도착하면 19:13에 나가라고 하던 문제)
+        if (Boolean.TRUE.equals(current.getFixed()) || isStay(current)) {
+            arrived = Math.max(arrived, Geo.toMinutes(current.getTime()));
+        }
         return arrived + getStay(current);
     }
 
