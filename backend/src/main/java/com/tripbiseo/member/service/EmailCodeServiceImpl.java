@@ -53,7 +53,7 @@ public class EmailCodeServiceImpl implements EmailCodeService {
             throw fail(429, "인증번호는 1분에 한 번 받을 수 있어요.");
         }
         String code = String.format("%06d", random.nextInt(CODE_RANGE));
-        mailClient.send(address, "[여행어때] 인증번호 " + code, makeMailText(code, purpose));
+        mailClient.send(address, "[착착트립] 인증번호 " + code, makeMailText(code, purpose));
         codes.put(key, new EmailCode(code, clientId, now));
 
         EmailCodeResponse response = new EmailCodeResponse();
@@ -121,7 +121,7 @@ public class EmailCodeServiceImpl implements EmailCodeService {
 
     private String makeMailText(String code, String purpose) {
         String what = PURPOSE_SIGNUP.equals(purpose) ? "회원가입" : "아이디·비밀번호 찾기";
-        return "여행어때 " + what + " 인증번호는 " + code + " 예요.\n"
+        return "착착트립 " + what + " 인증번호는 " + code + " 예요.\n"
              + "5분 안에 화면에 입력해 주세요.\n\n"
              + "직접 요청하지 않았다면 이 메일은 무시해도 돼요.";
     }

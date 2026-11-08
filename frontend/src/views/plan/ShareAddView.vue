@@ -1,5 +1,5 @@
 <script setup>
-// S09-b 인스타 릴스에서 담기 (③): 인스타에서 "공유 → 여행어때"를 누르면 뜨는 창
+// S09-b 인스타 릴스에서 담기 (③): 인스타에서 "공유 → 착착트립"를 누르면 뜨는 창
 // 찾은 장소를 고르고, 어느 여행에 넣을지 고르면 동선에 맞는 자리에 넣어요
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -34,7 +34,7 @@ function add() {
       <BottomSheet closable role="dialog" aria-modal="true" style="gap: 14px">
         <div class="sheet__head">
           <span class="ico-tile sa-logo"><i class="ic ic--s i-pin" aria-hidden="true"></i></span>
-          <h1 class="h-title">여행어때에 담기</h1>
+          <h1 class="h-title">착착트립에 담기</h1>
           <RouterLink to="/new" class="iconbtn iconbtn--soft" aria-label="닫기"><i class="ic i-close" aria-hidden="true"></i></RouterLink>
         </div>
         <p class="t-cap" style="margin-top: -8px">릴스에서 장소 2곳을 찾았어요</p>
