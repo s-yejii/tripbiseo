@@ -11,7 +11,7 @@ import ChipScroller from '@/components/common/ChipScroller.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TripPage from '@/components/trip/TripPage.vue'
-import { stopWon, toWonText } from '@/utils/budget'
+import { SHOW_PRICE_ESTIMATE, stopWon, toWonText } from '@/utils/budget'
 import { useStopPhotos } from '@/utils/useStopPhotos'
 import { concertTrip } from '@/data/trips'
 import { modes } from '@/data/places'
@@ -45,7 +45,7 @@ const stopPhotos = useStopPhotos(() => (hasDraft.value ? store.draft.stops.filte
 // 칸 오른쪽 아래 금액 글자 (숙소처럼 넣지 않는 곳은 없음, 저장 전 초안에만)
 function costTextOf(stop) {
   const won = stopWon(stop)
-  return hasDraft.value && won !== null && won !== undefined ? toWonText(won) : null
+  return SHOW_PRICE_ESTIMATE && hasDraft.value && won !== null && won !== undefined ? toWonText(won) : null
 }
 const trip = computed(() => ({
   ...baseTrip.value,
@@ -184,7 +184,7 @@ async function save() {
 
 <template>
   <div class="scr scr-PlanCheck">
-    <TripPage :trip="trip" back="/trips" :show-budget="hasDraft" :sim-me="sim.me.value" :active-stop="sim.activeStop.value" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode">
+    <TripPage :trip="trip" back="/trips" :show-budget="hasDraft && SHOW_PRICE_ESTIMATE" :sim-me="sim.me.value" :active-stop="sim.activeStop.value" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode">
       <template #right="{ selected }">
         <RouteSimButton v-if="hasDraft" :sim="sim" />
         <RouterLink v-if="selected !== null && !sim.isOn.value" :to="editLink(selected)" class="btn btn--sm btn--float"><i class="ic ic--s i-edit" aria-hidden="true"></i>{{ editLabel(selected) }}</RouterLink>
