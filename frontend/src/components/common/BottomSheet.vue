@@ -5,6 +5,7 @@
 //   - 손잡이를 누르거나(Enter) 머리 위에서 휠을 굴려도 펼치고 내려요
 //   - 같은 화면(.app)의 data-sheet-follow 붙은 것(지도 위 버튼·칩)은 시트와 같이 움직여요
 //   - closable: 내려서 닫는 시트. 끌어 내리거나 손잡이·바깥 어두운 막을 누르면 닫혀요 (onClose가 없으면 뒤로 가기)
+//   - expandable: 맨 위(상단 바 아래) / 중간 / 내리기(손잡이만) 세 단계. 놓으면 가까운 단계로
 // 예) <BottomSheet class="sheet--peek" style="top: 440px"> <div data-drag>머리</div> 내용 </BottomSheet>
 //     내용이 짧은 시트는 <BottomSheet data-drag>처럼 시트 자체에 붙이면 어디를 잡아도 끌려요 (버튼·링크는 그대로 눌림)
 import { onMounted, onUnmounted, ref } from 'vue'
@@ -14,6 +15,7 @@ import { goBack } from '@/utils/back'
 const props = defineProps({
   closable: { type: Boolean, default: false },
   onClose: { type: Function, default: null },
+  expandable: { type: Boolean, default: false }, // 켜면 위로 끌어 맨 위까지도 펼침 (일정 화면)
 })
 const route = useRoute()
 const CLOSE_DRAG_PX = 80 // 이만큼 넘게 내리면 닫힘
@@ -26,9 +28,14 @@ const SNAP_FROM_CLOSED = 0.65 // 내린 상태에서 끌 때: 이 비율보다 �
 const ANIMATION = 'transform .28s cubic-bezier(.2,.8,.2,1)'
 const GRAB_AREA = '.handle, .sheet__head, .trip-head, [data-drag]'
 const NOT_GRAB = 'a, button, input, textarea, label, select'
+const TOP_BAR_BOTTOM_PX = 103 // 상단 바를 못 찾을 때 맨 위 높이 (상태바 47 + 상단 바 56)
+const TOP_ANIMATION = 'top .28s cubic-bezier(.2,.8,.2,1)'
+const LEVELS = ['full', 'middle', 'down'] // expandable 높이 단계 (위에서부터)
 
 const sheet = ref(null)
 const isCollapsed = ref(false)
+const level = ref('middle') // expandable: 지금 단계 'full' 맨 위 / 'middle' 중간 / 'down' 손잡이만
+let middleTop = 0 // expandable: 처음(중간) 시트 위쪽 끝(px)
 let drag = null // 끄는 중: { startY, scale, base, offset, max, isMoved, isHandle }
 
 // 아래로 내보낸 뒤 닫기
@@ -42,6 +49,7 @@ function closeSheet() {
 
 let dimElement = null
 onMounted(() => {
+  if (props.expandable) middleTop = sheet.value.offsetTop
   if (!props.closable) return
   dimElement = sheet.value.parentElement.querySelector(':scope > .dim')
   if (dimElement) dimElement.addEventListener('click', closeSheet)
@@ -50,13 +58,18 @@ onUnmounted(() => {
   if (dimElement) dimElement.removeEventListener('click', closeSheet)
 })
 
-// 가장 많이 내릴 수 있는 거리(px): 아래 버튼 줄(.cta)이 있으면 그 위까지
-function maxOffset() {
-  if (props.closable) return sheet.value.offsetHeight
+// 내렸을 때 시트 위쪽 끝(px): 아래 버튼 줄(.cta)이 있으면 그 위, 손잡이만 남게
+function collapsedTop() {
   const app = sheet.value.parentElement
   const cta = app.querySelector(':scope > .cta')
   const bottom = cta ? cta.offsetTop : app.offsetHeight
-  return Math.max(0, bottom - HANDLE_LEFT_PX - sheet.value.offsetTop)
+  return bottom - HANDLE_LEFT_PX
+}
+
+// 가장 많이 내릴 수 있는 거리(px)
+function maxOffset() {
+  if (props.closable) return sheet.value.offsetHeight
+  return Math.max(0, collapsedTop() - sheet.value.offsetTop)
 }
 
 // 시트와 같이 움직일 것들 + 어둡게 덮은 막(.dim)
@@ -85,8 +98,61 @@ function setCollapsed(collapsed) {
   setOffset(collapsed ? maxOffset() : 0, true)
 }
 
+// --- 아래 6개는 expandable 시트만 씀 ---
+
+// 맨 위 높이(px) = 상단 바 바로 아래
+function expandedTop() {
+  const topBar = sheet.value.parentElement.querySelector(':scope > .topbar')
+  return topBar ? topBar.offsetTop + topBar.offsetHeight : TOP_BAR_BOTTOM_PX
+}
+
+// 단계 이름 → 시트 위쪽 끝(px)
+function topOf(name) {
+  if (name === 'full') return expandedTop()
+  if (name === 'down') return collapsedTop()
+  return middleTop
+}
+
+// 시트 위쪽 끝을 top(px)으로 옮김. 중간보다 내려가면 지도 위 버튼도 같이 내려감
+function setTop(top, isAnimated) {
+  sheet.value.style.transition = isAnimated ? TOP_ANIMATION : 'none'
+  sheet.value.style.top = top + 'px'
+  moveWith(Math.max(0, top - middleTop), isAnimated)
+}
+
+// 한 단계로 붙임 ('full' 맨 위 / 'middle' 중간 / 'down' 손잡이만)
+function setLevel(name) {
+  level.value = name
+  isCollapsed.value = name === 'down' // 내리기는 원래 내린 모양(내용 숨김) 그대로
+  setTop(topOf(name), true)
+}
+
+// 놓은 자리(top)에서 가장 가까운 단계
+function nearestLevel(top) {
+  let best = 'middle'
+  for (const name of LEVELS) {
+    if (Math.abs(topOf(name) - top) < Math.abs(topOf(best) - top)) best = name
+  }
+  return best
+}
+
+// 휠: 한 단계 위(-1) / 아래(+1). 끝이면 그대로
+function stepLevel(step) {
+  const i = LEVELS.indexOf(level.value) + step
+  if (i >= 0 && i < LEVELS.length) setLevel(LEVELS[i])
+}
+
+// 손잡이를 화면 읽기 프로그램이 읽어 주는 말
+function handleLabel() {
+  if (props.expandable && level.value === 'middle') return '시트 맨 위로 펼치기'
+  if (props.expandable && level.value === 'full') return '시트 원래 높이로 내리기'
+  return isCollapsed.value ? '시트 펼치기' : '시트 내리기'
+}
+
+// 손잡이 누르기: 펼치는 시트는 중간 → 맨 위, 맨 위·내리기 → 중간
 function toggle() {
   if (props.closable) return closeSheet()
+  if (props.expandable) return setLevel(level.value === 'middle' ? 'full' : 'middle')
   setCollapsed(!isCollapsed.value)
 }
 
@@ -96,7 +162,9 @@ function onPointerDown(e) {
   if (e.target.closest(NOT_GRAB)) return // 머리 안의 버튼·링크는 그대로 눌리게
   const scale = sheet.value.getBoundingClientRect().height / sheet.value.offsetHeight || 1 // 화면이 축소돼 보일 때 보정
   const max = maxOffset()
-  drag = { startY: e.clientY, scale, base: isCollapsed.value ? max : 0, offset: 0, max, isMoved: false, isHandle: grab.classList.contains('handle') }
+  let base = isCollapsed.value ? max : 0
+  if (props.expandable) base = sheet.value.offsetTop // 펼치는 시트: 지금 위쪽 끝(px)에서 시작
+  drag = { startY: e.clientY, scale, base, offset: 0, max, isMoved: false, isHandle: grab.classList.contains('handle') }
   e.preventDefault()
   window.addEventListener('pointermove', onPointerMove, { passive: false })
   window.addEventListener('pointerup', onPointerUp)
@@ -108,8 +176,13 @@ function onPointerMove(e) {
   const moved = (e.clientY - drag.startY) / drag.scale
   if (!drag.isMoved && Math.abs(moved) < MOVE_START_PX) return
   drag.isMoved = true
-  drag.offset = Math.min(drag.max, Math.max(0, drag.base + moved))
-  setOffset(drag.offset, false)
+  if (props.expandable) {
+    drag.offset = Math.min(collapsedTop(), Math.max(expandedTop(), drag.base + moved)) // 맨 위~내리기 사이
+    setTop(drag.offset, false)
+  } else {
+    drag.offset = Math.min(drag.max, Math.max(0, drag.base + moved))
+    setOffset(drag.offset, false)
+  }
   e.preventDefault()
 }
 
@@ -122,11 +195,13 @@ function onPointerUp() {
     if (done.isHandle) toggle() // 손잡이를 그냥 누름
     return
   }
-  const limit = done.base ? done.max * SNAP_FROM_CLOSED : done.max * SNAP_FROM_OPEN
-  if (props.closable) {
+  if (props.expandable) {
+    setLevel(nearestLevel(done.offset)) // 세 단계 중 가까운 곳으로
+  } else if (props.closable) {
     if (done.offset > CLOSE_DRAG_PX) closeSheet()
     else setOffset(0, true) // 덜 내리면 되돌아옴
   } else {
+    const limit = done.base ? done.max * SNAP_FROM_CLOSED : done.max * SNAP_FROM_OPEN
     setCollapsed(done.offset > limit)
   }
   // 끌기를 끝낸 순간 손가락 밑 카드가 눌리지 않게 잠깐 막음
@@ -141,6 +216,7 @@ function onPointerUp() {
 // 머리 위에서 휠: 아래로 굴리면 내리고, 위로 굴리면 펼침
 function onWheel(e) {
   if (!e.target.closest(GRAB_AREA) || props.closable) return
+  if (props.expandable) return stepLevel(e.deltaY < 0 ? -1 : 1)
   if (e.deltaY > 0 && !isCollapsed.value) setCollapsed(true)
   else if (e.deltaY < 0 && isCollapsed.value) setCollapsed(false)
 }
@@ -160,7 +236,7 @@ onUnmounted(removeListeners)
       class="handle"
       role="button"
       tabindex="0"
-      :aria-label="isCollapsed ? '시트 펼치기' : '시트 내리기'"
+      :aria-label="handleLabel()"
       :aria-expanded="!isCollapsed"
       @keydown.enter.prevent="toggle"
       @keydown.space.prevent="toggle"
