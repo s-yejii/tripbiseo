@@ -15,12 +15,14 @@ import StartConflictSheet from '@/components/trip/StartConflictSheet.vue'
 
 const route = useRoute()
 const store = useTripStore()
-const { saved, view, isLoading, error, load } = useTripDetail()
+const { saved, view, isLoading, error, load, loadDay } = useTripDetail()
 const { conflict, start, retry } = useStartTrip()
 
 onMounted(async () => {
   const tripId = route.query.id || store.tripId || (await store.findOngoingTripId())
   await load(tripId)
+  const day = Number(route.query.day || 1)
+  if (day > 1) await loadDay(day) // ?day=2: 그날 일정으로 (11/08: 여행 중 화면 "2일차 일정 보기")
 })
 
 </script>

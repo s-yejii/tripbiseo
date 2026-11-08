@@ -27,6 +27,7 @@ import LiveCards from '@/components/live/LiveCards.vue'
 import DevDot from '@/components/live/DevDot.vue'
 import DemoBar from '@/components/live/DemoBar.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
+import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
@@ -105,6 +106,13 @@ const remainingStops = computed(() => stops.value.filter((stop) => stop.reach !=
 const nextStop = computed(() => remainingStops.value[0] || null)
 const doneCount = computed(() => stops.value.filter((stop) => stop.reach === 'done').length)
 const isAllDone = computed(() => isReady.value && !currentStop.value && remainingStops.value.length === 0)
+// 여러 날 여행에서 오늘이 마지막 날이 아니면 "여행 마치기" 대신 다음 날 일정 보기 (11/08 주형: 1일차 숙소에서 여행이 끝나 버리던 문제)
+const nextDayNo = computed(() => {
+  const trip = live.trip.value
+  const today = todayText()
+  if (!trip || !trip.endDate || today >= trip.endDate) return null
+  return daysBetween(trip.startDate, today) + 2
+})
 const fixed = computed(() => (isReady.value ? status.value.fixed : null))
 const lateMin = computed(() => (fixed.value && fixed.value.slackMin < 0 ? -fixed.value.slackMin : 0))
 const isLate = computed(() => isReady.value && status.value.replan && lateMin.value > 0)
@@ -659,7 +667,8 @@ function restartMoving() {
           <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
             <div v-if="isAllDone" class="cta__row">
               <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=/live'" class="btn btn--secondary btn--lg">일정 보기</RouterLink>
-              <button type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="finish"><i class="ic i-flag" aria-hidden="true"></i>여행 마치기</button>
+              <RouterLink v-if="nextDayNo" :to="'/trips/today?id=' + live.tripId.value + '&day=' + nextDayNo + '&back=/live'" class="btn btn--primary btn--lg"><i class="ic i-calendar" aria-hidden="true"></i>{{ nextDayNo }}일차 일정 보기</RouterLink>
+              <button v-else type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="finish"><i class="ic i-flag" aria-hidden="true"></i>여행 마치기</button>
             </div>
             <div v-else class="cta__row">
               <RouterLink v-if="isLate" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
