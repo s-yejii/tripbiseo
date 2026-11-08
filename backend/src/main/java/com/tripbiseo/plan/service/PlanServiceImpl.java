@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.dev.DevService;
 import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.FoundArea;
 import com.tripbiseo.common.util.Geo;
@@ -92,6 +93,7 @@ public class PlanServiceImpl implements PlanService {
     private static final double ROAD_DETOUR = 1.3;   // 직선 거리 → 실제 길 (RouteClient와 같음)
     private static final int MIN_WALK_LIMIT = 5;     // 걷는 분 상한은 5~60분으로
     private static final int MAX_WALK_LIMIT = 60;
+    private static final int DEMO_STEP_MS = 900; // 시연 계정 일정 만들기: 진행 단계 하나를 보여 주는 시간
     private static final int BOARDING_BUFFER_MIN = 15; // 기차·버스·비행기는 출발 15분 전 도착 (KTX 19:00 → 18:45, 11/06)
     private static final String MUST = "must";       // 일정 칸 중요도 (trip_stop.importance)
     private static final String MAYBE = "maybe";
@@ -105,6 +107,8 @@ public class PlanServiceImpl implements PlanService {
     private final PlanLimitChecker planLimitChecker;       // 끝 장소·도착 마감, 걷는 시간 상한 (11/04)
     private final PlanQuestionMaker planQuestionMaker;     // 대화의 다음 질문 (11/04)
     private final PlanWordGuesser planWordGuesser;         // Gemini가 안 될 때 낱말로만 조건 (11/04)
+    private final DevService devService;                   // 시연 계정인지 (11/08)
+    private final DemoScenario demoScenario;               // 시연 계정이면 이 시나리오 일정 (11/08)
 
     /** 사용자 말 → 여행 조건. 보낸 조건은 남기고 Gemini가 새로 뽑은 값만 덮어씀. Gemini 실패는 오류 그대로 (API.md) */
     @Override
@@ -189,6 +193,9 @@ public class PlanServiceImpl implements PlanService {
         PlanConditions conditions = request.getConditions();
         if (conditions == null) {
             throw fail(400, "여행 조건이 없어요.");
+        }
+        if (devService.isDemoAccount(memberId)) {
+            return makeDemoDraft(conditions, progress); // 시연 계정은 발표 시나리오 일정 (11/08 주형)
         }
         boolean isMoved = moveToTomorrowIfLate(conditions);
         PlanGenerateResponse response = makeEmptyDraft(conditions);
@@ -546,6 +553,29 @@ public class PlanServiceImpl implements PlanService {
             names.add((isManyDays ? dayOf(fixed) + "일차 " : "") + fixed.getTime() + " " + fixed.getName());
         }
         progress.accept(makeProgress("fixed", "done", 95, String.join(", ", names) + " 시간에 맞추기", null));
+    }
+
+    /** 시연 계정: 진행 단계를 평소처럼 몇 초 보여 준 뒤 시나리오 일정(DemoScenario)을 돌려줌 */
+    private PlanGenerateResponse makeDemoDraft(PlanConditions conditions, Consumer<PlanProgress> progress) {
+        String[][] steps = {
+            { "candidates", "20", "장소 후보 찾기" },
+            { "reviews", "40", "리뷰로 단체석·분위기 확인" },
+            { "ai", "80", "AI가 일정 고르기" },
+            { "fixed", "95", "회식 18:30 · KTX 19:00 시간에 맞추기" },
+        };
+        for (String[] step : steps) {
+            waitDemoStep();
+            progress.accept(makeProgress(step[0], "done", Integer.parseInt(step[1]), step[2], null));
+        }
+        return demoScenario.makeDraft(conditions);
+    }
+
+    private void waitDemoStep() {
+        try {
+            Thread.sleep(DEMO_STEP_MS); // 로딩 화면이 한 번에 지나가지 않게
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // 멈추라는 신호는 그대로 남겨 둠
+        }
     }
 
     private PlanProgress makeProgress(String step, String state, int percent, String text, String detail) {

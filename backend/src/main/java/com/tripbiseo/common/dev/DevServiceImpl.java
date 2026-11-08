@@ -122,7 +122,8 @@ public class DevServiceImpl implements DevService {
     }
 
     // 로그인한 회원의 아이디가 DEMO_ACCOUNTS 안에 있는지
-    private boolean isDemoAccount(long memberId) {
+    @Override
+    public boolean isDemoAccount(long memberId) {
         if (isBlank(demoAccounts)) {
             return false;
         }

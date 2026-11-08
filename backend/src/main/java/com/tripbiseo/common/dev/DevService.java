@@ -29,4 +29,7 @@ public interface DevService {
 
     /** 요청마다 부름: 이 회원의 시연 시계 차이(초). 안 맞췄으면 0 */
     long getOffsetSeconds(long memberId);
+
+    /** 시연 계정(DEMO_ACCOUNTS)인지. AI 일정 만들기가 시나리오 일정을 쓸지 정할 때 부름 (11/08) */
+    boolean isDemoAccount(long memberId);
 }
