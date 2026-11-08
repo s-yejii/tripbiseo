@@ -322,7 +322,7 @@ const SPEED_NORMAL = 60
 const SPEED_MOVE = 120
 const SPEED_FAST = 480
 const SHOW_ARRIVAL_MIN = 8 // 도착하고 이만큼은 보통 속도로 보여 줌
-const SLOW_BEFORE_MIN = 10 // 돌발 이만큼 앞부터 천천히
+const SLOW_BEFORE_MIN = 5 // 돌발 이만큼 앞부터 천천히 (11/08: 10 → 5분, 전체 5분 안쪽으로)
 function wantedSpeed(day, plan, nowMin) {
   for (let i = 0; i < plan.length; i++) {
     const item = plan[i]
