@@ -122,7 +122,18 @@ function toggleFakeGps() {
   emit('gps')
 }
 
+// 실수 방지: 한 번 누르면 "정말 끌까요?"로 바뀌고 3초 안에 한 번 더 눌러야 꺼짐 (11/08)
+const OFF_CONFIRM_MS = 3000
+const isOffAsked = ref(false)
+let offTimer = null
 function turnOff() {
+  if (!isOffAsked.value) {
+    isOffAsked.value = true
+    clearTimeout(offTimer)
+    offTimer = setTimeout(() => (isOffAsked.value = false), OFF_CONFIRM_MS)
+    return
+  }
+  isOffAsked.value = false
   turnOffDevMode()
   isOpen.value = false
   emit('gps')
@@ -178,7 +189,7 @@ function turnOff() {
 
       <div class="dev-panel__row">
         <button type="button" class="btn btn--secondary btn--sm" :disabled="isBusy || !offsetMinutes" @click="backToRealTime">진짜 시각으로</button>
-        <button v-if="!inline" type="button" class="btn btn--ghost btn--sm" @click="turnOff">개발자 모드 끄기</button><!-- 마이에 펼친 칸에서는 실수로 안 꺼지게 숨김 (11/08). 다시 켜기: 버전 1.0.0 5번 -->
+        <button v-if="!inline" type="button" class="btn btn--ghost btn--sm" @click="turnOff">{{ isOffAsked ? '정말 끌까요? 한 번 더 누르기' : '개발자 모드 끄기' }}</button><!-- 마이에 펼친 칸에서는 실수로 안 꺼지게 숨김 (11/08). 다시 켜기: 버전 1.0.0 5번 -->
       </div>
     </div>
   </template>

@@ -2,7 +2,7 @@
 // 마이 화면 맨 아래 버전 글자. 5번 연달아 누르면 시연 계정인지 서버에 물어보고 개발자 모드를 켜요 (③, 11/06)
 // 시연 계정이 아니면 아무 일도 없는 것처럼 보여요 (심사위원·일반 사용자에게 드러나지 않게)
 import { getDevStatus } from '@/api/dev'
-import { devMode, turnOffDevMode, turnOnDevMode } from '@/utils/devMode'
+import { devMode, setFakeGps, setFlow, syncClock, turnOffDevMode, turnOnDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const TAPS_TO_OPEN = 5
@@ -26,6 +26,9 @@ async function onTap() {
     const status = await getDevStatus()
     if (!status.allowed) return
     turnOnDevMode()
+    setFakeGps(true) // 다시 켜도 시연이 이어지게: 가짜 GPS·일정대로 흐르기·서버 시계(시각·배속)를 그대로 (11/08)
+    setFlow(true)
+    syncClock(status)
     showToast('개발자 모드를 켰어요 · 여행 중 화면의 점을 눌러 보세요')
   } catch (e) {
     // 로그인이 풀렸거나 서버가 꺼져 있으면 조용히 넘어감
