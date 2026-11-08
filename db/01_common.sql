@@ -119,3 +119,6 @@ ALTER TABLE trip_stop ADD COLUMN IF NOT EXISTS importance VARCHAR(10) NOT NULL D
 
 -- 11/03 · ① DB 총괄 확인: 회원가입 이메일 인증·계정 찾기용 이메일 (예전 회원은 NULL)
 ALTER TABLE member ADD COLUMN IF NOT EXISTS email VARCHAR(100) UNIQUE;
+
+-- 11/07 ① 이상재: 업종 큰 묶음 칸 (채우는 건 db/10 맨 끝)
+ALTER TABLE retrip_place ADD COLUMN IF NOT EXISTS biz_group VARCHAR(20);

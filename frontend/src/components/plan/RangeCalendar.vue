@@ -89,9 +89,15 @@ function dayClass(day) {
 .range-cal .cal button::before{content:"";position:absolute;z-index:-1;width:38px;height:38px;border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);transition:background .12s}
 .range-cal .cal button:hover::before{background:var(--navy-soft)}
 .range-cal .cal button.today{font-weight:700;color:var(--navy)}
-.range-cal .cal button.mid{background:var(--navy-soft)}
-.range-cal .cal button.rs{background:linear-gradient(90deg,transparent 50%,var(--navy-soft) 50%)}
-.range-cal .cal button.re{background:linear-gradient(90deg,var(--navy-soft) 50%,transparent 50%)}
-.range-cal .cal button.sel{color:#fff;font-weight:700}
+/* 고른 기간 띠: 버튼 배경 대신 ::after. 옆 칸과 1px씩 겹쳐서, 칸 너비 소수점·scale()로 생기는 이음새를 덮음 */
+/* 높이 38px 가운데 (동그라미와 같음), z-index -2 = 동그라미(::before, -1)보다 아래 */
+.range-cal .cal button.mid::after,.range-cal .cal button.rs::after,.range-cal .cal button.re::after{content:"";position:absolute;z-index:-2;top:50%;height:38px;margin-top:-19px;background:var(--navy)}
+.range-cal .cal button.mid::after{left:-1px;right:-1px}
+.range-cal .cal button.rs::after{left:50%;right:-1px}  /* 시작일: 가운데 → 오른쪽 옆 칸 1px */
+.range-cal .cal button.re::after{left:-1px;right:50%}  /* 끝날: 왼쪽 옆 칸 1px → 가운데 */
+.range-cal .cal button.mid{color:var(--on-navy)}
+.range-cal .cal button.sel{color:var(--on-navy);font-weight:700}
 .range-cal .cal button.sel::before{background:var(--navy)}
+.range-cal .cal button.rs.re::after{content:none} /* 하루만 고름(시작 = 끝): 띠 없이 동그라미만 */
+.range-cal .cal button.mid:hover::before{background:rgba(255,255,255,.2)} /* 띠 위 hover: 흰 글자가 보이게 밝은 반투명 동그라미 */
 </style>

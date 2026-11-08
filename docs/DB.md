@@ -13,7 +13,8 @@
 | `db/02_retrip_schema.sql` | 예전 결제·테마 `retrip_expense`, `retrip_theme` (+ FK 때문에 `retrip_trip`) | DB 총괄 |
 | `db/03~05_…` | 장소·리뷰 데이터 넣기 (04·05는 고치지 않음) | DB 총괄 |
 | `db/06_retrip_seed_tour_seoul.sql` | 서울 관광지·문화시설·쇼핑 (TourAPI, `source='tour'`). `db/tour/make_tour_seed.mjs`로 만들어요 (11/03) | DB 총괄 |
-| `db/08_retrip_cleanup.sql` | 여행 갈 곳이 아닌 관광공사 장소 22곳 지우기 (동상·기념비·어린이공원·~터, KBS온·국회의사당, 가게·방탈출·끝난 행사) + 편의시설 값을 네이버 표준 18개만 남기기. 06 다음에 실행 (11/06) | DB 총괄 |
+| `db/07_retrip_crawl_yeongdeungpo.sql` | 영등포구 네이버 크롤링 (11/07): 새 테이블 `place_hours`·`place_menu`·`place_keyword`·`place_image` + `retrip_place` 새 칸 5개 + 영등포 기존 가게 444곳 갱신·새 가게 917곳. 크롤러(저장소 밖 `retrip_crawler`) build 결과. 06 다음, 08 전에 실행 (08·09·10을 꼭 다시 실행) | DB 총괄 |
+| `db/08_retrip_cleanup.sql` | 여행 갈 곳이 아닌 관광공사 장소 22곳 지우기 (동상·기념비·어린이공원·~터, KBS온·국회의사당, 가게·방탈출·끝난 행사) + 편의시설 값을 네이버 표준 18개만 남기기 + 폐업 16곳·크롤링 확인 3곳·중복 9곳 삭제, 좌표 3곳 + 노트북 정제(예전 관광공사 176곳·관광공사 153곳·스터디카페 34곳·애매 업종 12곳 삭제, 날짜·격주 휴무 조각, 휴무일 글 통일, 주소 "서울특별시", 사진 https). 07 다음에 실행 (11/06~07) | DB 총괄 |
 | `db/09_retrip_seed_yeongdeungpo.sql` | 시연 경로(문래·영등포·여의도) 주변 쇼핑 5·들를 곳 4·숙소 5곳(호텔 4, 비즈니스호텔 1) (`source='demo'`, 좌표 OpenStreetMap). 08 다음에 실행 (11/06) | DB 총괄 |
 | `db/10_retrip_update_demo_places.sql` | 시연 장소 평점·영업시간·소개를 네이버 지도 화면대로 고치기. 09 다음에 실행 (11/06) | DB 총괄 |
 | `db/11_member.sql` | ① 테이블 | ① |
@@ -46,6 +47,10 @@
 | 공통 | `trip_stop` | 일정 한 칸 (도착·출발 시각 포함) | ②③④⑤ | 있음 |
 | 공통 | `retrip_place` | 장소 (네이버 카페·음식점 11,496곳 + 종로 TourAPI 225곳) | ②③④⑤ | 있음 |
 | 공통 | `retrip_review` | 장소 리뷰 | ② | 있음 |
+| 공통 | `place_hours` | 요일별 영업시간·브레이크·라스트오더 (네이버 크롤링) | ②③④ 읽기 | 있음 (11/07, 영등포만) |
+| 공통 | `place_menu` | 메뉴·가격 (네이버 크롤링) | ② 읽기 | 있음 (11/07, 영등포만) |
+| 공통 | `place_keyword` | 네이버 방문자 키워드 통계 ("가성비가 좋아요" 표 수) | ③④ 읽기 (태그·조건 점수) | 있음 (11/07, 영등포만) |
+| 공통 | `place_image` | 사진 여러 장 주소 (대표 사진은 `retrip_place.image_url`) | ② 읽기 | 있음 (11/07, 영등포만) |
 | ① | `member_style` | 여행 스타일 | ③ 읽기 | 만들 예정 |
 | ① | `notification` | 알림함 | ④⑤는 `NotificationService.send`로 | 있음 (11/03) |
 | ① | `friend` | 친구 | | 만들 예정 (여유) |
@@ -139,6 +144,11 @@
 | amenities | TEXT | 편의시설 |
 | created_at, updated_at | TEXT NOT NULL | 등록·수정 시각 (문자열) |
 | geom | geography(Point, 4326), 자동 생성 | `longitude`·`latitude`로 자동 계산 (10/30 뼈대에서 추가). GIST 인덱스 `idx_retrip_place_geom` |
+| way_text | TEXT | 찾아가는 길 (예: "문래역 7번 출구에서 484m"). 11/07 크롤링(07)으로 추가 |
+| place_group | TEXT | 분류: 음식점·카페·술집·편의점·쇼핑·체험·놀거리·생활편의·숙박·관광·문화·기타 (네이버 업종 기준). 인덱스 `idx_retrip_place_group`. 11/07 추가 |
+| biz_status | TEXT | 영업 / 폐업 / 휴업 / 이전 / 확인 필요(네이버에서 사라짐). 빼려면 `COALESCE(biz_status, '영업') NOT IN ('폐업', '확인 필요')`. 11/07 추가 |
+| status_checked_at, last_review_date | TEXT | 영업 상태 확인 시각, 가장 최근 방문자 리뷰 날짜 (오래 끊기면 폐업 의심). 11/07 추가 |
+| biz_group | VARCHAR(20) | 업종 큰 묶음. 음식점·카페는 biz_type(네이버 업종)을 13개로 묶음(한식·고기·구이·해산물·일식·중식·양식·아시아·외국·패스트푸드·분식·뷔페·카페·디저트·베이커리·술집), 그 밖은 content_type_id로 관광·문화·쇼핑·숙박. 안 맞으면 NULL. biz_type 원래 값은 그대로. 칸은 `01_common.sql` 끝, 채우기는 `db/10` 맨 끝 (11/07). 아직 쓰는 코드 없음 → 쓰게 되면 ③·②와 맞추기 |
 
 > 반경·근처 검색은 `geom`으로 해요: `WHERE ST_DWithin(geom, ST_MakePoint(lng, lat)::geography, 반경m) ORDER BY geom <-> ST_MakePoint(lng, lat)::geography`
 
@@ -151,6 +161,50 @@
 | source | TEXT NOT NULL | 출처 |
 | content | TEXT NOT NULL | 리뷰 본문 |
 | created_at | TEXT NOT NULL | |
+
+### place_hours · 요일별 영업시간 (07, 11/07 크롤링)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| place_id | TEXT → retrip_place (ON DELETE CASCADE) | 장소 |
+| weekday | SMALLINT NOT NULL | 0=월 … 6=일 |
+| open_min, close_min | INT | 자정부터 분. 새벽 2시 마감이면 close_min = 1560 |
+| break_start, break_end, last_order | INT | 브레이크 타임·라스트오더 (분) |
+| closed | BOOLEAN NOT NULL DEFAULT FALSE | 그 요일 정기휴무 |
+| PK | (place_id, weekday) | |
+
+> 날짜 붙은 하루 휴무("금(10/9) 휴무")는 임시 휴무로 보고 시각을 NULL로 둬요. `use_time` 원문은 retrip_place에 그대로 있어요.
+
+### place_menu · 메뉴 (07)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| place_id | TEXT → retrip_place (ON DELETE CASCADE) | 장소 |
+| seq | INT | 순서 |
+| name | TEXT NOT NULL | 메뉴 이름 |
+| price | INT | 가격(원) |
+| is_main | BOOLEAN DEFAULT FALSE | 대표 메뉴 |
+| PK | (place_id, seq) | |
+
+### place_keyword · 방문자 키워드 통계 (07)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| place_id | TEXT → retrip_place (ON DELETE CASCADE) | 장소 |
+| keyword | TEXT NOT NULL | 네이버 키워드 (예: "가성비가 좋아요", "차분한 분위기예요". 56가지) |
+| cnt | INT NOT NULL | 그 키워드를 고른 표 수 |
+| PK | (place_id, keyword) | |
+
+> 인기 가게일수록 모든 키워드 표가 많아서, 비교할 때는 "그 가게 전체 표 중 비율"이나 "같은 종류 중 순위"로 써요. 단점(좁음·웨이팅) 키워드는 없어서 리뷰 본문으로 봐요.
+
+### place_image · 사진 여러 장 (07)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| place_id | TEXT → retrip_place (ON DELETE CASCADE) | 장소 |
+| seq | INT | 순서 (1이 대표) |
+| url | TEXT NOT NULL | 사진 주소 (파일은 저장 안 함, 화면에 출처 네이버 표시) |
+| PK | (place_id, seq) | |
 
 ---
 
