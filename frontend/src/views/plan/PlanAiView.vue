@@ -138,10 +138,6 @@ const KIND_CARDS = KIND_CHIPS.map((chip) => ({ ...withLook(chip), color: KIND_CO
 const TAG_CARDS = TAG_CHIPS.map(withLook)
 const CENTER_STEPS = ['time', 'who', 'kind', 'tag', 'move', 'fixed'] // 질문을 화면 가운데로 모으는 칸
 const isCentered = computed(() => CENTER_STEPS.includes(step.value.id))
-// 이동 수단은 기본값을 미리 골라 둠
-watch(() => step.value.id, (id) => {
-  if (id === 'move' && !store.planMoves.length) store.planMoves = [...DEFAULT_MOVES]
-}, { immediate: true })
 const moveList = [
   { label: '지하철', icon: 'i-subway', desc: '역 따라 이동' },
   { label: '도보', icon: 'i-walk', desc: '가까우면 걸어서' },
@@ -377,7 +373,7 @@ function useRecommendedTime() {
   <div class="scr scr-PlanAI">
     <div class="app" :class="{ 'pa-app--kind': step.id === 'kind' }">
       <header class="topbar">
-        <button type="button" class="iconbtn" aria-label="이전" @click="goPrev"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn" aria-label="내 여행으로" @click="router.push('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <div class="pa-bar" role="progressbar" :aria-valuenow="store.planStep + 1" aria-valuemin="1" :aria-valuemax="STEPS.length"><span :style="{ width: progress }"></span></div>
         <span class="topbar__side tn">{{ store.planStep + 1 }} / {{ STEPS.length }}</span>
       </header>

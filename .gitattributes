@@ -1,2 +1,5 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+db/0[4-7]_*.sql linguist-generated=true
+db/95_demo_seed.sql linguist-generated=true
+db/95_demo_seed.sql linguist-generated=true

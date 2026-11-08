@@ -47,7 +47,7 @@ const routes = [
   { path: '/plan/edit/delete', component: () => import('@/views/trip/DeleteConfirmView.vue'), meta: { parent: '/plan/edit', owner: 2, title: 'S10-c 일정 빼기 확인', overlay: true } },
   { path: '/trips/detail', component: () => import('@/views/trip/TripDetailView.vue'), meta: { parent: '/trips', owner: 2, title: 'S11 여행 상세 · 여행 전' } },
   { path: '/trips/today', component: () => import('@/views/trip/TripDetailTodayView.vue'), meta: { parent: '/', owner: 2, title: 'S11-b 여행 상세 · 여행 날' } },
-  { path: '/place', component: () => import('@/views/trip/PlaceView.vue'), meta: { parent: '/plan/check', history: true, owner: 2, title: 'S12 장소 상세' } },
+  { path: '/place', component: () => import('@/views/trip/PlaceView.vue'), meta: { parent: '/', history: true, owner: 2, title: 'S12 장소 상세' } }, // 장소 상세는 홈·지도·여행 중에서도 열려서 기록 없으면 홈으로
 
   // ③ 새 여행·AI 일정 만들기·테마 코스·릴스 담기
   { path: '/theme', component: () => import('@/views/plan/ThemeView.vue'), meta: { parent: '/', owner: 3, title: 'S04-d 테마 코스' } },
@@ -82,7 +82,7 @@ const routes = [
   { path: '/live/pay', component: () => import('@/views/after/PayMemoView.vue'), meta: { parent: '/live', owner: 5, title: 'S13-f 결제 메모', overlay: true } },
   { path: '/retro', component: () => import('@/views/after/RetroView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-a 지난 여행 다시보기' } },
   { path: '/album', component: () => import('@/views/after/AlbumView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-c 앨범' } },
-  { path: '/my/card', component: () => import('@/views/after/CardAddView.vue'), meta: { parent: '/my', owner: 5, title: 'S21-d 결제 카드 등록' } },
+  { path: '/my/card', component: () => import('@/views/after/CardAddView.vue'), meta: { parent: '/my', owner: 5, title: 'S21-d 카드사 연결' } },
 
   // 개발용: 전체 화면 목록
   { path: '/screens', component: () => import('@/views/ScreenListView.vue'), meta: { title: '전체 화면 목록' } },

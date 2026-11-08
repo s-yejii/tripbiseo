@@ -1,23 +1,26 @@
 <script setup>
 // 여행 중 AI 채팅 (④): 지도 아래 입력창에 말하면 AI가 세 가지 중 하나로 나눠요
-//   근처 추천 → 반경 고르기 → 평점 상위 3곳 핀 → 골라서 일정에 넣기
+//   근처 추천 → 말을 SQL로 바꿔 바로 찾기(places, 11/08) → 핀은 진짜 지도에(found로 LiveView에 넘김) → 골라서 일정에 넣기
+//             AI로 못 찾으면 예전처럼 반경 고르기 → 평점 상위 3곳 핀
 //   일정 바꾸기 → 대안 A·B·C 화면으로 (비 올 때 실내로 바꾸기는 하지 않음, 11/02 결정)
 //   일정 질문 → 오늘 일정 안에서 답
 // tripId·position을 받으면 서버(POST /live/assist·recommend·insert)를 부르고, 없으면 data/ask.js의 시연용 가짜 응답
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { examples, radiusOptions, askAssist, askRecommend } from '@/data/ask'
 import * as api from '@/api/trips'
 import { imageFor } from '@/utils/mapView'
+import { distanceMeters } from '@/utils/geo'
 
 const props = defineProps({
   me: { type: Object, required: true }, // 지금 위치 (지도 그림 위 { x, y })
   late: { type: Boolean, default: false }, // 늦은 상황인지
   tripId: { type: [Number, String], default: null }, // 있으면 서버 모드
   position: { type: Object, default: null }, // 지금 GPS { lat, lng } (서버 모드)
+  selected: { type: String, default: null }, // 진짜 지도에서 누른 AI 결과 장소 id (LiveView가 알려 줌)
 })
 const METERS_PER_PX = 4 // 지도 그림 1px ≈ 4m (반경 원 크기와 같은 비율)
-const emit = defineEmits(['close', 'add'])
+const emit = defineEmits(['close', 'add', 'found', 'unpick']) // found: 말로 찾은 결과(없으면 null), unpick: 카드 닫음
 
 const router = useRouter()
 const THINK_MS = 500 // AI가 생각하는 것처럼 잠깐 기다림 (가짜)
@@ -31,6 +34,15 @@ const radius = ref(null) // 고른 반경(m)
 const places = ref([]) // 추천 결과
 const pickedId = ref(null)
 const tags = ref([]) // 원하는 분위기 (서버가 말에서 뽑음: 혼밥·조용 …)
+const isFound = ref(false) // 말로 바로 찾은 결과(places)를 보여 주는 중
+const foundSql = ref('') // AI가 쓴 SQL (빈칸 :route 그대로, 좌표 없음)
+const foundExplain = ref('') // 어떻게 찾았는지 한 줄
+const isSqlOpen = ref(false) // "이렇게 찾았어요" 펼침
+
+// 진짜 지도에서 핀을 누르면 그 장소 카드를 열어요
+watch(() => props.selected, (id) => {
+  pickedId.value = id
+})
 const isServer = computed(() => props.tripId != null && props.position != null)
 
 const picked = computed(() => places.value.find((p) => p.id === pickedId.value))
@@ -64,7 +76,9 @@ async function sendToServer(message) {
 }
 
 function handleAssist(res, message) {
-  if (res.kind === 'ask-radius') {
+  if (res.kind === 'places') {
+    showFoundPlaces(res.found)
+  } else if (res.kind === 'ask-radius') {
     category.value = res.category
     tags.value = res.tags || []
     reply.value = `${res.category}, 어느 범위에서 찾을까요?`
@@ -73,6 +87,27 @@ function handleAssist(res, message) {
   } else {
     reply.value = res.text
   }
+}
+
+// 말로 바로 찾은 결과: 안내 한 줄 + 핀 (반경 추천과 같은 카드·일정에 넣기를 씀)
+function showFoundPlaces(found) {
+  places.value = found.places.map(placeOnPanel)
+  isFound.value = places.value.length > 0
+  foundSql.value = found.sql || ''
+  foundExplain.value = found.explain || ''
+  reply.value = places.value.length ? `${found.message}. 지도에서 핀을 눌러 골라 주세요.` : found.message
+  emit('found', isFound.value ? found : null) // 핀·띠·점선은 LiveView가 진짜 지도에 그림
+}
+
+// "이렇게 찾았어요": AI가 쓴 SQL 보이기·숨기기
+function toggleSql() {
+  isSqlOpen.value = !isSqlOpen.value
+}
+
+// 카드 닫기 (지도에서 고른 것도 풀기)
+function unpick() {
+  pickedId.value = null
+  emit('unpick')
 }
 
 // 일정 바꾸기는 대안 A·B·C 화면
@@ -97,18 +132,20 @@ async function pickRadius(meters) {
 async function recommendFromServer(meters) {
   try {
     const res = await api.askRecommend(props.tripId, props.position.lat, props.position.lng, meters, category.value, tags.value)
-    for (const place of res.places) {
-      const east = (place.lng - props.position.lng) * 111320 * Math.cos((props.position.lat * Math.PI) / 180)
-      const north = (place.lat - props.position.lat) * 110540
-      place.x = Math.round(props.me.x + east / METERS_PER_PX)
-      place.y = Math.round(props.me.y - north / METERS_PER_PX)
-      place.img = imageFor(place.category)
-    }
+    res.places = res.places.map(placeOnPanel)
     return res
   } catch (e) {
     reply.value = e.message
     return { places: [], closedSkipped: 0 }
   }
+}
+
+// 장소에 지도 그림 위치(내 위치 기준 동서·남북 거리 ÷ 4m)·사진·거리를 붙임 (반경 추천·말로 찾기 같이 씀)
+function placeOnPanel(place) {
+  const east = (place.lng - props.position.lng) * 111320 * Math.cos((props.position.lat * Math.PI) / 180)
+  const north = (place.lat - props.position.lat) * 110540
+  const distance = place.distance != null ? place.distance : Math.round(distanceMeters(props.position.lat, props.position.lng, place.lat, place.lng))
+  return { ...place, distance, x: Math.round(props.me.x + east / METERS_PER_PX), y: Math.round(props.me.y - north / METERS_PER_PX), img: imageFor(place.category) }
 }
 
 // 일정에 넣기: 서버 모드면 POST /live/insert 후 안내 문구와 함께 알림
@@ -124,6 +161,11 @@ async function addPicked() {
 }
 
 function resetRecommend() {
+  if (isFound.value) emit('found', null) // 지도에 그린 AI 결과 지우기
+  isFound.value = false
+  foundSql.value = ''
+  foundExplain.value = ''
+  isSqlOpen.value = false
   category.value = null
   radius.value = null
   places.value = []
@@ -136,7 +178,7 @@ function distText(m) {
 </script>
 
 <template>
-  <!-- 지도 위: 반경 원 + 추천 핀 (번호) -->
+  <!-- 지도 위: 반경 원 + 추천 핀 (번호). 반경 추천일 때만 (말로 찾은 결과는 LiveView가 진짜 지도에 그림) -->
   <template v-if="radius">
     <span
       class="near-ring"
@@ -164,11 +206,12 @@ function distText(m) {
         <img class="thumb" :src="picked.img" alt="" />
         <div style="flex: 1; min-width: 0">
           <b class="t-strong">{{ picked.name }}</b>
-          <p class="t-cap tn ask-line"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ picked.rating }} · {{ picked.category }} · {{ picked.closeAt }} 마감</p>
+          <p class="t-cap tn ask-line"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ picked.rating }} · {{ picked.category }}<template v-if="picked.closeAt"> · {{ picked.closeAt }} 마감</template></p>
+          <p v-if="picked.detourMinutes != null" class="t-cap tn ask-line c-navy">가는 길 +{{ picked.detourMinutes }}분<template v-if="picked.slackAfter != null && picked.slackAfter >= 0"> · 30분 들러도 여유 {{ picked.slackAfter }}분</template><template v-else-if="picked.slackAfter != null"> · 30분 들르면 늦어요</template></p>
           <p class="t-cap tn ask-line">지금 위치에서 {{ distText(picked.distance) }} · 걸어서 {{ Math.max(1, Math.round(picked.distance / 70)) }}분</p>
           <p v-for="reason in picked.reasons || []" :key="reason" class="t-cap tn ask-line c-navy">{{ reason }}</p>
         </div>
-        <button type="button" class="iconbtn" aria-label="추천 목록으로" @click="pickedId = null"><i class="ic i-close muted" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn" aria-label="추천 목록으로" @click="unpick"><i class="ic i-close muted" aria-hidden="true"></i></button>
       </div>
       <div class="cta__row">
         <button type="button" class="btn btn--secondary btn--md" @click="router.push('/place')">자세히</button>
@@ -181,6 +224,13 @@ function distText(m) {
       <p class="ask-me">{{ myMessage }}</p>
       <p v-if="isBusy" class="ask-ai t-cap"><i class="ic ic--s i-sparkle" aria-hidden="true"></i>생각하는 중이에요…</p>
       <p v-else-if="reply" class="ask-ai"><i class="ic ic--s i-sparkle c-navy" aria-hidden="true"></i>{{ reply }}</p>
+      <div v-if="foundSql && !isBusy" class="ask-sql">
+        <button type="button" class="ask-sql__toggle t-cap" :aria-expanded="isSqlOpen" @click="toggleSql">이렇게 찾았어요 {{ isSqlOpen ? '▲' : '▼' }}</button>
+        <template v-if="isSqlOpen">
+          <p v-if="foundExplain" class="t-cap ask-line">{{ foundExplain }}</p>
+          <pre class="ask-sql__code">{{ foundSql }}</pre>
+        </template>
+      </div>
       <div v-if="category && !isBusy" class="chips ask-chips">
         <button
           v-for="r in radiusOptions"
@@ -222,4 +272,7 @@ function distText(m) {
 .ask-me { align-self: flex-end; max-width: 85%; margin: 0; padding: 8px 12px; border-radius: 14px 14px 4px 14px; background: var(--navy); color: #fff; font-size: 14px; }
 .ask-ai { display: flex; gap: 6px; align-items: flex-start; margin: 0; font-size: 14px; line-height: 1.5; }
 .ask-ai .ic { flex: none; margin-top: 3px; }
+.ask-sql { margin-top: 2px; }
+.ask-sql__toggle { padding: 0; border: 0; background: none; color: var(--navy); cursor: pointer; }
+.ask-sql__code { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: #F2F4F8; font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }
 </style>

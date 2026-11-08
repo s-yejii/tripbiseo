@@ -9,6 +9,7 @@
 //   reorderable: 목록 칸을 끌어 순서 바꾸기 → reorder 이벤트(원래 번호를 새 순서로 담은 목록) (11/04)
 //   지도: 점검 결과에 구간별 경로(trip.legs)가 있으면 진짜 길로, 없으면 장소끼리 점선
 import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import TripBudget from '@/components/trip/TripBudget.vue'
@@ -29,6 +30,7 @@ const props = defineProps({
   activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
 })
 const emit = defineEmits(['reorder', 'change-mode'])
+const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
 const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
 
 const selected = ref(null)
@@ -45,6 +47,8 @@ const FOCUS_RADIUS_M = 400 // 칸을 고르면 핀에서 이만큼(m)까지의 �
 const hasCoords = computed(() => props.trip.stops.length > 0 && props.trip.stops.every((stop) => stop.lat != null && stop.lng != null))
 const isKakao = computed(() => hasCoords.value && useRealMap.value)
 
+// 지도를 다시 맞출 때를 알리는 값: 그날 장소 목록이 바뀌면(일차 바꾸기·장소 넣고 빼기) 달라짐. 정렬해서 순서만 바꿀 땐 그대로
+const mapFitKey = computed(() => props.trip.stops.map((stop) => String(stop.id)).sort().join('|'))
 const mapPins = computed(() => props.trip.stops.map((stop, i) => ({
   key: i,
   index: i,
@@ -190,6 +194,11 @@ watch(() => props.activeStop, async (i) => {
   if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 })
 
+// 일차를 바꾸면(주소의 ?day= 가 바뀌면) 시트 안 목록을 맨 위로 → 다음 날도 첫 칸부터 보이게
+watch(() => route.query.day, () => {
+  if (scrollBox.value) scrollBox.value.scrollTop = 0
+})
+
 // 핀이나 목록을 누르면 같이 강조하고, 목록은 그 칸이 보이게 스크롤
 // 카카오 지도면 그 칸 핀을 가운데에 두고 앞뒤 경로가 보이게 확대, 고르기를 풀면 전체 보기로 (11/04)
 async function select(i) {
@@ -211,7 +220,7 @@ function slackBadge(slack) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -248,7 +257,7 @@ function slackBadge(slack) {
       <slot name="right" :selected="selected"></slot>
     </TopBar>
 
-    <BottomSheet class="sheet--peek trip-sheet" aria-labelledby="trip-title">
+    <BottomSheet class="sheet--peek trip-sheet" expandable aria-labelledby="trip-title">
       <div class="trip-head">
         <div style="flex: 1; min-width: 0">
           <h1 id="trip-title" class="h-title">{{ trip.title }}</h1>

@@ -12,7 +12,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
-import { getLocationHere, readStayCapture, searchLocations } from '@/api/trips'
+import { getLocationHere, readStayCapture, searchStays } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { addDays, daysBetween } from '@/utils/dates'
 import { toShortDate } from '@/utils/tripView'
@@ -101,7 +101,7 @@ function search(value) {
   isSearching.value = true
   timer = setTimeout(async () => {
     try {
-      found.value = await searchLocations(value.trim())
+      found.value = await searchStays(value.trim())
     } catch (err) {
       found.value = []
       showToast(err.message)

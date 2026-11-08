@@ -20,7 +20,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LiveChatClassifier {
 
-    private static final String[] RECOMMEND_WORDS = {"추천", "근처", "어디 가", "갈 만한", "갈만한", "먹을", "마실", "배고"};
+    private static final String[] RECOMMEND_WORDS = {"추천", "근처", "어디 가", "갈 만한", "갈만한", "먹을", "마실", "배고",
+                                                     "가는 길", "들를", "들르", "다녀올"}; // 뒤 4개: AI에게 묻기 (11/08)
     private static final String[] CHANGE_WORDS = {"바꿔", "바꾸", "늦", "빼", "다시 짜", "일정 변경"};
     private static final String[] QUESTION_WORDS = {"몇 시", "몇시", "다음", "언제", "여유", "남았", "날씨", "비 와", "비와", "출발"};
     private static final String[] CATEGORIES = {"카페", "디저트", "식당", "술집"};
@@ -42,6 +43,11 @@ public class LiveChatClassifier {
 
     /** 낱말 규칙: 한 종류만 걸리면 그 종류, 아무것도 안 걸리거나 여러 종류면 null(애매) */
     private ChatIntent classifyByRule(String message) {
+        // 장소 종류 + 추천 말이 같이 있으면 "다음·여유"가 섞여도 추천 ("다음 장소 근처 카페", 11/08)
+        boolean isClearRecommend = findCategory(message) != null && containsAny(message, RECOMMEND_WORDS);
+        if (isClearRecommend && !containsAny(message, CHANGE_WORDS)) {
+            return makeIntent("recommend", message);
+        }
         boolean isRecommend = containsAny(message, RECOMMEND_WORDS) || findCategory(message) != null;
         boolean isChange = containsAny(message, CHANGE_WORDS);
         boolean isQuestion = containsAny(message, QUESTION_WORDS);

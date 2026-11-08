@@ -241,6 +241,12 @@ public class PlaceServiceImpl implements PlaceService {
         return location;
     }
 
+    /** 숙소만 (카카오 숙박 분류) */
+    @Override
+    public List<FoundLocation> getLocationStayList(String query) {
+        return locationSearchClient.searchStays(checkQuery(query));
+    }
+
     // ---------------------------------------------------------------- 도우미
 
     /** 검색어 1~40자 확인 후 앞뒤 공백 뺀 값 */
