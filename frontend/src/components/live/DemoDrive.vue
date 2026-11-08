@@ -27,6 +27,7 @@ const WANDER_PLACE_M = 10 // 가게·건물 안은 조금만
 const METERS_PER_DEGREE = 111000
 const WAIT_MIN_PER_KM = 3 // 경로를 못 받을 때 이동 분 어림 (1km에 3분 + 기다림)
 const WAIT_EXTRA_MIN = 8
+const MORNING_LEAD_MIN = 15 // 다음 날 아침: 첫 장소로 떠날 시각 몇 분 전에 일어난 걸로
 
 const isBusy = ref(false)
 const origin = ref(null) // 시나리오 출발지 (가마산로 242)
@@ -101,11 +102,12 @@ async function moveToNext() {
   if (!next) return showToast('마지막 장소예요')
   const isNextDay = !!current && next.day !== current.day
   if (current && !isNextDay) await showLeaveAlert(current)
+  if (isNextDay) await startNextMorning(current, next)
 
   // 이동 시간: 실제 길찾기(상황 응답의 다음 경로), 다음 날이면 거리로 어림
   await props.live.refresh()
   const status = props.live.status.value
-  const route = !isNextDay && status && status.next && status.next.id === next.id ? status.next : null
+  const route = status && status.next && status.next.id === next.id ? status.next : null
   const from = props.live.position.value || (current ? { lat: current.lat, lng: current.lng } : origin.value)
   const travelMin = Math.max(1, route ? route.minutes : guessMinutes(from, next))
   // 떠나는 시각: 다음 장소 계획 시각에 맞춰 도착하게 (그보다 늦었으면 지금 바로 → 늦게 도착). 그때까지는 시계를 감음
@@ -144,6 +146,15 @@ async function showLeaveAlert(current) {
   const isSameDay = dateText(now) === dateOf(current.day)
   if (isSameDay && minutesOf(now) >= alertMin) return
   await setClock(dateOf(current.day), alertMin)
+  await props.live.refresh()
+  await wait(ALERT_SHOW_MS)
+}
+
+// 숙소에서 다음 날로: 밤을 건너뛰어 다음 날 아침, 첫 장소로 떠나기 조금 전으로 (11/08: 바로 떠날 시각으로 감으면
+//   서버가 계산한 이동 시간과 어림값이 달라서 "출발 시각이 4분 지났어요"가 잠깐 보이던 문제). 그다음은 같은 날 이동과 같음
+async function startNextMorning(current, next) {
+  const guess = guessMinutes(current, next)
+  await setClock(dateOf(next.day), toMinutes(next.time) - guess - MORNING_LEAD_MIN)
   await props.live.refresh()
   await wait(ALERT_SHOW_MS)
 }
