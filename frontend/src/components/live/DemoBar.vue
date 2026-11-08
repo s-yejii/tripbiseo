@@ -524,6 +524,7 @@ async function goNextStop() {
   const setup = scenario.value
   const isOverstayStop = current && setup && current.day === setup.overstayDay && current.name === setup.overstayName
   if (isOverstayStop && !pausedAt.has('overstay')) { // 돌발 장소: 서울역으로 바로 가지 않고 나갈 시각부터 그대로 머묾 → 늦어지면 멈춤
+    if (overstayArmed) return // 이미 나갈 시각이 지나 늦어지기를 기다리는 중 (다시 눌러도 시계를 되돌리지 않음)
     overstayArmed = true
     await setClock(dateOf(current.day), toMinutes(current.time) + (current.stay || 0) - 1)
     await props.live.refresh()
