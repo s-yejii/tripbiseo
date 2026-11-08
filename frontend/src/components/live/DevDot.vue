@@ -7,6 +7,7 @@ import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock
 import { useRouter } from 'vue-router'
 import { devMode, prepareDemo, sendCommand, setFakeGps, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
+import { liveBanner } from '@/utils/liveBanner'
 
 const props = defineProps({
   inline: { type: Boolean, default: false }, // 마이 화면 안에 펼친 채로 (11/08: 발표자가 바로 찾게)
@@ -198,8 +199,9 @@ function turnOff() {
       </div>
 
       <div class="dev-panel__row">
-        <button v-for="minutes in FORWARD_STEPS" :key="minutes" type="button" class="chip chip--sm tn" :disabled="isBusy" @click="forward(minutes)">+{{ minutes }}분</button>
-        <button type="button" class="chip chip--sm" :disabled="isBusy" @click="makeLate">늦게 만들기</button>
+        <button v-for="minutes in FORWARD_STEPS" :key="minutes" type="button" class="chip chip--sm tn" :disabled="isBusy || liveBanner.isCardOpen" @click="forward(minutes)">+{{ minutes }}분</button>
+        <button type="button" class="chip chip--sm" :disabled="isBusy || liveBanner.isCardOpen" @click="makeLate">늦게 만들기</button>
+        <span v-if="liveBanner.isCardOpen" class="t-cap">늦음 카드에서 고른 뒤에 쓸 수 있어요</span>
       </div>
 
 

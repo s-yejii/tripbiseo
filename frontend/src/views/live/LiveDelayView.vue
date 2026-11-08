@@ -77,7 +77,7 @@ const isTight = computed(() => !replan.lateMin && replan.base && replan.base.sla
 const optionCount = computed(() => (replan.options ? replan.options.alternatives.length : 0))
 
 function goAnyway() {
-  replan.mutedLate = replan.lateMin
+  replan.muteLate(replan.lateMin)
   router.replace('/live')
 }
 </script>

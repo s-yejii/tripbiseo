@@ -122,8 +122,8 @@ const isLate = computed(() => isReady.value && status.value.replan && lateMin.va
 
 // "그냥 갈게요"를 눌렀고 그때보다 10분 넘게 더 늦지 않았으면 지연 알림을 접어 둠
 const isAlertMuted = computed(() => {
-  if (!isLate.value || replan.mutedLate === null) return false
-  return lateMin.value < replan.mutedLate + MUTE_AGAIN_MIN
+  if (!isLate.value || !fixed.value) return false
+  return replan.isMutedFor(live.tripId.value, fixed.value.name, lateMin.value)
 })
 const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
 const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
@@ -133,6 +133,8 @@ const isCriticalAlert = computed(() => !!currentAlert.value && /^late-/.test(cur
 const pageRoute = useRoute()
 // 여행 중 화면 자체일 때만 (지연·대안 화면이 위에 열려 있으면 카드를 안 띄움: 11/08 카드가 지연 화면을 가리던 문제)
 const isCardOpen = computed(() => isCriticalAlert.value && pageRoute.path === '/live' && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
+watch(isCardOpen, (isOpen) => (liveBanner.isCardOpen = isOpen), { immediate: true }) // 카드가 떠 있는 동안 시연 [+분] 버튼을 막음
+onUnmounted(() => (liveBanner.isCardOpen = false))
 
 // 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {

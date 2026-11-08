@@ -27,7 +27,7 @@ function kindOf(key) {
   return match ? match[1] + '-' + match[2] : key
 }
 
-export const liveBanner = reactive({ queue: load() }) // [{ key, title, body, warn, icon, to }]
+export const liveBanner = reactive({ queue: load(), isCardOpen: false }) // queue: [{ key, title, body, warn, icon, to }] · isCardOpen: 가운데 늦음 카드가 떠 있는지 (떠 있으면 [+분]을 막음)
 
 // 알림 줄 맨 뒤에 넣기. 앞 알림을 덮어쓰지 않고, 제목·내용이 완전히 같은 알림만 한 번으로 (11/08 주형: "끄기 전에는 없애지 마")
 export function showLiveNotice(notice) {

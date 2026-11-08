@@ -135,6 +135,12 @@ async function moveToNext() {
     if (step >= LEFT_STEP - 1) await props.live.placeAt(lat, lng, false) // 마지막 두 걸음은 서버에도 (장소에서 200m 밖)
     else props.live.showAt(lat, lng)
   }
+  // 떠난 뒤 다시 계산해서 예약에 늦게 되면 그 자리에서 멈춤 (시계도 멈춤) → 카드에서 고른 뒤 다시 [다음 장소로] (11/09 주형: 시간도 공간도 stop)
+  if (isIncident(props.live.status.value)) {
+    blockedKey = props.live.status.value.alert.key
+    await setSpeed(0)
+    return
+  }
   await setSpeed(Math.max(1, Math.round((travelMin * 60 * 1000) / MOVE_MS)))
   for (let step = LEFT_STEP + 1; step < MOVE_STEPS; step++) {
     const [lat, lng] = pointAlong(path, step / MOVE_STEPS)
@@ -150,7 +156,7 @@ async function moveToNext() {
 function isIncident(status) {
   if (!status || !status.alert || !status.fixed || !/^late-/.test(status.alert.key || '')) return false
   const lateMin = Math.max(0, -status.fixed.slackMin)
-  return !(replan.mutedLate !== null && lateMin < replan.mutedLate + MUTE_AGAIN_MIN)
+  return !replan.isMutedFor(props.live.tripId.value, status.fixed.name, lateMin)
 }
 async function isBlockedByIncident(status) {
   const key = status && status.alert ? status.alert.key || '' : ''
