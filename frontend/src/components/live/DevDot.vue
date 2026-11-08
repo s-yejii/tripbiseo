@@ -3,12 +3,14 @@
 // 누르면: 가짜 GPS 켜고 끄기 · 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
 import { ref, watch } from 'vue'
-import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain } from '@/api/dev'
-import { devMode, setClockOffset, setFakeGps, setShowPractice, turnOffDevMode } from '@/utils/devMode'
+import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
+import { devMode, sendCommand, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const emit = defineEmits(['clock', 'gps'])
-const FORWARD_STEPS = [5, 15, 30, 60]
+const FORWARD_STEPS = [10, 30, 60]
+const SPEEDS = [1, 10, 30, 60] // 시계 배속 (11/08 주형: 마이에서 고르게)
+const SCENES = ['출발', '회식', '숙소', '아침 비', '한강 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
 
 const isOpen = ref(false)
 const serverNow = ref('') // "2026-11-07T18:05"
@@ -18,6 +20,8 @@ const rainInput = ref('13:00')
 const dateInput = ref('')
 const timeInput = ref('')
 const isBusy = ref(false)
+const speed = ref(1)
+const pausedSpeed = ref(60) // 멈춤 전 배속 (재생하면 이 배속으로)
 
 // 개발자 모드일 때만 서버에 물어봄 (끈 사람·로그아웃한 사람은 요청 안 함, 11/06)
 watch(() => devMode.isOn, (isOn) => { if (isOn) loadStatus() }, { immediate: true })
@@ -33,7 +37,8 @@ async function loadStatus() {
 function showStatus(status) {
   serverNow.value = status.now
   offsetMinutes.value = status.offsetMinutes
-  setClockOffset(status.offsetMinutes) // 홈의 D-day·상태바 시계도 시연 시계로
+  speed.value = status.speed == null ? 1 : status.speed
+  syncClock(status) // 홈의 D-day·상태바 시계도 시연 시계로 (배속까지)
   rainFrom.value = status.rainFrom
   dateInput.value = status.now.slice(0, 10)
   timeInput.value = status.now.slice(11, 16)
@@ -60,6 +65,33 @@ function applyClock() {
 function forward(minutes) {
   changeClock(() => forwardDevClock(minutes), minutes + '분 빨리 감았어요')
 }
+function changeSpeed(next) {
+  if (next === 0) pausedSpeed.value = speed.value || 60
+  changeClock(() => setDevSpeed(next), next === 0 ? '시계를 멈췄어요' : '시계 ' + next + '배속')
+}
+function togglePause() {
+  changeSpeed(speed.value === 0 ? pausedSpeed.value : 0)
+}
+// 장면 바로 가기·다음/이전 장소·처음부터: 여행 중 화면이 열려 있으면 바로, 아니면 열 때 실행
+function goScene(index) {
+  sendCommand({ type: 'scene', index })
+  showToast(SCENES[index] + ' 장면으로 · 여행 중 화면에서 움직여요')
+  emit('clock')
+}
+function goStop(step) {
+  sendCommand({ type: 'stop', step })
+  emit('clock')
+}
+function restart() {
+  sendCommand({ type: 'restart' })
+  showToast('1일차 처음으로')
+  emit('clock')
+}
+function toggleFlow() {
+  setFlow(!devMode.isFlow)
+  showToast(devMode.isFlow ? '시계에 맞춰 일정대로 움직여요' : '자동으로 안 움직여요 (장면·장소 버튼으로)')
+}
+
 function backToRealTime() {
   changeClock(resetDevClock, '진짜 시각으로 돌아왔어요')
 }
@@ -106,7 +138,25 @@ function turnOff() {
       </div>
 
       <div class="dev-panel__row">
-        <button v-for="minutes in FORWARD_STEPS" :key="minutes" type="button" class="chip tn" :disabled="isBusy" @click="forward(minutes)">+{{ minutes }}분</button>
+        <span class="t-cap">배속</span>
+        <button v-for="item in SPEEDS" :key="item" type="button" class="chip chip--sm tn" :class="{ 'is-on': speed === item }" :disabled="isBusy" @click="changeSpeed(item)">{{ item }}x</button>
+        <button type="button" class="chip chip--sm" :class="{ 'is-on': speed === 0 }" :disabled="isBusy" @click="togglePause">{{ speed === 0 ? '재생' : '멈춤' }}</button>
+      </div>
+
+      <div class="dev-panel__row">
+        <button v-for="minutes in FORWARD_STEPS" :key="minutes" type="button" class="chip chip--sm tn" :disabled="isBusy" @click="forward(minutes)">+{{ minutes }}분</button>
+      </div>
+
+      <div class="dev-panel__row">
+        <span class="t-cap">장면</span>
+        <button v-for="(name, i) in SCENES" :key="name" type="button" class="chip chip--sm" @click="goScene(i)">{{ name }}</button>
+      </div>
+
+      <div class="dev-panel__row">
+        <button type="button" class="chip chip--sm" @click="goStop(-1)">이전 장소</button>
+        <button type="button" class="chip chip--sm" @click="goStop(1)">다음 장소</button>
+        <button type="button" class="chip chip--sm" :class="{ 'is-on': devMode.isFlow }" @click="toggleFlow">자동 진행 {{ devMode.isFlow ? '켜짐' : '꺼짐' }}</button>
+        <button type="button" class="chip chip--sm" @click="restart">처음부터</button>
       </div>
 
       <button type="button" class="chip" :class="{ 'is-on': devMode.showPractice }" @click="setShowPractice(!devMode.showPractice)">연습 기록 보기 {{ devMode.showPractice ? '켜짐' : '꺼짐' }}</button>
@@ -121,7 +171,7 @@ function turnOff() {
 
 <style>
 .dev-dot { position: absolute; left: 10px; top: 168px; z-index: 6; width: 18px; height: 18px; border-radius: 50%; border: 0; background: var(--navy, #1f3a68); opacity: 0.28; cursor: pointer; }
-.dev-panel { position: absolute; left: 10px; top: 192px; z-index: 9; width: min(330px, calc(100% - 20px)); display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.dev-panel { position: absolute; left: 10px; top: 192px; z-index: 9; width: min(330px, calc(100% - 20px)); max-height: calc(100% - 210px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .dev-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .dev-panel__input { flex: 1 1 130px; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line, #ddd); border-radius: 8px; font: inherit; }
 </style>

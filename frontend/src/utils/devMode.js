@@ -1,26 +1,32 @@
 // 개발자 모드 (③, 11/06): 발표 시연 계정만 켤 수 있어요.
-//   켜는 법: 마이 화면 맨 아래 "버전 1.0.0"을 5번 연달아 누름 → 서버가 시연 계정인지 확인(GET /dev/status)
-//   켜지면 여행 중 화면에 반투명 점이 보이고, 누르면 가짜 GPS · 시연 시계 · 빨리 감기를 쓸 수 있어요.
-// 이 브라우저에만 기억해요 (localStorage). 로그아웃하거나 끄면 사라져요.
+//   시연 계정(DEMO_ACCOUNTS)은 로그인하면 바로 켜져요 (11/08). 다른 계정은 마이 "버전 1.0.0" 5번 → 서버가 시연 계정인지 확인
+//   켜지면 가짜 GPS + 빠르게 도는 시연 시계로 여행이 일정대로 흘러가요. 설정은 마이·여행 중 화면의 작은 반투명 점에서
+// 이 브라우저에만 기억해요 (localStorage). 시계 자체(시각·배속)는 서버가 계정마다 기억해요.
 import { reactive } from 'vue'
-import { getDevStatus } from '@/api/dev'
+import { getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/dev'
 
 const KEY = 'devMode'
+const DEFAULT_SPEED = 60 // 시연 시계 기본 배속: 진짜 1초에 1분 (11/08 주형: 시계가 빠르게)
+const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, command: null }
 
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (saved) return { isOn: !!saved.isOn, isFakeGps: !!saved.isFakeGps, clockOffsetMs: saved.clockOffsetMs || 0, showPractice: !!saved.showPractice }
+    if (saved) return { ...DEFAULT, ...saved }
   } catch (e) {
     // 저장한 값이 깨졌으면 꺼진 상태로
   }
-  return { isOn: false, isFakeGps: false, clockOffsetMs: 0, showPractice: false }
+  return { ...DEFAULT }
 }
 
 export const devMode = reactive(load())
 
 function save() {
-  localStorage.setItem(KEY, JSON.stringify({ isOn: devMode.isOn, isFakeGps: devMode.isFakeGps, clockOffsetMs: devMode.clockOffsetMs, showPractice: devMode.showPractice }))
+  try {
+    localStorage.setItem(KEY, JSON.stringify(devMode))
+  } catch (e) {
+    // 저장소를 못 쓰면 이번 화면에서만
+  }
 }
 
 // 개발자 모드 켜기 (시연 계정 확인이 끝난 뒤에만 부름)
@@ -31,22 +37,30 @@ export function turnOnDevMode() {
 
 // 개발자 모드 끄기 (가짜 GPS·시연 시계도 같이 꺼짐)
 export function turnOffDevMode() {
-  devMode.isOn = false
-  devMode.isFakeGps = false
-  devMode.clockOffsetMs = 0
-  devMode.showPractice = false
+  Object.assign(devMode, DEFAULT)
   save()
 }
 
-// 서버 시연 시계와 같은 차이를 화면 시계에도 (DevDot이 서버 상태를 받을 때 부름, 11/06)
+// 서버 시연 시계 상태(GET /dev/status 등의 답)를 화면 시계에도: 차이·배속·받은 시각
+export function syncClock(status) {
+  devMode.clockOffsetMs = status.offsetMinutes * 60000
+  devMode.speed = status.speed == null ? 1 : status.speed
+  devMode.syncedAt = Date.now()
+  save()
+}
+
+// 예전 이름 (분만 아는 곳에서 부름)
 export function setClockOffset(minutes) {
   devMode.clockOffsetMs = minutes * 60000
+  devMode.syncedAt = Date.now()
   save()
 }
 
-// 화면이 쓰는 "지금": 개발자 모드면 시연 시계, 아니면 이 PC 시각
+// 화면이 쓰는 "지금": 개발자 모드면 시연 시계(배속까지), 아니면 이 PC 시각
 export function appNow() {
-  return new Date(Date.now() + (devMode.isOn ? devMode.clockOffsetMs : 0))
+  if (!devMode.isOn) return new Date()
+  const passed = devMode.syncedAt ? Date.now() - devMode.syncedAt : 0
+  return new Date(Date.now() + devMode.clockOffsetMs + passed * (devMode.speed - 1))
 }
 
 // 연습 기록 보기 켜고 끄기: 켜면 시연 연습 복사본·그 알림도 일반 화면에 보임 (11/06)
@@ -66,17 +80,40 @@ export function isFakeGps() {
   return devMode.isOn && devMode.isFakeGps
 }
 
+// 일정대로 흐르기 켜고 끄기: 켜면 여행 중 화면에서 시연 시각에 맞는 자리로 "나"가 움직여요 (11/08)
+export function setFlow(isFlow) {
+  devMode.isFlow = devMode.isOn && isFlow
+  save()
+}
+
+// 여행 중 화면에 시킬 일 (마이의 설정에서 누름 → 여행 중 화면이 열려 있거나 열리면 실행)
+//   { type: 'scene', index } 장면으로 바로 · { type: 'stop', step: 1 | -1 } 다음·이전 장소 · { type: 'restart' } 처음부터
+export function sendCommand(command) {
+  devMode.command = { ...command, at: Date.now() }
+  save()
+}
+export function clearCommand() {
+  devMode.command = null
+  save()
+}
+
 // 로그인 바로 뒤에 부름 (11/08 주형: 시연 계정은 버전 5번 안 눌러도 시나리오대로)
-//   시연 계정(DEMO_ACCOUNTS)이면 개발자 모드 + 가짜 GPS를 켜고, 아니면 이 브라우저에 남은 개발자 모드를 끔
+//   시연 계정이면 개발자 모드 + 가짜 GPS + 일정대로 흐르기를 켜고, 시연 시계를 오늘 시나리오 시작 시각(15:00)·60배속으로
+//   아니면 이 브라우저에 남은 개발자 모드를 끔
 export async function applyDemoAccount() {
   try {
     const status = await getDevStatus()
-    if (status.allowed) {
-      turnOnDevMode()
-      setFakeGps(true)
-    } else {
+    if (!status.allowed) {
       turnOffDevMode()
+      return
     }
+    turnOnDevMode()
+    setFakeGps(true)
+    setFlow(true)
+    const setup = await getDevScenario()
+    const today = status.now.slice(0, 10)
+    await setDevClock(today, setup.startTime)
+    syncClock(await setDevSpeed(DEFAULT_SPEED))
   } catch (e) {
     // 서버가 답을 못 하면 지금 상태 그대로
   }
