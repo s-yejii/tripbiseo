@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.common.util.DemoClock;
+import com.tripbiseo.common.util.DemoRoutes;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.common.util.TtlCache;
 
@@ -72,11 +74,23 @@ public class RouteClient {
     public Route getRoute(double lat1, double lng1, double lat2, double lng2, String chosenMode, List<String> transports, boolean isPrecise) {
         double straight = Geo.distanceMeters(lat1, lng1, lat2, lng2);
         String mode = chooseMode(chosenMode, straight, transports);
+        Route result;
         if (!isPrecise || straight < NO_API_UNDER_M) {
-            return estimate(lat1, lng1, lat2, lng2, mode);
+            result = estimate(lat1, lng1, lat2, lng2, mode);
+        } else {
+            String key = String.format("%s:%.4f,%.4f>%.4f,%.4f", mode, lat1, lng1, lat2, lng2);
+            result = cache.get(key, CACHE_MS, () -> callRouteApi(lat1, lng1, lat2, lng2, mode));
         }
-        String key = String.format("%s:%.4f,%.4f>%.4f,%.4f", mode, lat1, lng1, lat2, lng2);
-        return cache.get(key, CACHE_MS, () -> callRouteApi(lat1, lng1, lat2, lng2, mode));
+        // 시연 계정(시연 시계를 쓰는 요청): 시나리오 구간은 미리 받아 둔 실제 값으로 (API 한도가 차도 숫자가 같게, 11/08)
+        Integer demoMinutes = DemoClock.offsetSeconds() != 0 ? DemoRoutes.findMinutes(lat1, lng1, lat2, lng2, mode) : null;
+        return demoMinutes == null ? result : withMinutes(result, demoMinutes);
+    }
+
+    /** 경로선·거리는 그대로 두고 이동 분만 바꾼 복사본 (캐시에 든 원본은 안 바꿈) */
+    private static Route withMinutes(Route result, int minutes) {
+        Route copy = route(minutes, result.getMeters(), result.getWalkMeters(), result.getCoords(), result.getMode(), result.getSource(), result.getDetail());
+        copy.setWalkMinutes(Math.min(result.getWalkMinutes(), minutes));
+        return copy;
     }
 
     /** API 없이 추정: 도로 우회 1.3배, 도보 4.5km/h, 자동차 22km/h+5분, 대중교통 17km/h+대기 8분 */
