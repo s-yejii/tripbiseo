@@ -368,9 +368,24 @@ async function pauseFor(name) {
   syncClock(await setDevSpeed(0))
 }
 
+// 머무는 동안에도 조금씩 걸어 다니는 모습 (11/08 주형: 공원이어도 움직이는 게 보여야): 지도 위에만, 서버엔 안 보냄
+const WANDER_PARK_M = 70 // 공원·한강은 넓게
+const WANDER_PLACE_M = 12 // 가게·건물 안은 조금만
+const METERS_PER_DEGREE = 111000
+function wander(stop) {
+  const radius = isOutdoor(stop) ? WANDER_PARK_M : WANDER_PLACE_M
+  const t = Date.now() / 4000 // 4초에 한 바퀴쯤 천천히
+  const dLat = (radius * Math.sin(t)) / METERS_PER_DEGREE
+  const dLng = (radius * Math.sin(t * 0.7) * Math.cos(t / 3)) / (METERS_PER_DEGREE * Math.cos((stop.lat * Math.PI) / 180))
+  props.live.showAt(stop.lat + dLat, stop.lng + dLng)
+}
+
 async function placeOnce(stop, isArrive = true) {
   const key = stop.id + (isArrive ? ':in' : ':near')
-  if (placedKey === key) return
+  if (placedKey === key) {
+    if (isArrive) wander(stop)
+    return
+  }
   placedKey = key
   if (isArrive) await visitEarlier(stop)
   await props.live.placeAt(stop.lat, stop.lng, isArrive)
