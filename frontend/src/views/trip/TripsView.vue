@@ -34,6 +34,8 @@ const done = computed(() => (serverTrips.value || []).filter((trip) => trip.stat
     <div class="app">
       <header class="topbar" style="padding: 0 8px 0 16px">
         <h1 class="topbar__title" style="font-size: 24px; line-height: 32px">내 여행</h1>
+        <!-- ⑤ 앨범으로 (11/06, ② 이찬기 동의) -->
+        <RouterLink to="/album" class="btn btn--secondary btn--sm"><i class="ic ic--s i-album" aria-hidden="true"></i>앨범</RouterLink>
       </header>
 
       <div class="scroll" style="bottom: 84px; gap: 20px; padding-top: 4px">

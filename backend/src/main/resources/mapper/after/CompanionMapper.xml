@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ⑤ 같이 간 사람 (trip_companion). CompanionMapper.java의 메서드 이름과 id가 같아야 이어져요 -->
+<mapper namespace="com.tripbiseo.after.mapper.CompanionMapper">
+
+  <select id="selectCompanionList" resultType="com.tripbiseo.after.dto.Companion">
+    SELECT companion_id AS id, trip_id, name, friend_member_id, sort_no, share_amount
+    FROM trip_companion
+    WHERE trip_id = #{tripId}
+    ORDER BY sort_no, companion_id
+  </select>
+
+  <insert id="insertCompanion" useGeneratedKeys="true" keyProperty="id" keyColumn="companion_id">
+    INSERT INTO trip_companion (trip_id, name, friend_member_id, sort_no)
+    VALUES (#{tripId}, #{name}, #{friendMemberId}, #{sortNo})
+  </insert>
+
+  <update id="updateCompanionName">
+    UPDATE trip_companion SET name = #{name} WHERE companion_id = #{companionId} AND trip_id = #{tripId}
+  </update>
+
+  <update id="updateShareAmount">
+    UPDATE trip_companion SET share_amount = #{amount} WHERE companion_id = #{companionId} AND trip_id = #{tripId}
+  </update>
+
+  <delete id="deleteCompanion">
+    DELETE FROM trip_companion WHERE companion_id = #{companionId} AND trip_id = #{tripId}
+  </delete>
+
+  <!-- 남의 테이블 아님: payment도 ⑤ 테이블 -->
+  <update id="updatePayerName">
+    UPDATE payment SET payer = #{newName} WHERE trip_id = #{tripId} AND payer = #{oldName}
+  </update>
+</mapper>
