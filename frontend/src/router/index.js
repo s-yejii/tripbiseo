@@ -82,7 +82,7 @@ const routes = [
   { path: '/live/pay', component: () => import('@/views/after/PayMemoView.vue'), meta: { parent: '/live', owner: 5, title: 'S13-f 결제 메모', overlay: true } },
   { path: '/retro', component: () => import('@/views/after/RetroView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-a 지난 여행 다시보기' } },
   { path: '/album', component: () => import('@/views/after/AlbumView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-c 앨범' } },
-  { path: '/my/card', component: () => import('@/views/after/CardAddView.vue'), meta: { parent: '/my', owner: 5, title: 'S21-d 결제 카드 등록' } },
+  { path: '/my/card', component: () => import('@/views/after/CardAddView.vue'), meta: { parent: '/my', owner: 5, title: 'S21-d 카드사 연결' } },
 
   // 개발용: 전체 화면 목록
   { path: '/screens', component: () => import('@/views/ScreenListView.vue'), meta: { title: '전체 화면 목록' } },

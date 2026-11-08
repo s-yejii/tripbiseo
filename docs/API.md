@@ -160,9 +160,17 @@
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
-| `GET·POST /api/trips/{id}/payments` | 장소 핀에 결제 금액·누가 냈는지 적기 | after/PayMemoView, member/LockPayView | 확인 필요 |
+| `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동, 낸 사람 `payer`) | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
+| `PUT /api/trips/{id}/payments/{paymentId}/payer` | 결제의 낸 사람 바꾸기 (정산용) | after/RetroView | 있음 (11/07) |
+| `DELETE /api/trips/{id}/payments/{paymentId}` | 결제 하나 지우기 | after/RetroView | 있음 (11/07) |
+| `PUT /api/trips/{id}/companions/{companionId}/share` | 더치페이 낼 돈 직접 정하기 (null이면 자동) | after/RetroView | 있음 (11/07) |
+| `GET·POST /api/trips/{id}/companions`, `PUT·DELETE /api/trips/{id}/companions/{companionId}` | 같이 간 사람 목록·추가·이름 바꾸기·빼기 (정산의 낸 사람) | after/RetroView | 있음 (11/07) |
+| `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (CODEF 연결, 샌드박스·키 없음이면 다녀온 곳으로 만든 목업) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
-| `GET·POST /api/trips/{id}/photos` | 여행 앨범 사진 | after/AlbumView | 확인 필요 |
+| `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
+| `GET /api/trips/{id}/photos` | 한 여행의 사진·영상 전체 (찍은 순) | after/RetroView, after/AlbumView(더보기) | 있음 (11/06) |
+| `POST /api/photos` | 사진·영상 여러 개 올리기 → 찍은 시각으로 여행·장소 자동 분류 | after/AlbumView | 있음 (11/06) |
+| `GET /api/photos/{photoId}/file` | 사진·영상 파일 (`<img>`·`<video>` 주소) | after/AlbumView, after/RetroView | 있음 (11/06) |
 | `GET /api/route` | 길 안내: 경로선 + 단계별 안내 (도보·버스·지하철·택시) | after/RouteGuideView | 있음 |
 | `GET /api/amenities/nearby?kind=` | 근처 화장실·쓰레기통 | after/RouteGuideView, live/LiveView (AmenityChips) | 확인 필요 |
 | `POST /api/trips/{id}/visits` | 일정에 없던 곳 "들렀어요" 기록 | live/LiveView (VisitedPin), member/LockStayView | 확인 필요 |
@@ -1355,6 +1363,73 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 **오류** 400 "출발·도착 좌표가 필요해요." · 400 "이동 수단은 walk·bus·subway·car 중 하나예요."
 
+### `GET /api/trips/{id}/payments`
+한 여행의 결제 내역, 결제 순. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{id, stopId, day, paidAt, storeName, amount, method, source, memo, payer}]`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| stopId | number (null 가능) | 결제 시각에 실제로 있던 일정 칸 (실제 도착 ≤ 결제 < 떠남). `null`이면 이동 중·계획 밖 |
+| day | number | 결제 날짜 − 시작 날짜 + 1 |
+| paidAt | string | `HH:mm` |
+| method | string | `card` / `cash` |
+| source | string | `manual`(직접 입력) / `card`(카드 내역 가져옴) / `capture`(나중에) |
+| payer | string | 낸 사람: `나` / `동행 1` / `동행 2` … (정산용, 11/07). 기본 `나` |
+
+**오류** 404 "여행을 찾을 수 없어요." (남의 여행 포함)
+
+### `POST /api/trips/{id}/payments`
+결제 하나 저장. 일정 칸(`stopId`)은 서버가 결제 시각으로 붙여요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{paidAt: "2026-11-04T11:35", storeName, amount, method?, source?, memo?, payer?}` — `payer` 없으면 `나` — `method` 없거나 모르는 값이면 `card`, `source` 없거나 모르는 값이면 `manual`
+
+**응답** 저장한 결제 하나 (위 목록과 같은 모양)
+
+**오류** 400 "가게 이름을 적어 주세요." · 400 "가게 이름은 100자까지예요." · 400 "금액은 1원 이상이에요." · 400 "메모는 200자까지예요." · 400 "결제 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 400 "여행 기간 안의 결제만 넣을 수 있어요." · 404 "여행을 찾을 수 없어요."
+
+### `PUT /api/trips/{id}/payments/{paymentId}/payer`
+결제의 낸 사람 바꾸기. 정산(1인당 금액, 누가 누구에게)은 화면에서 계산해요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{payer: "동행 1"}` · **응답** 바꾼 결제 하나 (목록과 같은 모양)
+
+**오류** 400 "낸 사람을 골라 주세요." · 400 "낸 사람 이름은 20자까지예요." · 404 "여행을 찾을 수 없어요." · 404 "결제를 찾을 수 없어요." (이 여행 결제가 아님)
+
+### `GET /api/trips/{id}/companions`
+같이 간 사람 목록, 보이는 순서대로. **처음 부르면** 여행 인원(`people`)만큼 `나`, `동행 1` … 을 만들어 저장해요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{id, tripId, name, friendMemberId, sortNo, shareAmount}]` — `sortNo` 0이 `나`. `friendMemberId`는 친구 기능(①)이 생기면 친구 회원 번호, 지금은 `null`
+
+### `POST /api/trips/{id}/companions`
+같이 간 사람 추가 (맨 뒤). **요청** `{name}` · **응답** 바뀐 목록
+
+### `PUT /api/trips/{id}/companions/{companionId}`
+이름 바꾸기. 그 사람이 낸 결제의 `payer`도 같이 바꿔요. **요청** `{name}` · **응답** 바뀐 목록
+
+### `DELETE /api/trips/{id}/companions/{companionId}`
+같이 간 사람 빼기. 그 사람이 낸 결제는 `나`가 낸 것으로 바꿔요. `나`는 못 빼요. **응답** 바뀐 목록
+
+**오류 (넷 공통)** 400 "이름을 적어 주세요." · 400 "이름은 20자까지예요." · 400 "같은 이름이 있어요." · 400 "'나'는 이름을 바꿀 수 없어요." · 400 "'나'는 뺄 수 없어요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
+
+### `DELETE /api/trips/{id}/payments/{paymentId}`
+결제 하나 지우기. · 로그인 필요 · 화면: after/RetroView (11/07) · 응답 없음(200)
+
+**오류** 404 "결제를 찾을 수 없어요." (이 여행 결제가 아님) · 404 "여행을 찾을 수 없어요."
+
+### `PUT /api/trips/{id}/companions/{companionId}/share`
+더치페이 낼 돈 직접 정하기. 정산 계산은 화면에서: 정한 사람은 그 금액, 나머지 사람은 (합계 − 정한 금액들)을 똑같이 나눠요(10원 단위, 남는 돈은 자동 중 첫 사람). · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{amount: 20000}` (0 이상) 또는 `{amount: null}` (자동으로 되돌리기) · **응답** 바뀐 같이 간 사람 목록
+
+**오류** 400 "금액은 0원 이상이에요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
+
+### `GET /api/trips/{id}/card-transactions`
+카드 승인내역. **지금은 목업**: 실제로 다녀온 곳마다 (도착 + 20분, 분류로 정한 금액), 계획 없이 머문 곳마다 (도착 + 20분, 9,800원), 숙소로 보이는 곳은 (도착 + 5분, 89,000원). CODEF 개인카드 승인내역(`/v1/kr/card/p/account/approval-list`)과 연결함(11/07): `CODEF_SERVICE_TYPE`이 `demo`·`product`이고 카드사 연결(connectedId)이 있으면 **진짜 내역**(정상 승인만, 부분취소는 뺀 금액, 여행 기간 안만), `sandbox`면 연결만 확인하고(샌드박스는 값이 `****`로 가려져 옴) 목업, 키가 없으면 목업. 카드사 연결이 없는데 데모 키면 400 "카드사를 먼저 연결해 주세요." CODEF 실패는 502. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{approvalDate: "20261104", approvalTime: "113500", paidAt: "2026-11-04T11:35", day, storeName, amount, imported}]` 결제 시각 순. `approvalDate`·`approvalTime`은 CODEF 승인내역의 `resUsedDate`·`resUsedTime` 모양, `paidAt`은 가져올 때 POST에 그대로 씀. `imported`: 같은 날·시각·가게·금액이 이미 결제 내역에 있으면 `true`
+
+**오류** 404 "여행을 찾을 수 없어요."
+
 ### `GET /api/trips/{id}/retro`
 회고: 계획과 실제를 비교하고 GPS 선을 줘요. · 로그인 필요 · 화면: after/RetroView
 
@@ -1365,12 +1440,19 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | id, title, startDate, endDate | | 여행 정보 |
+| people | number | 여행 인원 (정산 1인당 금액, 11/07 추가) |
 | visited | number | 실제 도착 기록(`arrivedAt`)이 있는 일정 칸 수 |
 | stops[] | object[] | 모든 일정 칸 (skipped 포함): `id, day, name, category, lat, lng, time, stay, state` + 아래 |
 | stops[].actualArrive | string (null 가능) | 실제 도착 시각 `HH:mm`. 안 갔으면 `null` |
 | stops[].actualStay | number (null 가능) | 실제 머문 분. 출발 기록이 없으면 `null` |
 | track[] | object[] | GPS 점 (기록 순) `{lat, lng, day, time}`. `day` = 기록 날짜 − 시작 날짜 + 1 |
 | movedMeters | number | 이동 거리(m). GPS 점 사이 거리를 기록 순서대로 더한 값. 탈것으로 이동한 거리도 포함. 점이 2개 미만이면 `0` |
+| extraStops[] | object[] | 계획 없이 머문 곳 (11/07 추가). GPS로 찾음, 없으면 `[]`. `{day, name, lat, lng, arrive, stay, kind}` |
+| extraStops[].arrive, stay | string, number | 온 시각 `HH:mm`, 머문 분 |
+| extraStops[].kind | string | `visit`(들른 곳) / `lodging`(숙소로 보이는 곳: 자정을 넘겨 머묾) |
+| extraStops[].name | string (null 가능) | 근처 장소 이름 (② `getNearbyPlaceList`): 들른 곳은 80m 안 가장 가까운 곳, 숙소로 보이는 곳은 150m 안 숙박(STAY). 못 찾으면 `null` |
+
+> 머문 곳 찾기 (11/07): GPS 점을 앞에서부터, 덩어리 첫 점에서 **100m** 안에 연달아 있는 점끼리 묶어요. 머문 분 = 덩어리를 벗어난 첫 점 시각 − 첫 점 시각 (날짜까지 넣어 계산해서 밤을 넘겨도 맞음). **15분** 이상이고, 같은 날 계획 장소에서 **150m** 밖이고, 그 시각에 같은 날 계획 장소의 실제 도착 ~ 떠남 기록 안이 아니면 머문 곳이에요. 마지막 덩어리는 끝을 몰라서 빼요. 넓은 곳(궁궐·공원)에 계획 없이 가면 여러 조각으로 나올 수 있어서, 이름을 붙인 뒤 바로 앞 조각과 이름·종류가 같고 30분 안에 이어지면 하나로 합쳐요.
 
 ```json
 { "id": 12, "title": "서울 하루", "startDate": "2026-10-20", "endDate": "2026-10-20", "visited": 1,
@@ -1380,6 +1462,68 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ```
 
 **오류** 404 "여행을 찾을 수 없어요."
+
+### 사진·영상 공통: Photo
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| id | number | 사진 번호 |
+| stopId | number (null 가능) | 찍은 일정 칸. `null`이면 이동 중에 찍은 것 |
+| mediaType | string | `photo` / `video` |
+| url | string | 파일 주소 `/api/photos/{id}/file` |
+| durationSec | number (null 가능) | 영상 길이(초). 사진이면 `null` |
+| day | number | 몇째 날 (찍은 날짜 − 시작 날짜 + 1) |
+| takenAt | string | 찍은 시각 `HH:mm` |
+
+### `GET /api/albums`
+앨범: 내 지난 여행(`status`가 `done`, 휴지통 제외)을 최근 순으로, 여행마다 사진 앞 8장. · 로그인 필요 · 화면: after/AlbumView · 11/06 추가
+
+**응답** 배열
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| tripId, title, startDate, endDate | | 여행 정보 |
+| placeCount | number | 일정 칸 수 (건너뛴 곳 빼고) |
+| photoCount, videoCount | number | 사진·영상 수 |
+| photos[] | Photo[] | 찍은 순 앞 8개. 없으면 `[]` |
+
+```json
+[ { "tripId": 12, "title": "종로 하루 여행", "startDate": "2026-11-01", "endDate": "2026-11-01",
+    "placeCount": 3, "photoCount": 8, "videoCount": 1,
+    "photos": [ { "id": 5, "stopId": 101, "mediaType": "video", "url": "/api/photos/5/file", "durationSec": 12, "day": 1, "takenAt": "10:20" } ] } ]
+```
+
+### `GET /api/trips/{id}/photos`
+한 여행의 사진·영상 전체 (찍은 순). · 로그인 필요 · 화면: after/RetroView, after/AlbumView · 11/06 추가
+
+**응답** Photo 배열 · **오류** 404 "여행을 찾을 수 없어요."
+
+### `POST /api/photos`
+사진·영상 여러 개를 한 번에 올려요. 찍은 시각으로 여행과 일정 칸을 찾아 분류해요. · 로그인 필요 · 화면: after/AlbumView · 11/06 추가
+
+**요청** `multipart/form-data`
+
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| files | O | 파일 여러 개 (JPG·PNG·WEBP·HEIC 사진, MP4·MOV 영상) |
+| takenAts | O | 파일 순서대로 찍은 시각 `yyyy-MM-ddTHH:mm` (브라우저가 읽은 파일 수정 시각) |
+| durations | O | 파일 순서대로 영상 길이(초). 사진은 `0` |
+| tripId | | 있으면 이 여행에 넣어요(이날 사진 불러오기). 없으면 찍은 날짜가 기간 안에 드는 내 여행을 찾아요 |
+
+**분류 규칙**
+1. 여행: `tripId`가 있으면 그 여행, 없으면 찍은 날짜가 `startDate ~ endDate` 안인 내 여행. 못 찾은 파일은 저장하지 않고 `unmatchedCount`에 세요.
+2. 일정 칸: 그날(`day`)의 칸 중 `시작 ≤ 찍은 시각 < 끝`인 칸. 시작·끝은 실제 도착·출발 시각, 없으면 계획 시각(`time`, `time + stay`). 맞는 칸이 없으면 `stopId = null`(이동 중).
+
+**응답** `{ "savedCount": 9, "unmatchedCount": 1 }`
+
+**오류** 400 "사진이나 영상을 올려 주세요." · 400 "사진·영상 파일만 올릴 수 있어요." · 400 "파일은 100MB까지예요." · 400 "찍은 시각 개수가 파일 개수와 달라요." · 400 "날짜 형태를 잘못가져왔어요. 찍은 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 500 "파일을 저장하지 못했어요." · 404 "여행을 찾을 수 없어요."
+
+> 파일은 서버 폴더(`PHOTO_DIR`, 기본 `uploads/photos`)에 새 이름으로 저장하고, DB `photo`에는 이름만 넣어요.
+
+### `GET /api/photos/{photoId}/file`
+사진·영상 파일 자체. 내 여행의 사진만 줘요. · 로그인 필요 · 11/06 추가
+
+**응답** 파일 (Content-Type `image/jpeg`, `video/mp4` 등) · **오류** 404 "사진을 찾을 수 없어요."
 
 ---
 
