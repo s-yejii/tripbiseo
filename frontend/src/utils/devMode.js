@@ -3,6 +3,7 @@
 //   켜지면 여행 중 화면에 반투명 점이 보이고, 누르면 가짜 GPS · 시연 시계 · 빨리 감기를 쓸 수 있어요.
 // 이 브라우저에만 기억해요 (localStorage). 로그아웃하거나 끄면 사라져요.
 import { reactive } from 'vue'
+import { getDevStatus } from '@/api/dev'
 
 const KEY = 'devMode'
 
@@ -63,4 +64,20 @@ export function setFakeGps(isFake) {
 // 지금 가짜 GPS로 움직이는지
 export function isFakeGps() {
   return devMode.isOn && devMode.isFakeGps
+}
+
+// 로그인 바로 뒤에 부름 (11/08 주형: 시연 계정은 버전 5번 안 눌러도 시나리오대로)
+//   시연 계정(DEMO_ACCOUNTS)이면 개발자 모드 + 가짜 GPS를 켜고, 아니면 이 브라우저에 남은 개발자 모드를 끔
+export async function applyDemoAccount() {
+  try {
+    const status = await getDevStatus()
+    if (status.allowed) {
+      turnOnDevMode()
+      setFakeGps(true)
+    } else {
+      turnOffDevMode()
+    }
+  } catch (e) {
+    // 서버가 답을 못 하면 지금 상태 그대로
+  }
 }
