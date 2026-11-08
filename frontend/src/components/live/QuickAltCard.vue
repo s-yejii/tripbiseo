@@ -6,29 +6,30 @@ import { useRouter } from 'vue-router'
 import { useReplanStore } from '@/stores/replan'
 import { showToast } from '@/utils/toast'
 
-const QUICK_SHORTS = ['갈아타기', '비 피하기']
+const QUICK_SHORTS = ['지하철', '택시', '갈아타기', '비 피하기'] // 지하철·택시: 남은 곳이 예약(KTX)뿐일 때 바로 가는 방법 (11/08)
 const router = useRouter()
 const replan = useReplanStore()
 const isApplying = ref(false)
 
-const quick = computed(() => {
+// 보여 줄 카드들: 빠른 도착 순 (맨 앞 = 추천)
+const quickList = computed(() => {
+  const list = []
   for (const short of QUICK_SHORTS) {
     const option = replan.findOption(short)
-    if (option) return option
+    if (option) list.push(option)
   }
-  return null
+  return list.sort((a, b) => b.slackMin - a.slackMin)
 })
-const changeText = computed(() => {
-  if (!quick.value) return ''
-  const changed = quick.value.stops.find((stop) => stop.change)
+function changeTextOf(option) {
+  const changed = option.stops.find((stop) => stop.change)
   return changed ? changed.name + ' · ' + changed.change : ''
-})
+}
 
-async function applyQuick() {
+async function applyQuick(option) {
   if (isApplying.value) return
   isApplying.value = true
   try {
-    await replan.apply(quick.value)
+    await replan.apply(option)
     router.replace('/live/applied')
   } catch (e) {
     showToast(e.message)
@@ -38,14 +39,15 @@ async function applyQuick() {
 </script>
 
 <template>
-  <section v-if="quick" class="card card--pad qalt" aria-label="더 빨리 가는 방법">
+  <section v-for="(quick, i) in quickList" :key="quick.short" class="card card--pad qalt" aria-label="더 빨리 가는 방법">
     <div class="qalt__head">
-      <span class="badge badge--navy">{{ quick.short }}</span>
+      <span class="badge badge--navy">{{ i === 0 ? '추천 · ' : '' }}{{ quick.short }}</span>
       <span class="t-cap tn" :class="quick.slackMin < 0 ? 'c-warning' : 'c-success'">{{ quick.finalArrive }} 도착 · {{ quick.slackMin < 0 ? -quick.slackMin + '분 늦음' : '여유 ' + quick.slackMin + '분' }}</span>
     </div>
     <b class="t-strong">{{ quick.title }}</b>
-    <span v-if="changeText" class="t-cap">{{ changeText }}</span>
-    <button type="button" class="btn btn--primary btn--block" :disabled="isApplying" @click="applyQuick">이 방법으로 바꾸기</button>
+    <span v-if="quick.reason" class="t-cap">{{ quick.reason }}</span>
+    <span v-else-if="changeTextOf(quick)" class="t-cap">{{ changeTextOf(quick) }}</span>
+    <button type="button" class="btn btn--block" :class="i === 0 ? 'btn--primary' : 'btn--secondary'" :disabled="isApplying" @click="applyQuick(quick)">이 방법으로 바꾸기</button>
   </section>
 </template>
 
