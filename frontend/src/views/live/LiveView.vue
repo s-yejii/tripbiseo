@@ -106,7 +106,7 @@ const remainingStops = computed(() => stops.value.filter((stop) => stop.reach !=
 const nextStop = computed(() => remainingStops.value[0] || null)
 const doneCount = computed(() => stops.value.filter((stop) => stop.reach === 'done').length)
 const isAllDone = computed(() => isReady.value && !currentStop.value && remainingStops.value.length === 0)
-// 여러 날 여행에서 오늘이 마지막 날이 아니면 "여행 마치기" 대신 다음 날 일정 보기 (11/08 주형: 1일차 숙소에서 여행이 끝나 버리던 문제)
+// 여러 날 여행에서 오늘이 마지막 날이 아니면, 그날 마지막 장소(숙소)에 오면 "여행 마치기" 대신 다음 날 일정 보기 (11/08 주형: 1일차 숙소에서 여행이 끝나 버리던 문제)
 const nextDayNo = computed(() => {
   const trip = live.trip.value
   const today = todayText()
@@ -667,10 +667,13 @@ function restartMoving() {
           </BottomSheet>
 
           <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
-            <div v-if="isAllDone" class="cta__row">
+            <div v-if="nextDayNo && remainingStops.length === 0" class="cta__row">
               <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=/live'" class="btn btn--secondary btn--lg">일정 보기</RouterLink>
-              <RouterLink v-if="nextDayNo" :to="'/trips/today?id=' + live.tripId.value + '&day=' + nextDayNo + '&back=/live'" class="btn btn--primary btn--lg"><i class="ic i-calendar" aria-hidden="true"></i>{{ nextDayNo }}일차 일정 보기</RouterLink>
-              <button v-else type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="finish"><i class="ic i-flag" aria-hidden="true"></i>여행 마치기</button>
+              <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&day=' + nextDayNo + '&back=/live'" class="btn btn--primary btn--lg"><i class="ic i-calendar" aria-hidden="true"></i>{{ nextDayNo }}일차 일정 보기</RouterLink>
+            </div>
+            <div v-else-if="isAllDone" class="cta__row">
+              <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=/live'" class="btn btn--secondary btn--lg">일정 보기</RouterLink>
+              <button type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="finish"><i class="ic i-flag" aria-hidden="true"></i>여행 마치기</button>
             </div>
             <div v-else class="cta__row">
               <RouterLink v-if="isLate" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
