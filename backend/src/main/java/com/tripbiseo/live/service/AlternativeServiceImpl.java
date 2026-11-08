@@ -173,6 +173,9 @@ public class AlternativeServiceImpl implements AlternativeService {
         double lat = request.getLat();
         double lng = request.getLng();
         List<Alternative> alternatives = new ArrayList<>();
+        if (remainingStops.size() == 1 && Boolean.TRUE.equals(remainingStops.get(0).getFixed())) {
+            return makeGoNowAlternatives(trip, current, remainingStops, lat, lng); // 남은 곳이 예약(KTX)뿐이면 줄이거나 뺄 곳이 없어서 "빨리 가는 방법"만 (11/08)
+        }
         Alternative rainAlternative = makeRainAlternative(trip, current, remainingStops, lat, lng);
         if (rainAlternative != null) {
             alternatives.add(rainAlternative); // 비 소식이 있으면 맨 앞에 (11/06)
@@ -273,6 +276,32 @@ public class AlternativeServiceImpl implements AlternativeService {
         alternative.setShortName("갈아타기");
         alternative.setTitle(option.getTitle());
         alternative.setReason(fixedStop.getName() + "까지 대중교통 " + option.getTransitMinutes() + "분 대신 " + option.getText() + "로 가요.");
+        return alternative;
+    }
+
+    /**
+     * 남은 곳이 예약(예: 서울역 KTX) 하나뿐일 때: 지금 바로 가는 방법 두 가지 (11/08 시연 돌발: 타임스퀘어에서 늦어짐).
+     * A 지하철(대중교통)로 바로 / B 택시로 바로. 둘 다 실제 길찾기 값, 예약을 빼는 대안은 만들지 않음
+     */
+    private List<Alternative> makeGoNowAlternatives(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng) {
+        List<Alternative> alternatives = new ArrayList<>();
+        Stop fixedStop = remainingStops.get(0);
+        alternatives.add(makeGoNowAlternative(trip, current, remainingStops, lat, lng, "transit", "지하철로 바로 가기",
+                fixedStop.getName() + "까지 지하철로 지금 바로 가요. 퇴근길엔 막히지 않아요."));
+        alternatives.add(makeGoNowAlternative(trip, current, remainingStops, lat, lng, "taxi", "택시로 바로 가기",
+                fixedStop.getName() + "까지 택시로 바로 가요. 퇴근길이라 막힐 수 있어요."));
+        return alternatives;
+    }
+
+    private Alternative makeGoNowAlternative(Trip trip, Stop current, List<Stop> remainingStops, double lat, double lng,
+                                             String mode, String title, String reason) {
+        List<Stop> stops = alternativeCalculator.copyStops(remainingStops);
+        stops.get(0).setMode(mode);
+        Alternative alternative = alternativeCalculator.calculate(trip, current, stops, lat, lng);
+        alternative.setChanges(1);
+        alternative.setShortName("transit".equals(mode) ? "지하철" : "택시");
+        alternative.setTitle(title);
+        alternative.setReason(reason);
         return alternative;
     }
 
