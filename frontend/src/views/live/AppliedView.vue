@@ -45,6 +45,17 @@ function moveOf(row) {
   return found ? found.moveMin : null
 }
 
+// 적용 뒤 다시 계산한 이동(지금 → 그 칸): 분·수단. 대안 카드·여행 중 화면과 같은 숫자
+const MODE_ICON = { walk: 'i-walk', transit: 'i-subway', car: 'i-car' }
+function legOf(row) {
+  const now = after.value && after.value.stops ? after.value.stops.find((stop) => stop.id === row.id) : null
+  if (now && now.moveMin != null) return { min: now.moveMin, icon: MODE_ICON[now.moveMode] || 'i-walk' }
+  const min = moveOf(row)
+  return min == null ? null : { min, icon: 'i-walk' }
+}
+// 역(KTX·기차)은 음식 사진 대신 기차 아이콘
+const isStation = (category) => /역|KTX|기차/.test(category || '')
+
 // 한 줄 모양: 배지·글자·색
 function toRow(row) {
   const old = beforeOf(row.id)
@@ -54,6 +65,7 @@ function toRow(row) {
   if (old && old.fixed) {
     const fixed = after.value && after.value.fixed
     const meta = fixed ? `${fixed.eta} 도착 · ` + (fixed.slackMin < 0 ? -fixed.slackMin + '분 늦음' : fixed.slackMin + '분 여유') : '계획 시각 그대로'
+    if (row.note) return { ...row, cls: 'is-fixed is-changed', isFixed: true, badge: { text: '바뀜', cls: 'badge--danger' }, meta: row.note + ' · ' + meta } // 예: 택시로 바로 가기
     return { ...row, cls: 'is-fixed', isFixed: true, badge: { text: '예약 그대로', cls: 'badge--navy' }, meta }
   }
   if (old && old.stay !== row.stay) {
@@ -160,11 +172,12 @@ async function undo() {
 
         <ol class="tl" style="list-style: none; margin: 0; padding: 0">
           <template v-for="(row, i) in rows" :key="(row.id || '') + row.name">
-            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && moveOf(row) != null"><i class="ic ic--s i-walk" aria-hidden="true"></i>이동 {{ moveOf(row) }}분</span><span v-else></span></li>
+            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && legOf(row)"><i class="ic ic--s" :class="legOf(row).icon" aria-hidden="true"></i>이동 {{ legOf(row).min }}분</span><span v-else></span></li>
             <li class="stop" :class="row.cls">
               <span class="stop__time">{{ row.time }}</span>
               <span class="stop__card">
-                <img v-if="row.tag !== 'done' || row.isCurrent" class="thumb" :src="imageFor(row.category)" alt="" />
+                <span v-if="(row.tag !== 'done' || row.isCurrent) && isStation(row.category)" class="thumb thumb--station" aria-hidden="true"><i class="ic i-subway"></i></span>
+                <img v-else-if="row.tag !== 'done' || row.isCurrent" class="thumb" :src="imageFor(row.category)" alt="" />
                 <span class="stop__body">
                   <span class="stop__name">
                     <i v-if="row.tag === 'done' && !row.isCurrent" class="ic ic--s i-check c-success" aria-hidden="true"></i>
@@ -208,6 +221,7 @@ async function undo() {
 
 <style>
 .scr-Applied .legend{display:flex;gap:14px;align-items:center}
+.scr-Applied .thumb--station{display:grid;place-items:center;background:var(--surface-sunken);color:var(--navy, var(--ink-muted))}
 .scr-Applied .kakao-share{background:#FEE500;color:#191919;border:0;font-weight:700}
 .scr-Applied .legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--ink-muted)}
 .scr-Applied .legend i.sw{width:12px;height:12px;border-radius:4px;display:inline-block}

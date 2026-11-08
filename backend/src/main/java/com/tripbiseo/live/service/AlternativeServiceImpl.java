@@ -297,7 +297,8 @@ public class AlternativeServiceImpl implements AlternativeService {
                                              String mode, String title, String reason) {
         List<Stop> stops = alternativeCalculator.copyStops(remainingStops);
         stops.get(0).setMode(mode);
-        Alternative alternative = alternativeCalculator.calculate(trip, current, stops, lat, lng);
+        // 첫 구간(지금 → 서울역)은 진짜 길찾기 값으로: 여행 중 화면·적용 뒤 화면과 같은 숫자가 나오게 (11/08)
+        Alternative alternative = alternativeCalculator.calculate(trip, current, stops, lat, lng, 1);
         alternative.setChanges(1);
         alternative.setShortName("transit".equals(mode) ? "지하철" : "택시");
         markFixedStopChange(alternative, title); // 적용할 때 이 이름을 보고 고정 일정의 이동 수단을 바꿈 (updateChosenStop)
@@ -834,9 +835,11 @@ public class AlternativeServiceImpl implements AlternativeService {
         if (isFixed && chosen.getChange() != null && chosen.getChange().contains("택시")) {
             update.setMemo(trimMemo(chosen.getChange())); // 갈아타기·택시로 바로 가기: 메모로 남기고 택시로 (11/06)
             update.setMode("taxi");
+            noteMap.put(original.getId(), chosen.getChange()); // 바뀐 일정 화면에 "택시로 바로 가기"
         } else if (isFixed && chosen.getChange() != null && chosen.getChange().contains("지하철로 바로")) {
             update.setMemo(trimMemo(chosen.getChange())); // 지하철로 바로 가기 (11/08)
             update.setMode("transit");
+            noteMap.put(original.getId(), chosen.getChange());
         }
         tripService.updateStop(memberId, tripId, original.getId(), update);
 
