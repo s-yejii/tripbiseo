@@ -619,7 +619,7 @@ function restartMoving() {
         <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
         <AppNoti
           v-else-if="liveBanner.queue.length && !adding"
-          :key="liveBanner.queue[0].kind"
+          :key="liveBanner.queue[0].title + liveBanner.queue[0].body"
           :title="liveBanner.queue[0].title"
           :body="liveBanner.queue[0].body + (liveBanner.queue.length > 1 ? ' · 알림 ' + (liveBanner.queue.length - 1) + '개 더' : '')"
           :icon="liveBanner.queue[0].icon || 'i-route'"
@@ -627,6 +627,8 @@ function restartMoving() {
           :to="liveBanner.queue[0].to || ''"
           @close="closeLiveNotice"
         />
+        <!-- PC 마우스로도 한 번에 닫게 작은 닫기 버튼 (위로 밀기도 그대로) -->
+        <button v-if="!isCardOpen && liveBanner.queue.length && !adding" type="button" class="live-noti-x" aria-label="알림 닫기" @click="closeLiveNotice"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
         <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
         <template v-else-if="status.alert && !isAlertMuted && !adding">
           <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="queueAlert(status.alert)">
@@ -713,6 +715,7 @@ function restartMoving() {
 </template>
 
 <style>
+.live-noti-x { position: absolute; top: 56px; right: 14px; z-index: 56; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: rgba(24, 33, 58, 0.08); color: var(--ink-muted); cursor: pointer; }
 .scr-Live .live-msg { padding-top: 96px; }
 .scr-Live .live-fab { position: absolute; right: 16px; top: 380px; z-index: 6; } /* + 가운데는 예전(52px, 376px)과 같은 높이 */
 .scr-Live .live-fab__me { position: absolute; left: 0; bottom: calc(100% + 10px); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #2F7BEA; background: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .25); cursor: pointer; transition: opacity .18s, transform .18s; }

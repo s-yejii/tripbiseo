@@ -1,6 +1,6 @@
 // 여행 중 화면 위쪽 알림 줄 (11/08 주형)
 //  - 한 번에 한 장만 보이고(겹치지 않게), 사용자가 위로 밀거나 닫아야 다음 알림이 이어서 떠요 ("내가 끄기 전에는 없애지 마")
-//  - 같은 종류(같은 장소의 출발 알림 등)는 새 내용으로 바꿔 한 칸만 차지해요
+//  - 새 알림은 줄 맨 뒤에 서요. 제목·내용이 완전히 같은 알림만 한 번으로
 //  - 화면을 옮기거나 새로고침해도 남게 sessionStorage(이 탭이 열려 있는 동안만 남는 저장소)에 둬요
 import { reactive } from 'vue'
 
@@ -29,12 +29,12 @@ function kindOf(key) {
 
 export const liveBanner = reactive({ queue: load() }) // [{ key, title, body, warn, icon, to }]
 
-// 알림 줄에 넣기 (같은 종류가 이미 있으면 그 자리의 내용만 새것으로)
+// 알림 줄 맨 뒤에 넣기. 앞 알림을 덮어쓰지 않고, 제목·내용이 완전히 같은 알림만 한 번으로 (11/08 주형: "끄기 전에는 없애지 마")
 export function showLiveNotice(notice) {
   const item = { ...notice, kind: kindOf(notice.key || notice.title) }
-  const index = liveBanner.queue.findIndex((queued) => queued.kind === item.kind)
-  if (index >= 0) liveBanner.queue.splice(index, 1, item)
-  else liveBanner.queue.push(item)
+  const isSame = liveBanner.queue.some((queued) => queued.title === item.title && queued.body === item.body)
+  if (isSame) return
+  liveBanner.queue.push(item)
   save()
 }
 
