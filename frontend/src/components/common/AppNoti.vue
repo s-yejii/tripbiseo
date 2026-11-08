@@ -49,7 +49,7 @@ function onUp() {
   >
     <span class="noti__app" aria-hidden="true"><i class="ic ic--s i-pin"></i></span>
     <span class="noti__body">
-      <span class="noti__meta"><b>여행어때</b><span>지금</span></span>
+      <span class="noti__meta"><b>착착트립</b><span>지금</span></span>
       <span class="noti__t tn"><i class="ic ic--s" :class="icon" aria-hidden="true"></i>{{ title }}</span>
       <span class="noti__d">{{ body }}</span>
     </span>

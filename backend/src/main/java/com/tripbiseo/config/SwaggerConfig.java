@@ -18,7 +18,7 @@ public class SwaggerConfig {
     @Bean
     public OpenAPI openApi() {
         return new OpenAPI().info(new Info()
-                .title("여행어때 API")
+                .title("착착트립 API")
                 .description("기준 문서는 docs/API.md. 로그인이 필요하면 먼저 POST /api/auth/login을 실행하세요.")
                 .version("v1"));
     }
