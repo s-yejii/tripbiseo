@@ -52,20 +52,22 @@ public class LiveAlertMaker {
         Stop current = context.getCurrent();
         Stop fixedStop = context.getFixedStop();
         Integer slack = context.getSlack();
+        // 11/08: 고정 일정(KTX·예약)에 늦는 게 가장 중요해서 맨 먼저. 도착 "목표" 시각을 같이 보여 줘서 기차를 놓친다고 오해하지 않게
+        if (isLate(slack)) {
+            // key 끝의 숫자는 10분 더 늦어질 때마다 바뀜 → 그때마다 다시 알려 줌
+            return newAlert("late-" + fixedStop.getId() + "-" + (-slack) / 10, "danger",
+                    "지금대로면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")보다 " + (-slack) + "분 늦어요",
+                    "'대안 보기'로 늦지 않는 방법을 확인하세요");
+        }
         if (isOverdue(context)) {
-            int overMinutes = context.getNow() - context.getLeaveAt();
-            // key 끝의 숫자는 5분마다 바뀜 → 화면이 5분마다 다시 알려 줌
-            return newAlert("overdue-" + current.getId() + "-" + overMinutes / 5, "danger",
-                    current.getName() + "에서 " + overMinutes + "분 더 머물렀어요", "계획한 출발 시각이 지났어요. 지금 위치에서 다시 계산했어요");
+            // 11/08: 머무는 시간이 지나면 한 번만 가볍게 (5분마다 반복하지 않음). 고정 일정에 늦게 되면 위 알림이 대신 뜸
+            Stop nextStop = context.getNextStop();
+            return newAlert("overdue-" + current.getId(), "warn",
+                    current.getName() + "에서 나갈 시간이에요", nextStop == null ? "계획한 출발 시각이 지났어요" : "다음은 " + nextStop.getName() + "이에요");
         }
         LiveAlert closedAlert = makeClosedAlert(context);
         if (closedAlert != null) {
             return closedAlert;
-        }
-        if (isLate(slack)) {
-            // key 끝의 숫자는 10분 더 늦어질 때마다 바뀜 → 그때마다 다시 알려 줌
-            return newAlert("late-" + fixedStop.getId() + "-" + (-slack) / 10, "danger",
-                    "지금대로면 " + fixedStop.getName() + "에 " + (-slack) + "분 늦어요", "'대안 보기'로 늦지 않는 방법을 확인하세요");
         }
         if (leave != null) {
             return makeLeaveAlert(leave);
