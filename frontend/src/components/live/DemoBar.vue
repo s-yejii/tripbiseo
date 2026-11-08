@@ -12,7 +12,7 @@ import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain, s
 import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
 import { addDays, daysBetween } from '@/utils/dates'
 import { isPracticeTrip, PRACTICE_MARK } from '@/utils/practice'
-import { appNow, clearCommand, devMode, setClockOffset, syncClock } from '@/utils/devMode'
+import { appNow, clearCommand, devMode, ensureDemoFlow, setClockOffset, syncClock } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 
@@ -444,7 +444,10 @@ async function walkBetween(from, to, rate) {
   await props.live.placeAt(lat, lng, false)
 }
 
-onMounted(() => { flowTimer = setInterval(flowTick, FLOW_TICK_MS) })
+onMounted(() => {
+  ensureDemoFlow()
+  flowTimer = setInterval(flowTick, FLOW_TICK_MS)
+})
 onUnmounted(() => clearInterval(flowTimer))
 
 // ------------------------------------------------------------ 설정(DevDot)에서 보낸 일

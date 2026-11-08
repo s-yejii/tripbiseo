@@ -159,7 +159,7 @@ function restart() {
   emit('clock')
 }
 function toggleFlow() {
-  setFlow(!devMode.isFlow)
+  setFlow(!devMode.isFlow, true)
   showToast(devMode.isFlow ? '시계에 맞춰 일정대로 움직여요' : '자동으로 안 움직여요 (장면·장소 버튼으로)')
 }
 

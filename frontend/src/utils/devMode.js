@@ -7,7 +7,7 @@ import { getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/de
 
 const KEY = 'devMode'
 const LOGIN_SPEED = 1 // 로그인하면 15:00에서 보통 속도 (일정을 짜는 동안 시간이 흘러가 버리지 않게). 여행 중 화면에서 자동 배속이 빠르게 돌림
-const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, isAutoSpeed: true, command: null }
+const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, isFlowTouched: false, isAutoSpeed: true, command: null }
 
 function load() {
   try {
@@ -81,9 +81,17 @@ export function isFakeGps() {
 }
 
 // 일정대로 흐르기 켜고 끄기: 켜면 여행 중 화면에서 시연 시각에 맞는 자리로 "나"가 움직여요 (11/08)
-export function setFlow(isFlow) {
+export function setFlow(isFlow, isByUser = false) {
   devMode.isFlow = devMode.isOn && isFlow
+  if (isByUser) devMode.isFlowTouched = true // 설정에서 직접 끈 것만 기억 (그 밖엔 여행 중 화면이 다시 켬)
   save()
+}
+
+// 여행 중 화면을 열 때: 개발자 모드인데 흐르기·가짜 GPS가 꺼져 있으면(예전에 끄고 다시 켠 경우) 다시 켬. 설정에서 직접 끈 건 그대로
+export function ensureDemoFlow() {
+  if (!devMode.isOn || devMode.isFlowTouched) return
+  if (!devMode.isFlow) setFlow(true)
+  if (!devMode.isFakeGps) setFakeGps(true)
 }
 
 // 자동 배속 켜고 끄기: 켜면 볼 것 없는 구간(오래 머무는 중·밤)은 빠르게, 돌발 앞에서는 천천히 (11/08 주형)
