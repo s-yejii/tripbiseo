@@ -55,6 +55,10 @@ const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
 const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
+// 시연 계정: 돌발에서 시연 시계가 멈추면(배속 0) 그 알림을 위에서 내려오는 알림으로 펼쳐 둠 (11/08: 멈춘 이유가 바로 보이게)
+watch(() => [devMode.speed, status.value && status.value.alert], ([speed, alert]) => {
+  if (devMode.isOn && speed === 0 && alert) notiOpen.value = true
+})
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
