@@ -25,7 +25,7 @@ import NotiBell from '@/components/member/NotiBell.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
 import DevDot from '@/components/live/DevDot.vue'
-import DemoBar from '@/components/live/DemoBar.vue'
+import DemoDrive from '@/components/live/DemoDrive.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
@@ -42,7 +42,7 @@ const MODE_LABEL = { walk: '도보', transit: '대중교통', car: '택시' }
 const router = useRouter()
 const replan = useReplanStore()
 const live = useLiveTrip()
-const isDemo = ref(isFakeGps() && !devMode.isFlow) // 11/08: 일정대로 흐르기(DemoBar)가 켜져 있으면 예전 가짜 GPS 걷기는 안 씀 · 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
+const isDemo = ref(isFakeGps() && !devMode.isFlow) // 11/08: 시연 계정은 DemoDrive가 위치를 옮기니 예전 가짜 GPS 걷기는 안 씀 · 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
 
 onMounted(() => live.start(isDemo.value))
 onUnmounted(() => live.stop())
@@ -542,7 +542,7 @@ function restartMoving() {
   <div class="scr scr-Live">
     <div class="app">
       <DevDot @clock="live.refresh()" @gps="restartMoving" />
-      <DemoBar :live="live" @restart="restartMoving" />
+      <DemoDrive :live="live" /><!-- 시연 계정만: 작은 "다음 장소로" 버튼 (GPS 이동 + 시계 배속만 자동, 11/08) -->
       <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">

@@ -1,21 +1,15 @@
 <script setup>
+// 11/08 주형: 시연 계정의 "시연 재생"(자동 진행)은 뺐어요. 모든 계정이 같은 이동 미리보기를 써요
 // 이동 미리보기 버튼 (일정 결과·상세 공통): ▶ 누르면 지도에서 점이 일정대로 움직이고, 지금 시각과 가는 곳을 보여 줘요
 // sim: utils/useRouteSim의 돌려준 값
-// 개발자 모드(시연 계정)에서는 화면 미리보기 대신 진짜 시연 재생: 여행 중 화면으로 가서 시연 여행을 시작하고 자동 재생 (11/06)
-import { useRouter } from 'vue-router'
-import { devMode } from '@/utils/devMode'
 
 defineProps({
   sim: { type: Object, required: true },
 })
-const router = useRouter()
 </script>
 
 <template>
-  <button v-if="devMode.isOn" type="button" class="route-sim is-on" aria-label="시연 재생 (여행 중 화면에서 진짜로 진행)" @click="router.push('/live?autoplay=1')">
-    <i class="ic ic--s i-play" aria-hidden="true"></i><b>시연 재생</b>
-  </button>
-  <button v-else-if="sim.canPlay.value" type="button" class="route-sim" :class="{ 'is-on': sim.isOn.value }" :aria-label="sim.isPlaying.value ? '이동 미리보기 멈추기' : '이동 미리보기'" @click="sim.toggle">
+  <button v-if="sim.canPlay.value" type="button" class="route-sim" :class="{ 'is-on': sim.isOn.value }" :aria-label="sim.isPlaying.value ? '이동 미리보기 멈추기' : '이동 미리보기'" @click="sim.toggle">
     <i class="ic ic--s" :class="sim.isPlaying.value ? 'i-pause' : 'i-play'" aria-hidden="true"></i>
     <template v-if="sim.isOn.value"><b class="tn">{{ sim.clock.value }}</b><span class="route-sim__name">{{ sim.label.value }}</span></template>
   </button>
