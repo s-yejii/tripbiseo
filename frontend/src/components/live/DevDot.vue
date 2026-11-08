@@ -307,7 +307,7 @@ function turnOff() {
 </template>
 
 <style>
-.dev-dot { position: absolute; left: 6px; top: 16px; z-index: 30; width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 0; background: #8a93a3; opacity: 0.55; cursor: pointer; } /* 상태바 시계 왼쪽 (11/08: 발표자가 찾기 쉽게, 마이·여행 중 같은 자리) */
+.dev-dot { position: absolute; left: 6px; top: 16px; z-index: 60; width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 0; background: #8a93a3; opacity: 0.55; cursor: pointer; } /* 상태바 시계 왼쪽 (11/08: 발표자가 찾기 쉽게, 마이·여행 중 같은 자리) */
 .dev-panel { position: absolute; left: 10px; top: 40px; z-index: 9; width: min(330px, calc(100% - 20px)); max-height: calc(100% - 210px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .dev-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .dev-panel__input { flex: 1 1 130px; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line, #ddd); border-radius: 8px; font: inherit; }
