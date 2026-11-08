@@ -80,6 +80,34 @@ const banner = computed(() => {
   }
 })
 
+// 팀원 공유 (11/08 DEMO.md 8번): 바뀐 일정을 단톡방에 보낼 글로 만들어 휴대폰 공유 창(없으면 복사)으로
+const isShared = ref(false)
+function shareText() {
+  const lines = ['[여행어때] 일정이 바뀌었어요', banner.value.title]
+  for (const row of rows.value) {
+    if (row.tag === 'done' && !row.isCurrent) continue
+    const change = row.was ? ` (${row.was} → ${row.now})` : ''
+    lines.push(`${row.time} ${row.name}${change}`)
+  }
+  for (const stop of gone.value) lines.push(`${stop.name} 뺌`)
+  return lines.join(String.fromCharCode(10)) // 줄바꿈
+}
+async function share() {
+  const text = shareText()
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: '바뀐 일정', text })
+    } else {
+      await navigator.clipboard.writeText(text)
+      showToast('단톡방에 붙여 넣을 글을 복사했어요')
+    }
+    isShared.value = true
+  } catch (e) {
+    if (e && e.name === 'AbortError') return // 공유 창을 닫음
+    showToast('공유하지 못했어요 · ' + e.message)
+  }
+}
+
 async function undo() {
   if (!replan.canUndo()) {
     canUndo.value = false
@@ -162,8 +190,9 @@ async function undo() {
         
       </div>
 
-      <div class="cta">
-        <RouterLink to="/live" class="btn btn--primary btn--lg btn--block"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
+      <div class="cta" style="display: flex; gap: 8px">
+        <button type="button" class="btn btn--secondary btn--lg" style="flex: 1" @click="share"><i class="ic i-share" aria-hidden="true"></i>{{ isShared ? '공유했어요' : '팀원에게 공유' }}</button>
+        <RouterLink to="/live" class="btn btn--primary btn--lg" style="flex: 1"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
       </div>
       </template>
     </div>
