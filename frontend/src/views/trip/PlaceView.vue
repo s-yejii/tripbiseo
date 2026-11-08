@@ -101,7 +101,7 @@ function addToPlan() {
       <img :src="place.img" :alt="place.name + ' 사진'" class="pl-photo" />
       <span v-if="place.photoSite" class="pl-credit">사진: {{ place.photoSite }}</span>
       <header class="topbar topbar--float">
-        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/plan/check')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <span style="flex: 1"></span>
         <button type="button" class="iconbtn iconbtn--float" :class="{ 'is-bm': saved }" :aria-label="saved ? '저장 취소' : '저장'" :aria-pressed="saved" @click="toggleSave"><i class="ic i-bookmark" aria-hidden="true"></i></button>
         <button type="button" class="iconbtn iconbtn--float" aria-label="가게 링크 복사" title="가게 링크 복사" @click="copyText(naverLink, '가게 링크를 복사했어요')"><i class="ic i-link" aria-hidden="true"></i></button>
