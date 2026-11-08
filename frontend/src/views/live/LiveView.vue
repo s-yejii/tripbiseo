@@ -41,7 +41,7 @@ const MODE_LABEL = { walk: '도보', transit: '대중교통', car: '택시' }
 const router = useRouter()
 const replan = useReplanStore()
 const live = useLiveTrip()
-const isDemo = ref(isFakeGps()) // 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
+const isDemo = ref(isFakeGps() && !devMode.isFlow) // 11/08: 일정대로 흐르기(DemoBar)가 켜져 있으면 예전 가짜 GPS 걷기는 안 씀 · 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
 
 onMounted(() => live.start(isDemo.value))
 onUnmounted(() => live.stop())
@@ -473,7 +473,7 @@ function showDemo() {
 // 개발자 모드에서 가짜 GPS를 켜고 끄면 처음부터 다시 받아요
 function restartMoving() {
   live.stop()
-  isDemo.value = isFakeGps()
+  isDemo.value = isFakeGps() && !devMode.isFlow
   live.start(isDemo.value)
 }
 </script>

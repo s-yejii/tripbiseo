@@ -9,7 +9,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
-import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
+import { createTrip, generatePlan, getTrip, getTripList, startTrip } from '@/api/trips'
+import { getDevScenario } from '@/api/dev'
 import { addDays, daysBetween } from '@/utils/dates'
 import { isPracticeTrip, PRACTICE_MARK } from '@/utils/practice'
 import { appNow, clearCommand, devMode, ensureDemoFlow, setClockOffset, syncClock } from '@/utils/devMode'
@@ -202,6 +203,7 @@ watch(() => props.live.phase.value, async (phase) => {
     const saved = await getTrip(props.live.tripId.value)
     const arrived = saved.stops.filter((stop) => stop.arrivedAt).sort((a, b) => a.arrivedAt.localeCompare(b.arrivedAt))
     const ordered = saved.stops.slice().sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
+    if (!arrived.length && devMode.isFlow) return // 아직 아무 데도 안 갔으면 일정대로 흐르기가 출발지에서 시작 (11/08)
     const spot = arrived[arrived.length - 1] || ordered[0]
     if (spot) await props.live.placeAt(spot.lat, spot.lng, false)
   } catch (e) {
@@ -230,6 +232,16 @@ async function startDemoTrip() {
   if (isBusy.value) return
   isBusy.value = true
   try {
+    const today0 = (await getDevStatus()).now.slice(0, 10)
+    if (scenario.value) { // 시연 계정: 시나리오 일정을 오늘부터 새로 만들어 시작 (예전 86 복사 대신, 11/08)
+      const draft = await generatePlan({ startDate: today0, endDate: today0, people: 5, companion: '워크숍' })
+      const made = await createTrip({ title: draft.title + ' ' + PRACTICE_MARK, startDate: draft.startDate, endDate: draft.endDate, people: draft.people, transports: draft.transports, stops: draft.stops })
+      await setClock(made.startDate, toMinutes(scenario.value.startTime))
+      await startTrip(made.id)
+      saveScene(0)
+      emit('restart')
+      return
+    }
     const planned = (await getTripList()).filter((item) => item.status === 'planned' && !isPracticeTrip(item)).sort((a, b) => b.id - a.id)
     if (!planned.length) throw new Error('복사할 예정 여행이 없어요. 먼저 여행을 하나 저장해 주세요')
     const source = await getTrip(planned[0].id)
@@ -364,7 +376,17 @@ async function moveForTime(day, plan, nowMin) {
     }
   }
   if (nowMin >= last.arrive) return placeOnce(last.stop) // 마지막 칸(서울역)에 도착 → 여행 끝
-  if (nowMin < plan[0].arrive) return placeOnce(plan[0].stop, false) // 첫 장소로 가는 중
+  if (nowMin < plan[0].arrive) return walkFromOrigin(day, plan[0], nowMin) // 첫 장소로 가는 중
+}
+
+// 1일차 첫 장소 전: 출발지(가마산로 242)에서 시작 시각(15:00)부터 첫 장소까지 걸어가는 모습 (11/08: 첫 장소에 미리 도착해 있지 않게)
+async function walkFromOrigin(day, first, nowMin) {
+  const setup = scenario.value
+  if (day !== 1 || !setup || setup.originLat == null) return placeOnce(first.stop, false)
+  const origin = { id: 'origin', lat: setup.originLat, lng: setup.originLng }
+  const start = toMinutes(setup.startTime)
+  if (nowMin <= start) return placeOnce(origin, false)
+  return walkBetween(origin, first.stop, (nowMin - start) / Math.max(1, first.arrive - start - ARRIVE_EARLY_MIN))
 }
 
 // ③ 마지막 야외(한강)에서 늦게까지: 서울역에 늦을 때까지(여유가 -3분 아래) 머물고, 늦으면 시계를 멈춰 "늦음·대안"을 보여 줌
@@ -444,9 +466,11 @@ async function walkBetween(from, to, rate) {
   await props.live.placeAt(lat, lng, false)
 }
 
-onMounted(() => {
+const scenario = ref(null) // 시연 시나리오 (출발지 가마산로 242·시작 15:00, 서버 DemoScenario.java)
+onMounted(async () => {
   ensureDemoFlow()
   flowTimer = setInterval(flowTick, FLOW_TICK_MS)
+  if (devMode.isOn) scenario.value = await getDevScenario().catch(() => null)
 })
 onUnmounted(() => clearInterval(flowTimer))
 
