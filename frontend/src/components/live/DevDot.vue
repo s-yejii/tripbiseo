@@ -5,7 +5,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
 import { useRouter } from 'vue-router'
-import { devMode, prepareDemo, setFakeGps, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
+import { devMode, prepareDemo, sendCommand, setFakeGps, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const props = defineProps({
@@ -123,6 +123,12 @@ function changeSpeed(next) {
 function togglePause() {
   changeSpeed(speed.value === 0 ? pausedSpeed.value : 0)
 }
+// 돌발 만들기 (11/08 주형: 늦는 건 확실히): 여행 중 화면이 시계를 "원래 수단으로 가면 예약에 10분 넘게 늦는 때"로 옮김 (DemoDrive)
+function makeLate() {
+  sendCommand({ type: 'late' })
+  isOpen.value = false
+}
+
 function backToRealTime() {
   changeClock(resetDevClock, '진짜 시각으로 돌아왔어요')
 }
@@ -193,6 +199,7 @@ function turnOff() {
 
       <div class="dev-panel__row">
         <button v-for="minutes in FORWARD_STEPS" :key="minutes" type="button" class="chip chip--sm tn" :disabled="isBusy" @click="forward(minutes)">+{{ minutes }}분</button>
+        <button type="button" class="chip chip--sm" :disabled="isBusy" @click="makeLate">늦게 만들기</button>
       </div>
 
 

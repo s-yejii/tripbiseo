@@ -7,8 +7,9 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clearLiveNotice, showLiveNotice } from '@/utils/liveBanner'
 import { getDevScenario, setDevClock, setDevSpeed } from '@/api/dev'
 import { getTrip } from '@/api/trips'
+import { useReplanStore } from '@/stores/replan'
 import { addDays } from '@/utils/dates'
-import { appNow, devMode, ensureDemoFlow, syncClock } from '@/utils/devMode'
+import { appNow, clearCommand, devMode, ensureDemoFlow, syncClock } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 
@@ -20,7 +21,7 @@ const STAY_SPEED = 1 // 머무는 동안 시계는 실제 시간대로 (11/08 �
 const ALERT_SHOW_MS = 2500 // 다음 날 아침 안내를 보여 줄 시간
 const MOVE_MS = 6000 // 이동하는 모습을 보여 주는 실제 시간 (시계는 이 동안 이동 시간만큼 흐름)
 const MOVE_STEPS = 12
-const LEFT_STEP = 2 // 몇 번째 걸음에서 서버에 위치를 보내 "떠났다"를 알릴지
+const LEFT_STEP = 5 // 경로의 4/12·5/12 자리를 서버에 보내 "떠났다"를 알림 (출발 판정은 장소에서 200m 밖 점 두 개)
 const WANDER_MS = 4000 // 머무는 동안 위치가 조금씩 흔들리는 간격 (화면만, 서버에는 안 보냄)
 const WANDER_PARK_M = 50 // 공원·한강은 넓게
 const WANDER_PLACE_M = 10 // 가게·건물 안은 조금만
@@ -33,7 +34,10 @@ const NEARBY_M = 200 // 이만큼 가까우면(같은 건물·바로 옆) 길 �
 const INSIDE_WALK_MIN = 2 // 다음 날 아침: 첫 장소로 떠날 시각 몇 분 전에 일어난 걸로
 
 const isBusy = ref(false)
+const replan = useReplanStore()
+const MUTE_AGAIN_MIN = 10 // 여행 중 화면 MUTE_AGAIN_MIN과 같음
 const origin = ref(null) // 시나리오 출발지 (가마산로 242)
+const scenario = ref(null) // 시연 시나리오 (조금 더 머무는 곳 등)
 let wanderTimer = null
 
 const trip = computed(() => props.live.trip.value)
@@ -125,11 +129,16 @@ async function moveToNext() {
 
   // 이동: 경로선을 따라 움직이고, 그동안 시계는 이동 시간만큼 흐름
   const path = route && route.coords && route.coords.length > 1 ? route.coords : [[from.lat, from.lng], [next.lat, next.lng]]
-  await setSpeed(Math.max(1, Math.round((travelMin * 60 * 1000) / MOVE_MS)))
-  for (let step = 1; step < MOVE_STEPS; step++) {
+  // 떠나는 그 시각에 서버에 "떠났다"를 먼저 알림 (점 두 개가 칸 밖이어야 출발로 봄) → 늦게 떠났으면 서버가 뒤 일정을 밀거나 줄임
+  for (let step = 1; step <= LEFT_STEP; step++) {
     const [lat, lng] = pointAlong(path, step / MOVE_STEPS)
-    if (step === LEFT_STEP) await props.live.placeAt(lat, lng, false) // 서버에도 "떠났다" → 화면이 이동 중으로
+    if (step >= LEFT_STEP - 1) await props.live.placeAt(lat, lng, false) // 마지막 두 걸음은 서버에도 (장소에서 200m 밖)
     else props.live.showAt(lat, lng)
+  }
+  await setSpeed(Math.max(1, Math.round((travelMin * 60 * 1000) / MOVE_MS)))
+  for (let step = LEFT_STEP + 1; step < MOVE_STEPS; step++) {
+    const [lat, lng] = pointAlong(path, step / MOVE_STEPS)
+    props.live.showAt(lat, lng)
     await wait(MOVE_MS / MOVE_STEPS)
   }
   await arrive(next, departDate, departMin + travelMin)
@@ -137,9 +146,15 @@ async function moveToNext() {
 
 // 출발 전 확인 (11/08 주형: 대안을 고른 다음에 움직여야지): 예약까지 여유 5분 이하·늦음 알림(late-)이면 시계를 멈추고 출발 안 함
 //   → 가운데 카드에서 대안을 고르면(안 늦게 되면) 다음에 누를 때 출발. "나중에"·"그냥 갈게요" 뒤 한 번 더 누르면 그대로 출발
+// 돌발(가운데 카드가 뜨는 늦음 알림)인지. 대안을 골랐거나 "그냥 갈게요"면 10분 더 늦기 전까지는 아님 (여행 중 화면과 같은 기준)
+function isIncident(status) {
+  if (!status || !status.alert || !status.fixed || !/^late-/.test(status.alert.key || '')) return false
+  const lateMin = Math.max(0, -status.fixed.slackMin)
+  return !(replan.mutedLate !== null && lateMin < replan.mutedLate + MUTE_AGAIN_MIN)
+}
 async function isBlockedByIncident(status) {
   const key = status && status.alert ? status.alert.key || '' : ''
-  if (!/^late-/.test(key) || blockedKey === key) return false
+  if (!isIncident(status) || blockedKey === key) return false
   blockedKey = key
   await setSpeed(0)
   return true
@@ -150,7 +165,13 @@ function departMinute(current, next, travelMin) {
   const now = minutesOf(appNow())
   if (next.fixed && current && now >= stayEndOf(current)) return now // 이미 나갈 시각이 지났으면 바로 (돌발 뒤 "택시로 바로 가기")
   if (next.fixed || !current || next.day !== current.day) return Math.max(now, toMinutes(next.time) - travelMin) // 예약·다음 날 첫 곳은 계획 시각에 맞춰 도착
-  return Math.max(now, stayEndOf(current)) // 느슨한 곳: 머무는 시간을 다 채우고
+  return Math.max(now, stayEndOf(current) + extraStayOf(current)) // 느슨한 곳: 머무는 시간을 다 채우고 (시나리오가 정한 곳은 조금 더)
+}
+// 시나리오에서 계획보다 조금 더 머무는 분 (사람들이 실제로 그러듯, 서버 DemoScenario EXTRA_STAYS)
+function extraStayOf(stop) {
+  const list = (scenario.value && scenario.value.extraStays) || []
+  const found = list.find((item) => item.day === stop.day && item.name === stop.name)
+  return found ? found.stay : 0
 }
 // 지금 칸에서 머무는 시간이 끝나는 분 (예약·숙소는 일찍 와도 계획 시각부터, 여행 중 화면·서버와 같은 기준)
 function stayEndOf(stop) {
@@ -164,8 +185,8 @@ function stayEndOf(stop) {
 async function showNotice(next, travelMin) {
   const move = '이동 ' + travelMin + '분'
   showLiveNotice(next.fixed
-    ? { title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true }
-    : { title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false })
+    ? { title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true, from: 'drive' }
+    : { title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false, from: 'drive' })
   await wait(NOTICE_MS)
 }
 
@@ -173,19 +194,19 @@ async function showNotice(next, travelMin) {
 async function arrive(next, date, minutes) {
   await setSpeed(STAY_SPEED)
   await setClock(date, minutes)
-  clearLiveNotice()
+  clearLiveNotice('drive')
   await props.live.placeAt(next.lat, next.lng, true)
   await props.live.refresh()
 }
 
 // 같은 건물·바로 옆: 경로 이동 없이 몇 분 뒤 바로 도착
 async function walkInside(current, next) {
-  const departMin = Math.max(minutesOf(appNow()), stayEndOf(current))
+  const departMin = Math.max(minutesOf(appNow()), stayEndOf(current) + extraStayOf(current))
   const date = dateText(appNow())
   await setClock(date, departMin)
   const isSameBuilding = (next.memo || '').includes('같은 건물') // 일정 메모에 적힌 대로 (예: 테디뵈르 "같은 건물 지하 1층")
   const title = isSameBuilding ? next.memo.split('·')[0].trim() + '이에요' : '바로 옆이에요'
-  showLiveNotice({ title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false })
+  showLiveNotice({ title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false, from: 'drive' })
   await wait(NOTICE_MS)
   await arrive(next, date, departMin + INSIDE_WALK_MIN)
 }
@@ -222,6 +243,7 @@ async function setUp() {
   ensureDemoFlow()
   const setup = await getDevScenario().catch(() => null)
   if (setup) origin.value = { lat: setup.originLat, lng: setup.originLng }
+  scenario.value = setup
   if (devMode.speed > 1) await setSpeed(STAY_SPEED).catch(() => {}) // 멈춰 있으면(돌발) 그대로 둠
   for (let i = 0; i < 20 && !props.live.tripId.value; i++) await wait(500) // 진행 중인 여행을 찾을 때까지
   if (!props.live.tripId.value || props.live.position.value) return
@@ -242,7 +264,7 @@ watch(() => props.live.status.value, async (status) => {
   if (!devMode.isOn || isBusy.value || !status || !status.fixed) return
   // 늦기 직전("지금 나가지 않으면 늦어요 · 여유 N분")이나 늦은 순간 = 가운데 카드가 뜨는 알림(late-)일 때 멈춤
   //   (11/08 주형 ①: 늦기 전에 멈춰야 지하철·택시 대안이 둘 다 안 늦게 나와요)
-  const isLate = !!status.alert && /^late-/.test(status.alert.key || '')
+  const isLate = isIncident(status)
   if (isLate && pausedFor !== status.fixed.name && devMode.speed > 0) {
     pausedFor = status.fixed.name
     blockedKey = status.alert.key // 카드가 이미 떴으니 "나중에" 뒤 [다음 장소로]는 바로 출발
@@ -251,6 +273,21 @@ watch(() => props.live.status.value, async (status) => {
     pausedFor = null
     await setSpeed(STAY_SPEED).catch(() => {})
   }
+})
+
+// 설정의 [늦게 만들기]: 지금 장소에서 다음 예약까지 원래 수단으로 가면 LATE_TARGET_MIN분 늦는 시각으로 시계를 옮김
+//   (여유 N분 = 예약 시각 − (떠나는 시각 + 이동). 떠나는 시각을 여유 + 12분만큼 늦추면 12분 늦음)
+const LATE_TARGET_MIN = 12
+watch(() => devMode.command, async (command) => {
+  if (!command || command.type !== 'late' || !props.live.tripId.value) return
+  clearCommand()
+  await props.live.refresh()
+  const status = props.live.status.value
+  const current = currentStop()
+  if (!status || !status.fixed || !current) return showToast('예약 전 장소에서 눌러 주세요')
+  const base = Math.max(minutesOf(appNow()), stayEndOf(current))
+  await setClock(dateText(appNow()), base + status.fixed.slackMin + LATE_TARGET_MIN)
+  await props.live.refresh()
 })
 
 onMounted(() => {

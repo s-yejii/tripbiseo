@@ -34,6 +34,13 @@ public class DemoScenario {
     private static final String ORIGIN_ADDRESS = "서울 구로구 가마산로 242";
     private static final double ORIGIN_LAT = 37.494361055919896; // 카카오 주소 검색 (11/08)
     private static final double ORIGIN_LNG = 126.88768106730573;
+    // 조금씩 어기기 (11/08 주형): 발표자가 [다음 장소로]만 눌러도 이 곳들에서는 계획보다 조금 더 머물다 떠남 → 뒤 일정 밀림·자동 조정 안내
+    //   1일차 회식이 길어져 2차가 15분 늦게 / 2일차 점심 +20분 → 한강 60→50분 / 더현대 쇼핑 +10분 → 테디뵈르 45→35분 (서버 자동 조정, 예약까지 여유 20분 유지)
+    private static final Object[][] EXTRA_STAYS = {
+        { 1, "문래 골목집", 15 },
+        { 2, "무탄 여의도점", 20 },
+        { 2, "더현대 서울", 10 },
+    };
     private static final String DINNER_NAME = "문래 골목집";
     private static final String DINNER_TIME = "18:30"; // 회식 예약
     private static final String TRAIN_NAME = "서울역";
@@ -123,6 +130,13 @@ public class DemoScenario {
         setup.setStayCheckInTime(STAY_CHECK_IN);
         setup.setStayCheckOutTime(STAY_CHECK_OUT);
         setup.setStartTime(START_TIME);
+        for (Object[] row : EXTRA_STAYS) {
+            Stop extra = new Stop();
+            extra.setDay((Integer) row[0]);
+            extra.setName((String) row[1]);
+            extra.setStay((Integer) row[2]);
+            setup.getExtraStays().add(extra);
+        }
         setup.setOverstayDay(OVERSTAY_DAY);
         setup.setOverstayName(OVERSTAY_NAME);
         setup.setOverstayMin(OVERSTAY_MIN);

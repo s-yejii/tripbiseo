@@ -28,5 +28,6 @@ public class ScenarioSetup {
     private Integer overstayDay;   // 돌발: 이 날
     private String overstayName;   // 이 칸에서
     private Integer overstayMin;   // 계획보다 이만큼 더 머묾 (DEMO.md: 테디뵈르 24분)
+    private List<Stop> extraStays = new ArrayList<>(); // 사람들이 실제로 그러듯 조금 더 머무는 곳: day·name·stay(더 머무는 분) (11/08)
     private String startTime;   // 1일차 시작 시각 "15:00": 로그인하면 시연 시계를 오늘 이 시각으로
 }
