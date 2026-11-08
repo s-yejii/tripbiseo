@@ -26,6 +26,12 @@ public class DevController {
         return devService.getStatus(loginUser.id());
     }
 
+    /** 시연 계정 AI 일정 화면에 미리 채울 출발지·예약·숙소 (11/08) */
+    @GetMapping("/scenario")
+    public ScenarioSetup getScenarioSetup() {
+        return devService.getScenarioSetup(loginUser.id());
+    }
+
     /** 시연 시계를 그 날짜·시각으로 맞춤 */
     @PostMapping("/clock")
     public DevStatus setClock(@RequestBody ClockRequest request) {

@@ -32,4 +32,7 @@ public interface DevService {
 
     /** 시연 계정(DEMO_ACCOUNTS)인지. AI 일정 만들기가 시나리오 일정을 쓸지 정할 때 부름 (11/08) */
     boolean isDemoAccount(long memberId);
+
+    /** 시연 계정 AI 일정 화면에 미리 채울 출발지·예약·숙소 (시연 계정만) */
+    ScenarioSetup getScenarioSetup(long memberId);
 }

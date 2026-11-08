@@ -111,6 +111,7 @@
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 | `GET /api/dev/status` | [개발자 모드] 시연 계정인지 + 시연 시계 상태 | member/MyView (VersionTap), live/DevDot | 있음 (11/06) |
 | `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
+| `GET /api/dev/scenario` | [개발자 모드] AI 일정 화면에 미리 채울 발표 시나리오 출발지·예약(KTX)·숙소 (시연 계정만, 값은 `plan/service/DemoScenario.java`) | plan/PlanAiView | 있음 (11/08) |
 
 #### 개발자 모드 · 시연 시계 (11/06, ③)
 발표 시연 계정만 쓰는 시계예요. 시연 계정은 환경변수 `DEMO_ACCOUNTS`(아이디를 쉼표로, `application-local.properties`)로 정하고 코드·DB에는 적지 않아요.
@@ -125,6 +126,7 @@
 | `DELETE /api/dev/clock` | 없음 | 진짜 시각으로 |
 | `POST /api/dev/rain` | `{ "from": "13:00" }` | 시연 비 예보 넣기: 그 계정은 기상청 대신 "오늘 13:00부터 비(강수확률 80%)"로 봄 (돌발 ②) |
 | `DELETE /api/dev/rain` | 없음 | 시연 비 예보 빼기 (진짜 예보로) |
+| `GET /api/dev/scenario` | 없음 | `{ originName, originAddress, originLat, originLng, fixed: [{ name, time, day }], stayName, stayAddress, stayLat, stayLng, stayCheckInTime, stayCheckOutTime }` (시연 계정 아니면 403). 시연 계정은 `POST /api/plans/generate`도 고른 조건과 상관없이 이 시나리오 일정(날짜만 고른 날)을 돌려줘요 |
 
 **응답** (네 개 모두 같음)
 ```json

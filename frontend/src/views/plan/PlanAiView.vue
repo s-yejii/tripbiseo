@@ -29,6 +29,8 @@ import naverLogo from '@/assets/brand/naver.svg'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
 import { recommendTime } from '@/utils/timeRecommend'
+import { devMode } from '@/utils/devMode'
+import { getDevScenario } from '@/api/dev'
 
 const AUTO_NEXT_MS = 180 // 하나만 고르는 칸은 고른 것이 보인 뒤 넘김
 const WORKSHOP_MIN_PEOPLE = 4 // 워크숍을 고르면 인원은 적어도 이만큼
@@ -328,6 +330,29 @@ onMounted(() => {
   const isPicked = (step.value.id === 'where' && store.planArea) || (step.value.id === 'from' && store.planOrigin)
   if (isPicked) moveStep(1)
 })
+// 시연 계정(개발자 모드): 발표 이야기대로 출발지(가마산로 242)·이미 잡은 KTX·숙소를 미리 채워 둠 (11/08 주형)
+//   값은 서버 plan/service/DemoScenario.java 한 곳에 있어요. 사용자가 이미 고른 칸은 안 덮어써요
+const scenario = ref(null)
+onMounted(async () => {
+  if (!devMode.isOn) return
+  try {
+    scenario.value = await getDevScenario()
+  } catch (e) {
+    return // 시연 계정이 아니거나 서버가 답을 못 하면 평소대로
+  }
+  const setup = scenario.value
+  if (!store.planOrigin) store.planOrigin = { name: setup.originName, address: setup.originAddress, category: '출발지', lat: setup.originLat, lng: setup.originLng }
+  if (!fixedList.value.length) store.planConditions = { ...(store.planConditions || {}), fixed: setup.fixed }
+  fillScenarioStay()
+})
+// 숙소는 날짜를 고른 뒤에: 첫날 체크인 → 다음 날 체크아웃
+watch(() => [store.planStartDate, store.planEndDate], fillScenarioStay)
+function fillScenarioStay() {
+  const setup = scenario.value
+  if (!setup || !store.planStartDate || !store.planEndDate || store.planStartDate === store.planEndDate || store.planStays.length) return
+  store.planStays = [{ name: setup.stayName, address: setup.stayAddress, lat: setup.stayLat, lng: setup.stayLng, checkInDate: store.planStartDate, checkInTime: setup.stayCheckInTime, checkOutDate: addDays(store.planStartDate, 1), checkOutTime: setup.stayCheckOutTime }]
+}
+
 // "시간 추천": 추천 시작·끝 시각으로 맞춤 (지금은 기본값, 통계가 오면 utils/timeRecommend.js만 바꿈)
 function useRecommendedTime() {
   const time = recommendTime()

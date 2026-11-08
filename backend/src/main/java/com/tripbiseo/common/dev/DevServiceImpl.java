@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.member.service.MemberService;
 
+import com.tripbiseo.plan.service.DemoScenario;
+
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -26,6 +28,7 @@ public class DevServiceImpl implements DevService {
     private static final int SECONDS_PER_MINUTE = 60;
 
     private final MemberService memberService;
+    private final DemoScenario demoScenario; // 발표 시나리오 정의 (plan/service/DemoScenario.java)
 
     // 시연 계정 아이디 (쉼표로). 비어 있으면 아무도 개발자 모드를 못 씀
     @Value("${DEMO_ACCOUNTS:}")
@@ -37,6 +40,12 @@ public class DevServiceImpl implements DevService {
 
     // 회원 번호 → 시연 비 시작 시각 "13:00" (돌발 ②: 오후 비 → 아침에 알림 → 야외를 먼저)
     private final Map<Long, String> rains = new ConcurrentHashMap<>();
+
+    @Override
+    public ScenarioSetup getScenarioSetup(long memberId) {
+        checkDemoAccount(memberId);
+        return demoScenario.getSetup();
+    }
 
     @Override
     public DevStatus getStatus(long memberId) {
