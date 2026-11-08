@@ -15,7 +15,8 @@ import { SHOW_PRICE_ESTIMATE, stopWon, toWonText } from '@/utils/budget'
 import { useStopPhotos } from '@/utils/useStopPhotos'
 import { concertTrip } from '@/data/trips'
 import { modes } from '@/data/places'
-import { checkPlan, createTrip, deleteTrip} from '@/api/trips'
+import { checkPlan, createTrip, deleteTrip, finishTrip, getTripList } from '@/api/trips'
+import { devMode } from '@/utils/devMode'
 import { useTripStore } from '@/stores/trip'
 import { addDays } from '@/utils/dates'
 import { dayStopsOf, retime, setDayStops } from '@/utils/draftEdit'
@@ -159,6 +160,23 @@ async function replaceOld() {
   if (isMoved) showTrashToast(oldId) // 옛 여행은 휴지통으로 (되돌리면 두 여행 다 남아요)
 }
 
+// 시연 계정만 (11/08 주형: 몇 번을 하든 시나리오 날짜로, 겹치면 오래된 거 지우기): 새 여행과 날짜가 겹치는 예전 여행을 휴지통으로
+//   영구 삭제가 아니라 휴지통(되돌리기 가능). 진행 중이면 먼저 끝냄. 다른 팀원이 쓰는 여행 번호는 건드리지 않음
+const PROTECTED_TRIP_IDS = [51, 81, 82, 83, 84, 85, 86]
+async function trashOverlappingTrips(saved) {
+  const trips = await getTripList().catch(() => [])
+  for (const trip of trips) {
+    const isOverlap = trip.startDate <= saved.endDate && trip.endDate >= saved.startDate
+    if (trip.id === saved.id || !isOverlap || PROTECTED_TRIP_IDS.includes(trip.id)) continue
+    try {
+      if (trip.status === 'ongoing') await finishTrip(trip.id)
+      await deleteTrip(trip.id)
+    } catch (e) {
+      // 못 지운 여행은 그대로 둠 (새 일정 저장은 이미 끝남)
+    }
+  }
+}
+
 async function save() {
   if (!hasDraft.value) {
     router.replace('/trips/today')
@@ -169,6 +187,7 @@ async function save() {
   try {
     const saved = await createTrip(store.draft)
     store.tripId = saved.id
+    if (devMode.isOn) await trashOverlappingTrips(saved) // 시연 계정: 날짜가 겹치는 예전 여행은 휴지통으로
     if (store.replanFrom) {
       savedId.value = saved.id // 다시 짜기: 새 일정이 저장된 뒤에만 옛 여행을 어떻게 할지 물어봄
       return
