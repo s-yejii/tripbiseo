@@ -17,7 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['clock', 'gps'])
 const FORWARD_STEPS = [10, 30, 60]
 const SPEEDS = [1, 10, 30, 60] // 시계 배속 (11/08 주형: 마이에서 고르게)
-const SCENES = ['출발', '회식', '숙소', '2일차 아침', '카페 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
+const SCENES = ['출발', '회식', '숙소', '2일차 아침', '타임스퀘어 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
 
 const isOpen = ref(false)
 
@@ -46,7 +46,10 @@ const incidents = computed(() => {
   const setup = scenarioSetup.value
   const cafe = setup && sorted.find((stop) => stop.day === setup.overstayDay && stop.name === setup.overstayName)
   const station = sorted.filter((stop) => stop.fixed).pop()
-  if (cafe) list.push({ name: '돌발 · ' + (station ? station.name : 'KTX') + ' 늦음', scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0) + setup.overstayMin, where: cafe.name + '에서 ' + setup.overstayMin + '분 더 머물면' })
+  if (cafe) {
+    list.push({ name: '알림 · 나갈 시간이에요', scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0), where: cafe.name + ' (멈춤 없음)' })
+    list.push({ name: '돌발 · ' + (station ? station.name + ' 도착 목표(' + station.time + ')보다 늦음' : 'KTX 늦음'), scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0) + (setup.overstayMin || 10), where: cafe.name + '에 계속 있으면 (약, 시계 멈춤)' })
+  }
   const now = new Date(nowTick.value) && appNow()
   const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
   const nowDay = daysBetween(trip.startDate, today) + 1

@@ -291,7 +291,7 @@ function planOf(day) {
     const item = plan.find((one) => one.stop.name === setup.overstayName)
     if (item) {
       item.plannedLeave = item.leave
-      item.leave += setup.overstayMin
+      item.leave += setup.overstayMin || 0 // 0이면 "늦어지는 순간까지" (아래 stayUntilLate)
       item.isOverstay = true
     }
   }
@@ -327,13 +327,14 @@ const SPEED_NORMAL = 60
 const SPEED_MOVE = 120
 const SPEED_FAST = 480
 const SHOW_ARRIVAL_MIN = 8 // 도착하고 이만큼은 보통 속도로 보여 줌
+const OVERSTAY_SLOW_AFTER_MIN = 20 // 나갈 시각 뒤 이만큼(늦어지는 순간 포함)은 천천히
 const SLOW_BEFORE_MIN = 5 // 돌발 이만큼 앞부터 천천히 (11/08: 10 → 5분, 전체 5분 안쪽으로)
 function wantedSpeed(day, plan, nowMin) {
   for (let i = 0; i < plan.length; i++) {
     const item = plan[i]
     const next = plan[i + 1]
-    const incidentAt = item.isOverstay ? item.leave : null // 돌발은 더 머무는 칸 하나 (DEMO.md)
-    if (incidentAt != null && nowMin >= incidentAt - SLOW_BEFORE_MIN && nowMin < incidentAt + LATE_TARGET_MIN) return SPEED_SLOW
+    // 돌발 칸: 나갈 시각 5분 전부터, 늦어져서 멈출 때까지 천천히
+    if (item.isOverstay && overstayLeftAt == null && nowMin >= item.leave - SLOW_BEFORE_MIN && nowMin < item.leave + OVERSTAY_SLOW_AFTER_MIN) return SPEED_SLOW
     if (nowMin >= item.arrive && nowMin < item.arrive + SHOW_ARRIVAL_MIN) return SPEED_NORMAL
     if (nowMin >= item.arrive && nowMin < item.leave) return SPEED_FAST
   }
@@ -362,11 +363,11 @@ async function moveForTime(day, plan, nowMin) {
   for (let i = 0; i < plan.length; i++) {
     const item = plan[i]
     const next = plan[i + 1]
-    // 돌발: 더 머물다 떠날 시각이 되면 "KTX에 늦어요"가 보이게 시계를 멈춤 (재생하면 떠남)
-    if (item.isOverstay && nowMin >= item.leave && !pausedAt.has('overstay')) {
-      await placeOnce(item.stop)
-      await props.live.refresh()
-      return pauseFor('overstay')
+    // 돌발: 나갈 시각이 지나도 그 자리에 머묾 → 예약(서울역) 도착 목표보다 늦어지는 순간 시계 멈춤 → 재생하면 떠남
+    if (item.isOverstay && nowMin >= item.arrive) {
+      const result = await stayUntilLate(item, next, nowMin)
+      if (result !== 'gone') return result
+      continue
     }
     if (nowMin >= item.arrive && nowMin < item.leave) return placeOnce(item.stop)
     const travel = next ? Math.max(5, next.arrive - item.leave - ARRIVE_EARLY_MIN) : 0
@@ -386,6 +387,25 @@ async function walkFromOrigin(day, first, nowMin) {
   const start = toMinutes(setup.startTime)
   if (nowMin <= start) return placeOnce(origin, false)
   return walkBetween(origin, first.stop, (nowMin - start) / Math.max(1, first.arrive - start - ARRIVE_EARLY_MIN))
+}
+
+let overstayLeftAt = null // 돌발 뒤 재생해서 떠난 앱 시각(분)
+const OVERSTAY_TRAVEL_MIN = 25 // 떠난 뒤 서울역까지 움직이는 모습 (지하철 기준)
+async function stayUntilLate(item, next, nowMin) {
+  if (overstayLeftAt == null) {
+    if (nowMin < item.leave) return placeOnce(item.stop)
+    await placeOnce(item.stop)
+    if (!pausedAt.has('overstay')) {
+      await props.live.refresh()
+      const fixed = props.live.status.value && props.live.status.value.fixed
+      if (fixed && fixed.slackMin != null && fixed.slackMin < 0) await pauseFor('overstay')
+      return 'stay'
+    }
+    overstayLeftAt = nowMin // 멈췄다가 재생함 → 지금 떠남
+  }
+  if (next && nowMin < overstayLeftAt + OVERSTAY_TRAVEL_MIN) return walkBetween(item.stop, next.stop, (nowMin - overstayLeftAt) / OVERSTAY_TRAVEL_MIN)
+  if (next) return placeOnce(next.stop) // 서울역 도착 → 여행 끝
+  return 'gone'
 }
 
 // 돌발 순간: 시계를 멈춰서 알림이 화면에 남게 (발표자가 대안을 보여 주고 설정의 "재생"으로 이어감)
@@ -475,10 +495,10 @@ function sceneMinute(index) {
   if (index === 1) return { day: 1, minute: toMinutes(before.time) + (before.stay || 0) - LEAVE_ALERT_BEFORE_MIN - 1 }
   if (index === 2) return { day: 1, minute: toMinutes(day1[day1.length - 1].time) }
   if (index === 3) return { day: days, minute: toMinutes(RAIN_CHECK_TIME) }
-  if (index === 4) { // 카페 늦음: 돌발 4분 전
+  if (index === 4) { // 돌발 장소 도착 10분 전 (도착을 제 시각에 해야 서버가 나갈 시각을 맞게 계산)
     const setup = scenario.value
     const cafe = setup && stopsOf(setup.overstayDay).find((stop) => stop.name === setup.overstayName)
-    if (cafe) return { day: setup.overstayDay, minute: toMinutes(cafe.time) + (cafe.stay || 0) + setup.overstayMin - 4 }
+    if (cafe) return { day: setup.overstayDay, minute: toMinutes(cafe.time) - 10 }
     return { day: days, minute: toMinutes(station.time) - LATE_BEFORE_MIN }
   }
   return { day: days, minute: toMinutes(station.time) }
@@ -489,6 +509,7 @@ async function runCommand(command) {
     const target = sceneMinute(command.index)
     if (command.index < 3) { rainDay = 0; await clearDevRain() }
     pausedAt.clear()
+    overstayLeftAt = null
     await setClock(dateOf(target.day), target.minute)
   } else if (command.type === 'stop') {
     const now = appNow()
@@ -503,6 +524,7 @@ async function runCommand(command) {
     rainDay = 0
     visitedIds.clear()
     pausedAt.clear()
+    overstayLeftAt = null
     await clearDevRain()
     const day1 = stopsOf(1)
     await setClock(dateOf(1), toMinutes(day1[0].time) - 40)
