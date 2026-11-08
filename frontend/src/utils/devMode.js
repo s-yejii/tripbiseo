@@ -6,7 +6,7 @@ import { reactive } from 'vue'
 import { getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/dev'
 
 const KEY = 'devMode'
-const DEFAULT_SPEED = 60 // 시연 시계 기본 배속: 진짜 1초에 1분 (11/08 주형: 시계가 빠르게)
+const LOGIN_SPEED = 1 // 로그인하면 15:00에서 보통 속도 (일정을 짜는 동안 시간이 흘러가 버리지 않게). 여행 중 화면에서 자동 배속이 빠르게 돌림
 const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, isAutoSpeed: true, command: null }
 
 function load() {
@@ -105,7 +105,7 @@ export function clearCommand() {
 }
 
 // 로그인 바로 뒤에 부름 (11/08 주형: 시연 계정은 버전 5번 안 눌러도 시나리오대로)
-//   시연 계정이면 개발자 모드 + 가짜 GPS + 일정대로 흐르기를 켜고, 시연 시계를 오늘 시나리오 시작 시각(15:00)·60배속으로
+//   시연 계정이면 개발자 모드 + 가짜 GPS + 일정대로 흐르기를 켜고, 시연 시계를 오늘 시나리오 시작 시각(15:00)으로
 //   아니면 이 브라우저에 남은 개발자 모드를 끔
 export async function applyDemoAccount() {
   try {
@@ -120,7 +120,7 @@ export async function applyDemoAccount() {
     const setup = await getDevScenario()
     const today = status.now.slice(0, 10)
     await setDevClock(today, setup.startTime)
-    syncClock(await setDevSpeed(DEFAULT_SPEED))
+    syncClock(await setDevSpeed(LOGIN_SPEED))
   } catch (e) {
     // 서버가 답을 못 하면 지금 상태 그대로
   }
