@@ -86,7 +86,7 @@ public class AlternativeServiceImpl implements AlternativeService {
         }
 
         // 2. 대안 A·B·C 만들기
-        List<Alternative> alternatives = makeRuleAlternatives(trip, current, remainingStops, request);
+        List<Alternative> alternatives = removeLateAlternatives(makeRuleAlternatives(trip, current, remainingStops, request));
 
         // 3. 마무리: 영업 정보·닫힌 곳 수 → 이름표 A·B·C → 추천 하나
         for (Alternative alternative : alternatives) {
@@ -122,6 +122,17 @@ public class AlternativeServiceImpl implements AlternativeService {
             }
         }
         alternative.setClosedCount(closedCount);
+    }
+
+    /** 그래도 늦는 대안("5분 늦음")은 빼요. 다 늦으면 덜 늦는 것을 고르게 그대로 둠 (11/08 주형: 늦는 대안은 보여 줄 이유가 없음) */
+    private List<Alternative> removeLateAlternatives(List<Alternative> alternatives) {
+        List<Alternative> onTime = new ArrayList<>();
+        for (Alternative alternative : alternatives) {
+            if (alternative.getSlackMin() >= 0) {
+                onTime.add(alternative);
+            }
+        }
+        return onTime.isEmpty() ? alternatives : onTime;
     }
 
     /** 만들어진 순서대로 key A·B·C (C가 없으면 A·B만) */
@@ -173,8 +184,9 @@ public class AlternativeServiceImpl implements AlternativeService {
         double lat = request.getLat();
         double lng = request.getLng();
         List<Alternative> alternatives = new ArrayList<>();
-        if (remainingStops.size() == 1 && Boolean.TRUE.equals(remainingStops.get(0).getFixed())) {
-            return makeGoNowAlternatives(trip, current, remainingStops, lat, lng); // 남은 곳이 예약(KTX)뿐이면 줄이거나 뺄 곳이 없어서 "빨리 가는 방법"만 (11/08)
+        if (Boolean.TRUE.equals(remainingStops.get(0).getFixed())) {
+            // 바로 다음이 예약(회식·KTX)이면 그 사이에 줄이거나 뺄 곳이 없어서 "빨리 가는 방법"만 (11/08: 뒤에 장소가 더 있어도)
+            return makeGoNowAlternatives(trip, current, remainingStops, lat, lng);
         }
         Alternative rainAlternative = makeRainAlternative(trip, current, remainingStops, lat, lng);
         if (rainAlternative != null) {
@@ -307,11 +319,12 @@ public class AlternativeServiceImpl implements AlternativeService {
         return alternative;
     }
 
-    /** 대안의 고정 일정 칸에 "택시로 바로 가기" 같은 바뀐 점을 적어 둠 */
+    /** 대안의 첫 고정 일정 칸에 "택시로 바로 가기" 같은 바뀐 점을 적어 둠 */
     private void markFixedStopChange(Alternative alternative, String change) {
         for (AltStop stop : alternative.getStops()) {
             if (Boolean.TRUE.equals(stop.getFixed())) {
                 stop.setChange(change);
+                return;
             }
         }
     }

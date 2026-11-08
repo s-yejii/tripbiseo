@@ -106,6 +106,10 @@ async function apply() {
   }
   isApplying.value = false
 }
+
+// 바로 다음이 예약(회식·KTX)이면 줄이거나 뺄 곳이 없어서 직접 고르기(시간 줄이기·한 곳 빼기·장소 바꾸기)를 숨김.
+//   위 빠른 대안(지하철·택시로 바로 가기)만 보여요 (11/08 주형, 서버 대안 규칙과 같음)
+const isNextFixed = computed(() => !!(replan.stops && replan.stops.length && replan.stops[0].fixed))
 </script>
 
 <template>
@@ -121,6 +125,7 @@ async function apply() {
       <template v-else>
       <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 102px">
         <QuickAltCard />
+        <template v-if="!isNextFixed">
         <AltTabs active="trim" />
 
         <section class="tsum" aria-label="줄인 시간 합계" aria-live="polite">
@@ -173,9 +178,10 @@ async function apply() {
             </RouterLink>
           </template>
         </div>
+        </template>
       </div>
 
-      <div class="cta">
+      <div v-if="!isNextFixed" class="cta">
         <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="button.isOff || isApplying" @click="apply">{{ button.text }}</button>
       </div>
       </template>
