@@ -138,6 +138,7 @@ async function moveToNext() {
 // 떠나는 시각(분): 지금보다 앞으로는 안 감 (시계를 되돌리지 않음)
 function departMinute(current, next, travelMin) {
   const now = minutesOf(appNow())
+  if (next.fixed && current && now >= stayEndOf(current)) return now // 이미 나갈 시각이 지났으면 바로 (돌발 뒤 "택시로 바로 가기")
   if (next.fixed || !current || next.day !== current.day) return Math.max(now, toMinutes(next.time) - travelMin) // 예약·다음 날 첫 곳은 계획 시각에 맞춰 도착
   return Math.max(now, stayEndOf(current)) // 느슨한 곳: 머무는 시간을 다 채우고
 }
