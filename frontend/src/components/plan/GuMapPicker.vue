@@ -2,6 +2,7 @@
 // 서울 구 지도: 구를 여러 개 골라요. 마우스를 올리면(휴대폰은 첫 번째 탭) 구가 살짝 떠오르고, 누르면(두 번째 탭) 선택·해제
 // 경계: public/geo/seoul-gu.json (출처는 public/geo/README.md). 구 이름 목록으로도 고를 수 있어요
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { devMode } from '@/utils/devMode'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] }, // 고른 구 [{ name, lat, lng, dongs }]
@@ -17,6 +18,7 @@ const SCALE = 1040 // 위도 1도 = 몇 칸
 const LNG_RATIO = 0.792 // 서울에서 경도 1도는 위도 1도의 약 0.79배 길이
 
 const SPIN_MS = 2800 // 룰렛 전체 시간
+const DEMO_GU_NAME = '영등포' // 개발자 모드 주사위가 멈출 시연 지역
 const SPIN_FAST_MS = 50 // 처음 반짝임 간격
 const SPIN_SLOW_MS = 380 // 마지막 반짝임 간격
 
@@ -195,7 +197,7 @@ function makeSteps(target) {
 function spin() {
   if (isSpinning.value || !gus.value.length) return
   closeHint()
-  const target = randomOf(gus.value)
+  const target = pickTarget()
   randomName.value = null
   emit('update:modelValue', [])
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return finishSpin(target)
@@ -211,6 +213,14 @@ function spin() {
     spinTimer = setTimeout(next, SPIN_FAST_MS + (SPIN_SLOW_MS - SPIN_FAST_MS) * progress * progress)
   }
   next()
+}
+// 굴려서 멈출 구: 개발자 모드(시연 계정)에서는 시연 지역에 멈춤 (11/08 주형: 발표 시나리오 고정), 그 밖에는 25개 구 중 하나
+function pickTarget() {
+  if (devMode.isOn) {
+    const demoGu = gus.value.find((gu) => gu.name.includes(DEMO_GU_NAME))
+    if (demoGu) return demoGu
+  }
+  return randomOf(gus.value)
 }
 function finishSpin(target) {
   spinning.value = null
