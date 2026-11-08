@@ -4,7 +4,8 @@
 // 이 브라우저에만 기억해요 (localStorage). 시계 자체(시각·배속)는 서버가 계정마다 기억해요.
 import { reactive } from 'vue'
 import { clearDevRain, getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/dev'
-import { finishTrip, getTripList } from '@/api/trips'
+import { deleteTrip, finishTrip, getTrip, getTripList, updateTrip } from '@/api/trips'
+import { isOverlap, shiftToDemoDate } from '@/utils/demoDates'
 import { readAllNotifications } from '@/api/notifications'
 import { isPracticeTrip } from '@/utils/practice'
 import { clearLiveNotices } from '@/utils/liveBanner'
@@ -161,8 +162,32 @@ export async function prepareTripStart(tripId) {
   const trip = trips.find((item) => item.id === tripId)
   if (!trip) return
   const setup = await getDevScenario().catch(() => null)
-  await setDevClock(trip.startDate, (setup && setup.startTime) || '15:00')
+  // 어떤 날짜로 만든 여행이든 시연 날짜(11/10)부터로 옮김 (일수는 그대로) → 휴무·날씨도 그 날 기준 (11/09 주형)
+  const range = await moveToDemoDate(tripId, trip, setup)
+  await trashOverlappingDemoTrips(tripId, range, trips)
+  await setDevClock(range.startDate, (setup && setup.startTime) || '15:00')
   syncClock(await setDevSpeed(1))
+}
+// 여행 날짜를 시연 날짜부터로 (②의 updateTrip, 이미 그 날이면 그대로). 바뀐 기간을 돌려줌
+async function moveToDemoDate(tripId, trip, setup) {
+  const moved = shiftToDemoDate(trip, setup && setup.demoDate)
+  if (!moved) return { startDate: trip.startDate, endDate: trip.endDate }
+  const full = await getTrip(tripId)
+  await updateTrip(tripId, { title: full.title, startDate: moved.startDate, endDate: moved.endDate, people: full.people, transports: full.transports })
+  return moved
+}
+// 옮긴 날짜와 겹치는 예전 시연 여행은 휴지통으로 (진행 중이면 먼저 끝냄, 팀원 여행 번호는 안 건드림)
+async function trashOverlappingDemoTrips(tripId, range, trips) {
+  for (const other of trips) {
+    const isTarget = other.id !== tripId && isDemoTrip(other) && !PROTECTED_TRIP_IDS.includes(other.id) && isOverlap(other, range)
+    if (!isTarget) continue
+    try {
+      if (other.status === 'ongoing') await finishTrip(other.id)
+      await deleteTrip(other.id)
+    } catch (e) {
+      // 못 옮긴 여행은 그대로 둠
+    }
+  }
 }
 
 export async function prepareDemo() {
