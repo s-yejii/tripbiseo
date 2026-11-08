@@ -23,6 +23,8 @@ const props = defineProps({
   //   from·to(앞뒤 장소 [위도, 경도])가 있으면, 대중교통 선이 역·정류장에서 끝날 때 장소까지 걷는 점으로 이어요
   //   isGuess: 길찾기 실패로 직선 추정이면 진짜 길처럼 보이지 않게 점선 직선 (여행 중 화면, 11/04)
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
+  band: { type: Array, default: () => [] }, // 반투명 띠 테두리들 [[[위도, 경도], ...], ...] (AI에게 묻기: 가는 길 양옆, 11/08)
+  links: { type: Array, default: () => [] }, // 얇은 점선들 [{ from: [위도, 경도], to: [위도, 경도] }] (AI에게 묻기: 가는 길 → 가게, 11/08)
   follow: { type: Boolean, default: false }, // 길 안내: 처음부터 내 위치를 크게 확대해서 가운데에 두고, 내 위치가 바뀌면 지도가 따라감
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
   pickCenter: { type: Boolean, default: false }, // 배민 주소 등록처럼: 지도를 움직이면 멈춘 자리의 가운데 좌표를 center로 알려 줌
@@ -80,7 +82,7 @@ onMounted(async () => {
 onUnmounted(clear)
 
 // 핀(상태·선택)·선·원이 바뀌면 전부 다시 그림
-watch(() => [props.pins, props.path, props.paths, props.ring], draw, { deep: true })
+watch(() => [props.pins, props.path, props.paths, props.ring, props.band, props.links], draw, { deep: true })
 watch(() => props.fitKey, () => {
   hasFitted = false
   draw()
@@ -125,6 +127,8 @@ function draw() {
     }
   }
   if (props.ring) addRing(props.ring)
+  for (const ring of props.band) addBand(ring)
+  for (const link of props.links) addLink(link)
 
   if (props.me) {
     const mePosition = new kakao.maps.LatLng(props.me.lat, props.me.lng)
@@ -272,6 +276,26 @@ function addRing(ring) {
   })
   circle.setMap(map)
   overlays.push(circle)
+}
+
+function addBand(ring) {
+  // Polygon: 좌표로 둘러싼 면. 가는 길에서 몇 분 안에 들를 수 있는 범위를 반투명하게
+  const polygon = new kakao.maps.Polygon({
+    path: ring.map((point) => new kakao.maps.LatLng(point[0], point[1])),
+    strokeWeight: 1, strokeColor: '#1F3A68', strokeOpacity: 0.3, fillColor: '#1F3A68', fillOpacity: 0.08,
+  })
+  polygon.setMap(map)
+  overlays.push(polygon)
+}
+
+function addLink(link) {
+  // 가는 길 위 가장 가까운 점 → 가게: 얼마나 돌아가는지 보이게 얇은 점선
+  const line = new kakao.maps.Polyline({
+    path: [new kakao.maps.LatLng(link.from[0], link.from[1]), new kakao.maps.LatLng(link.to[0], link.to[1])],
+    strokeWeight: 2, strokeColor: '#1F3A68', strokeOpacity: 0.8, strokeStyle: 'shortdot',
+  })
+  line.setMap(map)
+  overlays.push(line)
 }
 
 function makePin(pin) {

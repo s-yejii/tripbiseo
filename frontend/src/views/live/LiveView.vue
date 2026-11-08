@@ -55,6 +55,8 @@ const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아�
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
+const askFound = ref(null) // AI에게 묻기로 찾은 결과 { places, band, ... } (없으면 null)
+const askPickedId = ref(null) // 지도에서 누른 AI 결과 장소 id
 const nearRadius = ref(null)
 const nearPickedId = ref(null)
 const mePoint = ref(null) // 지도 위 내 위치 px (AI 패널 위치에 씀)
@@ -137,7 +139,7 @@ function isWarnReach(reach) {
 const mapPins = computed(() => {
   const pins = []
   for (const stop of stops.value) {
-    const isFit = !(adding.value && nearPlaces.value.length) // 근처 찾기 결과가 있으면 결과·내 위치만 보이게 맞춤
+    const isFit = !(adding.value && nearPlaces.value.length) && !askPlaces.value.length // 근처 찾기·AI 결과가 있으면 결과·내 위치만 보이게 맞춤
     // 다녀온 곳·지금 있는 곳은 점선 동선에서 빼요 (지금 위치 → 다음 장소는 nextPath 진짜 길로)
     const isRoute = stop.reach !== 'done' && stop.reach !== 'here'
     pins.push({ key: stop.id, id: stop.id, tag: previewId.value === stop.id ? stop.name : '', lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit, route: isRoute })
@@ -146,7 +148,54 @@ const mapPins = computed(() => {
     const cls = ' pin--res' + (place.id === nearPickedId.value ? ' pin--sel' : '')
     pins.push({ key: 'near-' + place.id, nearId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), cls, label: place.name + ', ' + distText(place.distance), route: false })
   }
+  for (const place of askPlaces.value) {
+    const cls = ' pin--res' + (place.id === askPickedId.value ? ' pin--sel' : '')
+    const tag = place.detourMinutes != null ? '+' + place.detourMinutes + '분' : '' // 가는 길에서 몇 분 더 (번호는 일정 번호와 헷갈려서 아이콘으로)
+    pins.push({ key: 'ask-' + place.id, askId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), tag, cls, label: place.name + (tag ? ', 가는 길 ' + tag : ''), route: false })
+  }
   return pins
+})
+
+// ------------------------------------------------------------ AI에게 묻기 결과 (지도에 그리기)
+const askPlaces = computed(() => (asking.value && askFound.value ? askFound.value.places : []))
+// 가는 길 띠: 서버가 준 GeoJSON(경도, 위도) → KakaoMap band 모양 [[[위도, 경도], ...]] (바깥 테두리만)
+const askBand = computed(() => (askPlaces.value.length && askFound.value.band ? toBandRings(askFound.value.band) : []))
+// 가는 길 위 가장 가까운 점 → 가게 점선
+const askLinks = computed(() => {
+  const links = []
+  for (const place of askPlaces.value) {
+    if (place.joinLat == null || place.joinLng == null) continue
+    links.push({ from: [place.joinLat, place.joinLng], to: [place.lat, place.lng] })
+  }
+  return links
+})
+const askFitKey = computed(() => (askPlaces.value.length ? 'ask|' + askPlaces.value.map((place) => place.id).join(',') : ''))
+const ASK_MAP_PADDING = { top: 100, right: 40, bottom: 300, left: 40 } // AI 채팅: 아래 채팅 패널만큼 비움
+
+function toBandRings(geojson) {
+  let shape = null
+  try {
+    shape = JSON.parse(geojson)
+  } catch (e) {
+    return []
+  }
+  const polygons = shape.type === 'MultiPolygon' ? shape.coordinates : shape.type === 'Polygon' ? [shape.coordinates] : []
+  const rings = []
+  for (const polygon of polygons) {
+    if (!polygon[0]) continue
+    rings.push(polygon[0].map((point) => [point[1], point[0]])) // [경도, 위도] → [위도, 경도]
+  }
+  return rings
+}
+function onAskFound(found) {
+  askFound.value = found
+  askPickedId.value = null
+}
+// AI 채팅을 닫으면 지도에 그린 결과도 지움
+watch(asking, (isOpen) => {
+  if (isOpen) return
+  askFound.value = null
+  askPickedId.value = null
 })
 
 // 지금 위치 → 다음 장소 진짜 길 (KakaoMap paths 모양). 다음 장소가 없거나 길이 없으면 []
@@ -194,6 +243,10 @@ function nearIcon(category) {
 }
 
 function onPickPin(pin) {
+  if (pin.askId) {
+    askPickedId.value = pin.askId
+    return
+  }
   if (pin.nearId) {
     nearPickedId.value = pin.nearId
     return
@@ -280,28 +333,17 @@ function onCardScrolled(id) {
   if (stop && stop.reach !== 'done' && stop.reach !== 'here') scrollTimer = setTimeout(() => previewStop(stop), PREVIEW_SCROLL_WAIT_MS)
 }
 
-// 그 곳으로 부드럽게 가서 약 2초 보여 주고 지금 위치로 돌아옴. 그 사이 사용자가 지도를 만지면 안 돌아감
+// 그 곳으로 부드럽게 가서 이름표와 함께 보여 줘요. 저절로 돌아오지 않음 (11/08: 보다가 내 위치로 튀어서 뺌 → "내 위치" 버튼으로)
 function previewStop(stop) {
   if (!mapRef.value || stop.lat == null || adding.value) return
-  clearTimeout(backTimer)
-  if (previewId.value === null) levelBefore = mapRef.value.getLevel()
   previewId.value = stop.id
-  mapRef.value.flyTo(stop.lat, stop.lng, Math.min(levelBefore, PREVIEW_LEVEL))
-  backTimer = setTimeout(flyBack, PREVIEW_HOLD_MS)
+  mapRef.value.flyTo(stop.lat, stop.lng, Math.min(mapRef.value.getLevel(), PREVIEW_LEVEL))
 }
-function flyBack() {
-  previewId.value = null
-  if (!mapRef.value) return
-  const me = live.position.value
-  if (me) mapRef.value.flyTo(me.lat, me.lng, levelBefore)
-  else mapRef.value.fitAll() // 위치를 모르면 전체 일정이 보이게
-}
+// 지도를 만지면 이름표를 지움
 function onMapTouched() {
-  clearTimeout(backTimer)
   previewId.value = null
 }
 onUnmounted(() => {
-  clearTimeout(backTimer)
   clearTimeout(scrollTimer)
 })
 function pickCard(card) {
@@ -403,12 +445,14 @@ const nearRing = computed(() => (adding.value && nearRadius.value && live.positi
 const nearFitKey = computed(() => (nearPlaces.value.length ? nearPlaces.value.map((place) => place.id).join(',') + '|' + nearRadius.value : ''))
 const NEAR_MAP_PADDING = { top: 100, right: 40, bottom: 230, left: 40 } // 근처 찾기: 아래 검색 카드만큼 비움
 const PREVIEW_LEVEL = 3 // 카드를 눌러 볼 때 확대 단계 (겹친 핀이 벌어져 보이는 정도)
-const PREVIEW_HOLD_MS = 2300 // 이동·확대 포함, 보여 주는 시간
 const PREVIEW_SCROLL_WAIT_MS = 250 // 카드를 넘기다 멈춘 뒤에 움직임
-let backTimer = null
 let scrollTimer = null
-let levelBefore = null // 보여 주기 전 확대 단계
 const LIVE_MAP_PADDING = { top: 150, right: 70, bottom: 444, left: 40 }
+const mapPadding = computed(() => {
+  if (adding.value && nearPlaces.value.length) return NEAR_MAP_PADDING
+  if (askPlaces.value.length) return ASK_MAP_PADDING
+  return LIVE_MAP_PADDING
+})
 
 // 근처 찾기·AI 채팅에서 일정에 넣으면 지금 상황을 다시 받아요
 async function onAdded(message) {
@@ -473,8 +517,10 @@ function showDemo() {
           :me="live.position.value"
           :paths="nextPath"
           :ring="nearRing"
-          :fit-key="adding ? nearFitKey : ''"
-          :padding="adding && nearPlaces.length ? NEAR_MAP_PADDING : LIVE_MAP_PADDING"
+          :band="askBand"
+          :links="askLinks"
+          :fit-key="adding ? nearFitKey : askFitKey"
+          :padding="mapPadding"
           @pick="onPickPin"
           @touch="onMapTouched"
           @me-point="mePoint = $event"
@@ -517,9 +563,10 @@ function showDemo() {
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openLink)"><span class="live-fab__text">링크 추가</span><span class="live-fab__ic live-fab__ic--link"><i class="ic i-link" aria-hidden="true"></i></span></button>
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openToday)"><span class="live-fab__text">내 일정 {{ doneCount }}/{{ stops.length }}</span><span class="live-fab__ic live-fab__ic--plan"><i class="ic i-calendar" aria-hidden="true"></i></span></button>
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(share)"><span class="live-fab__text">일정 공유</span><span class="live-fab__ic live-fab__ic--share"><i class="ic i-share" aria-hidden="true"></i></span></button>
-            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(locate)"><span class="live-fab__text">내 위치</span><span class="live-fab__ic live-fab__ic--me"><i class="ic i-locate" aria-hidden="true"></i></span></button>
           </div>
-          <button type="button" class="live-fab__main" :class="{ 'is-open': fabOpen }" :aria-label="fabOpen ? '메뉴 닫기' : '메뉴 열기'" :aria-expanded="fabOpen" @click="fabOpen = !fabOpen"><i class="ic ic--l i-plus" aria-hidden="true"></i></button>
+          <!-- 내 위치: + 위에 떠 있다가 메뉴를 열면 아래로 내려가며 사라짐 (메뉴가 + 바로 위에 뜨게) -->
+          <button type="button" class="live-fab__me" :class="{ 'is-hidden': fabOpen }" aria-label="내 위치로" :aria-hidden="fabOpen" :tabindex="fabOpen ? -1 : 0" @click="locate"><i class="ic i-locate" aria-hidden="true"></i></button>
+          <button type="button" class="live-fab__main" :class="{ 'is-open': fabOpen }" :aria-label="fabOpen ? '메뉴 닫기' : '메뉴 열기'" :aria-expanded="fabOpen" @click="fabOpen = !fabOpen"><i class="ic i-plus" aria-hidden="true"></i></button>
         </div>
 
         <!-- 링크로 장소 추가 -->
@@ -538,7 +585,7 @@ function showDemo() {
 
         <template v-else>
           <!-- AI 채팅(④) -->
-          <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" />
+          <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" :selected="askPickedId" @found="onAskFound" @unpick="askPickedId = null" />
           <div v-else class="quick live-quick" data-sheet-follow role="group" aria-label="AI 채팅과 근처 찾기">
             <button type="button" class="chip chip--sm chip--add live-chip" @click="openAsk"><i class="ic ic--s i-sparkle" style="color: #7C3AED" aria-hidden="true"></i>AI에게 묻기</button>
             <button type="button" class="chip chip--sm chip--add live-chip" @click="openNear"><i class="ic ic--s i-search" style="color: var(--coral)" aria-hidden="true"></i>근처 찾기</button>
@@ -584,18 +631,19 @@ function showDemo() {
 
 <style>
 .scr-Live .live-msg { padding-top: 96px; }
-.scr-Live .live-fab { position: absolute; right: 16px; top: 376px; z-index: 6; }
+.scr-Live .live-fab { position: absolute; right: 16px; top: 380px; z-index: 6; } /* + 가운데는 예전(52px, 376px)과 같은 높이 */
+.scr-Live .live-fab__me { position: absolute; left: 0; bottom: calc(100% + 10px); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #2F7BEA; background: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .25); cursor: pointer; transition: opacity .18s, transform .18s; }
+.scr-Live .live-fab__me.is-hidden { opacity: 0; transform: translateY(16px) scale(.8); pointer-events: none; }
 .scr-Live .live-fab-dim { position: absolute; inset: 0; z-index: 5; background: rgba(24, 33, 58, .28); }
-.scr-Live .live-fab__main { width: 52px; height: 52px; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--navy); box-shadow: 0 6px 16px rgba(24, 33, 58, .3); cursor: pointer; transition: transform .18s, background .18s; }
+.scr-Live .live-fab__main { width: 44px; height: 44px; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--navy); box-shadow: 0 6px 16px rgba(24, 33, 58, .3); cursor: pointer; transition: transform .18s, background .18s; }
 .scr-Live .live-fab__main.is-open { transform: rotate(45deg); background: var(--ink); }
 .scr-Live .live-fab__list { position: absolute; right: 0; bottom: calc(100% + 10px); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .scr-Live .live-fab__item { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; white-space: nowrap; }
 .scr-Live .live-fab__text { padding: 7px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--ink); background: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .18); }
-.scr-Live .live-fab__ic { width: 44px; height: 44px; margin-right: 4px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .25); }
+.scr-Live .live-fab__ic { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .25); }
 .scr-Live .live-fab__ic--link { background: linear-gradient(135deg, #F58529, #DD2A7B 55%, #8134AF); }
 .scr-Live .live-fab__ic--plan { background: var(--navy); }
 .scr-Live .live-fab__ic--share { background: var(--success); }
-.scr-Live .live-fab__ic--me { background: #2F7BEA; }
 .scr-Live .live-chip { font-weight: 600; }
 .scr-Live .live-quick { position: absolute; top: 392px; left: 0; right: 70px; z-index: 2; }
 .scr-Live .live-sheet { top: 440px; padding: 8px 0 0; gap: 12px; }
