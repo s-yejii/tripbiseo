@@ -333,7 +333,7 @@ onMounted(() => {
 // 시연 계정(개발자 모드): 발표 이야기대로 출발지(가마산로 242)·이미 잡은 KTX·숙소를 미리 채워 둠 (11/08 주형)
 //   값은 서버 plan/service/DemoScenario.java 한 곳에 있어요. 사용자가 이미 고른 칸은 안 덮어써요
 const scenario = ref(null)
-const BOARDING_EARLY_MIN = 15 // 기차는 출발 15분 전 도착 (서버 PlanServiceImpl과 같음)
+const BOARDING_EARLY_MIN = 30 // 시나리오(DEMO.md): KTX 30분 전 서울역 도착
 onMounted(async () => {
   if (!devMode.isOn) return
   try {
@@ -363,7 +363,7 @@ function useRecommendedTime() {
     const end = toTime(toMinutes(train.time) - BOARDING_EARLY_MIN)
     store.planFromTime = scenario.value.startTime
     store.planToTime = end
-    showToast('첫날 ' + scenario.value.startTime + ' 출발 · 마지막 날 ' + end + ' 서울역 (KTX ' + train.time + ' 15분 전)')
+    showToast('첫날 ' + scenario.value.startTime + ' 출발 · 마지막 날 ' + end + ' 서울역 (KTX ' + train.time + ' 30분 전)')
     return
   }
   const time = recommendTime()

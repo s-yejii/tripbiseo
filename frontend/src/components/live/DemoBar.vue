@@ -285,13 +285,14 @@ function planOf(day) {
   const list = stopsOf(day)
   const plan = []
   for (const stop of list) plan.push({ stop, arrive: toMinutes(stop.time), leave: toMinutes(stop.time) + (stop.stay || 0) })
-  if (day === lastDay()) {
-    const station = list.filter((stop) => stop.fixed).pop()
-    const park = list[list.indexOf(station) - 1] // ③ 서울역 바로 앞 칸에서 늦게까지 (11/08: 비 예보를 반영하면 한강이 오전으로 가서 실내 쇼핑몰)
-    const parkPlan = plan.find((item) => item.stop === park)
-    if (station && parkPlan && parkPlan.stop.time < station.time) {
-      parkPlan.leave = Math.max(parkPlan.leave, toMinutes(station.time) - LATE_BEFORE_MIN)
-      parkPlan.isLate = true
+  // 돌발 (DEMO.md): 시나리오가 정한 칸(2일차 테디뵈르하우스)에서 계획보다 N분(24분) 더 머묾 → KTX에 늦음
+  const setup = scenario.value
+  if (setup && setup.overstayDay === day) {
+    const item = plan.find((one) => one.stop.name === setup.overstayName)
+    if (item) {
+      item.plannedLeave = item.leave
+      item.leave += setup.overstayMin
+      item.isOverstay = true
     }
   }
   return plan
@@ -331,7 +332,7 @@ function wantedSpeed(day, plan, nowMin) {
   for (let i = 0; i < plan.length; i++) {
     const item = plan[i]
     const next = plan[i + 1]
-    const incidentAt = next && next.stop.fixed ? (item.isLate ? item.leave : item.leave - LEAVE_ALERT_BEFORE_MIN) : null
+    const incidentAt = item.isOverstay ? item.leave : null // 돌발은 더 머무는 칸 하나 (DEMO.md)
     if (incidentAt != null && nowMin >= incidentAt - SLOW_BEFORE_MIN && nowMin < incidentAt + LATE_TARGET_MIN) return SPEED_SLOW
     if (nowMin >= item.arrive && nowMin < item.arrive + SHOW_ARRIVAL_MIN) return SPEED_NORMAL
     if (nowMin >= item.arrive && nowMin < item.leave) return SPEED_FAST
@@ -361,21 +362,15 @@ async function moveForTime(day, plan, nowMin) {
   for (let i = 0; i < plan.length; i++) {
     const item = plan[i]
     const next = plan[i + 1]
-    // ① 고정 일정(회식) 앞 칸: 떠날 시각 5분 전이 되면 "출발해야 해요" 알림이 보이게 시계를 멈춤
-    if (next && next.stop.fixed && !item.isLate && nowMin >= item.leave - LEAVE_ALERT_BEFORE_MIN && nowMin < item.leave) {
+    // 돌발: 더 머물다 떠날 시각이 되면 "KTX에 늦어요"가 보이게 시계를 멈춤 (재생하면 떠남)
+    if (item.isOverstay && nowMin >= item.leave && !pausedAt.has('overstay')) {
       await placeOnce(item.stop)
-      if (pausedAt.has('leave' + day)) return
       await props.live.refresh()
-      return pauseFor('leave' + day)
-    }
-    if (item.isLate && nowMin >= item.arrive) {
-      const result = await stayLate(item, next, nowMin)
-      if (result !== 'gone') return result
-      continue
+      return pauseFor('overstay')
     }
     if (nowMin >= item.arrive && nowMin < item.leave) return placeOnce(item.stop)
-    if (next && nowMin >= item.leave && nowMin < Math.max(next.arrive, item.leave + 1)) {
-      const travel = Math.max(5, next.arrive - item.leave - ARRIVE_EARLY_MIN)
+    const travel = next ? Math.max(5, next.arrive - item.leave - ARRIVE_EARLY_MIN) : 0
+    if (next && nowMin >= item.leave && nowMin < Math.max(next.arrive, item.leave + travel)) {
       return walkBetween(item.stop, next.stop, (nowMin - item.leave) / travel)
     }
   }
@@ -391,28 +386,6 @@ async function walkFromOrigin(day, first, nowMin) {
   const start = toMinutes(setup.startTime)
   if (nowMin <= start) return placeOnce(origin, false)
   return walkBetween(origin, first.stop, (nowMin - start) / Math.max(1, first.arrive - start - ARRIVE_EARLY_MIN))
-}
-
-// ③ 마지막 야외(한강)에서 늦게까지: 서울역에 늦을 때까지(여유가 -3분 아래) 머물고, 늦으면 시계를 멈춰 "늦음·대안"을 보여 줌
-//   다시 재생하면 서울역으로 떠남 (TRAVEL_MIN 동안 움직임)
-let lateFrom = null
-async function stayLate(item, next, nowMin) {
-  if (lateFrom != null) {
-    if (!next) return 'gone'
-    if (nowMin >= lateFrom + TRAVEL_MIN) return 'gone'
-    return walkBetween(item.stop, next.stop, (nowMin - lateFrom) / TRAVEL_MIN)
-  }
-  await placeOnce(item.stop)
-  if (nowMin < item.leave) return 'stay'
-  await props.live.refresh()
-  const fixed = props.live.status.value && props.live.status.value.fixed
-  if (fixed && fixed.slackMin != null && fixed.slackMin >= -LATE_TARGET_MIN) return 'stay' // 아직 안 늦음 → 더 머묾
-  if (!pausedAt.has('late')) {
-    await pauseFor('late')
-    return 'stay'
-  }
-  lateFrom = nowMin // 재생하면 여기서부터 떠남
-  return 'stay'
 }
 
 // 돌발 순간: 시계를 멈춰서 알림이 화면에 남게 (발표자가 대안을 보여 주고 설정의 "재생"으로 이어감)
@@ -502,7 +475,12 @@ function sceneMinute(index) {
   if (index === 1) return { day: 1, minute: toMinutes(before.time) + (before.stay || 0) - LEAVE_ALERT_BEFORE_MIN - 1 }
   if (index === 2) return { day: 1, minute: toMinutes(day1[day1.length - 1].time) }
   if (index === 3) return { day: days, minute: toMinutes(RAIN_CHECK_TIME) }
-  if (index === 4) return { day: days, minute: toMinutes(station.time) - LATE_BEFORE_MIN }
+  if (index === 4) { // 카페 늦음: 돌발 4분 전
+    const setup = scenario.value
+    const cafe = setup && stopsOf(setup.overstayDay).find((stop) => stop.name === setup.overstayName)
+    if (cafe) return { day: setup.overstayDay, minute: toMinutes(cafe.time) + (cafe.stay || 0) + setup.overstayMin - 4 }
+    return { day: days, minute: toMinutes(station.time) - LATE_BEFORE_MIN }
+  }
   return { day: days, minute: toMinutes(station.time) }
 }
 
@@ -511,7 +489,6 @@ async function runCommand(command) {
     const target = sceneMinute(command.index)
     if (command.index < 3) { rainDay = 0; await clearDevRain() }
     pausedAt.clear()
-    lateFrom = null
     await setClock(dateOf(target.day), target.minute)
   } else if (command.type === 'stop') {
     const now = appNow()
@@ -526,7 +503,6 @@ async function runCommand(command) {
     rainDay = 0
     visitedIds.clear()
     pausedAt.clear()
-    lateFrom = null
     await clearDevRain()
     const day1 = stopsOf(1)
     await setClock(dateOf(1), toMinutes(day1[0].time) - 40)

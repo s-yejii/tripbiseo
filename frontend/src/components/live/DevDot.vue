@@ -6,7 +6,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getTrip } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { addDays, daysBetween } from '@/utils/dates'
-import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
+import { getDevScenario, clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
 import { useRouter } from 'vue-router'
 import { appNow, devMode, prepareDemo, sendCommand, setAutoSpeed, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
@@ -17,7 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['clock', 'gps'])
 const FORWARD_STEPS = [10, 30, 60]
 const SPEEDS = [1, 10, 30, 60] // 시계 배속 (11/08 주형: 마이에서 고르게)
-const SCENES = ['출발', '회식', '숙소', '2일차 아침', '서울역 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
+const SCENES = ['출발', '회식', '숙소', '2일차 아침', '카페 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
 
 const isOpen = ref(false)
 
@@ -25,12 +25,14 @@ const isOpen = ref(false)
 const LEAVE_ALERT_BEFORE_MIN = 5 // DemoBar와 같음
 const LATE_BEFORE_MIN = 27
 const store = useTripStore()
+const scenarioSetup = ref(null)
 const guideTrip = ref(null)
 const nowTick = ref(Date.now())
 let guideTimer = null
 const toMin = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))
 const toHm = (min) => String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0')
 async function loadGuideTrip() {
+  if (!scenarioSetup.value) scenarioSetup.value = await getDevScenario().catch(() => null)
   const id = store.tripId || (await store.findOngoingTripId())
   guideTrip.value = id ? await getTrip(id).catch(() => null) : null
 }
@@ -40,14 +42,11 @@ const incidents = computed(() => {
   const sorted = trip.stops.filter((stop) => stop.state !== 'skipped').sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
   const lastDay = Math.max(...sorted.map((stop) => stop.day || 1))
   const list = []
-  const day1 = sorted.filter((stop) => stop.day === 1)
-  const dinner = day1.find((stop) => stop.fixed)
-  const beforeDinner = dinner ? day1[day1.indexOf(dinner) - 1] : null
-  if (beforeDinner) list.push({ name: '① ' + dinner.name + ' 출발 알림', scene: 1, day: 1, minute: toMin(beforeDinner.time) + (beforeDinner.stay || 0) - LEAVE_ALERT_BEFORE_MIN, where: beforeDinner.name + '에서' })
-  const last = sorted.filter((stop) => stop.day === lastDay)
-  const station = last.filter((stop) => stop.fixed).pop()
-  const beforeStation = station ? last[last.indexOf(station) - 1] : null
-  if (beforeStation) list.push({ name: '③ ' + station.name + ' 늦음 → 대안', scene: 4, day: lastDay, minute: toMin(station.time) - LATE_BEFORE_MIN, where: beforeStation.name + '에 오래 있으면' })
+  // 돌발 (DEMO.md 하나): 시나리오가 정한 칸에서 계획보다 N분 더 머물면 KTX에 늦음 → 그때 시계가 멈춤
+  const setup = scenarioSetup.value
+  const cafe = setup && sorted.find((stop) => stop.day === setup.overstayDay && stop.name === setup.overstayName)
+  const station = sorted.filter((stop) => stop.fixed).pop()
+  if (cafe) list.push({ name: '돌발 · ' + (station ? station.name : 'KTX') + ' 늦음', scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0) + setup.overstayMin, where: cafe.name + '에서 ' + setup.overstayMin + '분 더 머물면' })
   const now = new Date(nowTick.value) && appNow()
   const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
   const nowDay = daysBetween(trip.startDate, today) + 1
