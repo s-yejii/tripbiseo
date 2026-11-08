@@ -3,8 +3,11 @@
 // 누르면: 가짜 GPS 켜고 끄기 · 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { getTrip } from '@/api/trips'
+import { useTripStore } from '@/stores/trip'
+import { addDays, daysBetween } from '@/utils/dates'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
-import { devMode, sendCommand, setAutoSpeed, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
+import { appNow, devMode, sendCommand, setAutoSpeed, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const props = defineProps({
@@ -16,6 +19,55 @@ const SPEEDS = [1, 10, 30, 60] // 시계 배속 (11/08 주형: 마이에서 고�
 const SCENES = ['출발', '회식', '숙소', '2일차 아침', '서울역 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
 
 const isOpen = ref(false)
+
+// 돌발 안내 (발표자용, 11/08 주형: 시간은 흐르지만 어디서 돌발이 나는지 알아야): 지금 여행에서 ①·③이 언제·어디서 나는지
+const LEAVE_ALERT_BEFORE_MIN = 5 // DemoBar와 같음
+const LATE_BEFORE_MIN = 27
+const store = useTripStore()
+const guideTrip = ref(null)
+const nowTick = ref(Date.now())
+let guideTimer = null
+const toMin = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))
+const toHm = (min) => String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0')
+async function loadGuideTrip() {
+  const id = store.tripId || (await store.findOngoingTripId())
+  guideTrip.value = id ? await getTrip(id).catch(() => null) : null
+}
+const incidents = computed(() => {
+  const trip = guideTrip.value
+  if (!trip || !trip.stops) return []
+  const sorted = trip.stops.filter((stop) => stop.state !== 'skipped').sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
+  const lastDay = Math.max(...sorted.map((stop) => stop.day || 1))
+  const list = []
+  const day1 = sorted.filter((stop) => stop.day === 1)
+  const dinner = day1.find((stop) => stop.fixed)
+  const beforeDinner = dinner ? day1[day1.indexOf(dinner) - 1] : null
+  if (beforeDinner) list.push({ name: '① ' + dinner.name + ' 출발 알림', scene: 1, day: 1, minute: toMin(beforeDinner.time) + (beforeDinner.stay || 0) - LEAVE_ALERT_BEFORE_MIN, where: beforeDinner.name + '에서' })
+  const last = sorted.filter((stop) => stop.day === lastDay)
+  const station = last.filter((stop) => stop.fixed).pop()
+  const beforeStation = station ? last[last.indexOf(station) - 1] : null
+  if (beforeStation) list.push({ name: '③ ' + station.name + ' 늦음 → 대안', scene: 4, day: lastDay, minute: toMin(station.time) - LATE_BEFORE_MIN, where: beforeStation.name + '에 오래 있으면' })
+  const now = new Date(nowTick.value) && appNow()
+  const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+  const nowDay = daysBetween(trip.startDate, today) + 1
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  for (const item of list) {
+    const left = (item.day - nowDay) * 1440 + item.minute - nowMin
+    item.text = item.day + '일차 ' + toHm(item.minute) + ' · ' + item.where
+    item.leftMin = left
+    const realSec = devMode.speed > 0 ? Math.round((left * 60) / devMode.speed) : null
+    item.left = left > 0 ? '앱 ' + left + '분' + (realSec != null ? ' · 실제 약 ' + realSec + '초' : '') + ' 뒤' : '지남'
+  }
+  return list
+})
+// 다음 돌발이 실제 5초 안이면 회색 점이 살짝 깜빡여 발표자에게만 알려 줌
+const SOON_REAL_SEC = 5
+const isSoon = computed(() => incidents.value.some((item) => item.leftMin > 0 && devMode.speed > 0 && (item.leftMin * 60) / devMode.speed <= SOON_REAL_SEC))
+const clockText = computed(() => { nowTick.value; const now = appNow(); return (now.getMonth() + 1) + '/' + now.getDate() + ' ' + toHm(now.getHours() * 60 + now.getMinutes()) })
+function goNextIncident() {
+  const next = incidents.value.find((item) => item.leftMin > 0)
+  if (next) goScene(next.scene)
+}
 
 // 숨은 방법: 상태바(맨 위 시계 줄)를 두 번 누르면 설정이 열림 (관객 눈엔 안 보이게, 11/08)
 function onDoubleClick(event) {
@@ -38,6 +90,11 @@ const speed = computed(() => devMode.speed) // 서버 시계 배속 (시연 엔�
 const pausedSpeed = ref(60) // 멈춤 전 배속 (재생하면 이 배속으로)
 
 // 개발자 모드일 때만 서버에 물어봄 (끈 사람·로그아웃한 사람은 요청 안 함, 11/06)
+watch(() => [devMode.isOn, isOpen.value], ([isOn, open]) => {
+  if (isOn && (open || props.inline)) loadGuideTrip()
+})
+onMounted(() => { guideTimer = setInterval(() => (nowTick.value = Date.now()), 1000); if (devMode.isOn && props.inline) loadGuideTrip() })
+onUnmounted(() => clearInterval(guideTimer))
 watch(() => devMode.isOn, (isOn) => { if (isOn) loadStatus() }, { immediate: true })
 
 async function loadStatus() {
@@ -142,7 +199,7 @@ function turnOff() {
 
 <template>
   <template v-if="devMode.isOn">
-    <button v-if="!inline" type="button" class="dev-dot" aria-label="개발자 모드" @click="isOpen = !isOpen"></button>
+    <button v-if="!inline" type="button" class="dev-dot" :class="{ 'is-soon': isSoon }" aria-label="개발자 모드" @click="isOpen = !isOpen"></button>
     <div v-if="isOpen || inline" class="dev-panel" :class="{ 'dev-panel--inline': inline }" role="dialog" aria-label="개발자 모드">
       <div class="dev-panel__row">
         <b class="t-strong">개발자 모드</b>
@@ -160,6 +217,12 @@ function turnOff() {
       <div class="dev-panel__row">
         <input v-model="rainInput" type="time" class="dev-panel__input" aria-label="비 시작 시각" :disabled="!!rainFrom" />
         <button type="button" class="chip" :class="{ 'is-on': rainFrom }" :disabled="isBusy" @click="toggleRain">{{ rainFrom ? rainFrom + '부터 비 · 빼기' : '비 예보 넣기' }}</button>
+      </div>
+
+      <div v-if="incidents.length" class="dev-panel__guide">
+        <b class="t-cap tn">지금 {{ clockText }} · 돌발 안내 (그때 시계가 멈춰요)</b>
+        <p v-for="item in incidents" :key="item.name" class="t-cap tn"><b>{{ item.name }}</b> · {{ item.text }} · <span class="c-navy">{{ item.left }}</span> <button type="button" class="chip chip--sm" @click="goScene(item.scene)">여기로</button></p>
+        <button type="button" class="chip chip--sm" style="align-self: flex-start" @click="goNextIncident">다음 돌발 직전으로</button>
       </div>
 
       <div class="dev-panel__row">
@@ -201,4 +264,8 @@ function turnOff() {
 .dev-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .dev-panel__input { flex: 1 1 130px; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line, #ddd); border-radius: 8px; font: inherit; }
 .dev-panel--inline { position: static; width: auto; max-height: none; box-shadow: none; border: 1px solid var(--line, #ddd); }
+.dev-panel__guide { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2, #f4f5f8); }
+.dev-panel__guide p { margin: 0; }
+@keyframes dev-dot-soon { 50% { opacity: 0.95; transform: scale(1.25); } }
+.dev-dot.is-soon { animation: dev-dot-soon 0.8s ease-in-out infinite; }
 </style>

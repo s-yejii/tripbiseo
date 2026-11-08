@@ -221,8 +221,7 @@ watch(() => props.live.phase.value, async (phase) => {
   if (phase === 'none') {
     await startDemoTrip()
   } else if (phase === 'ready' && trip.value) {
-    wantsAutoplay.value = false
-    playAuto()
+    wantsAutoplay.value = false // 11/08: 장면 자동 재생 대신 시계가 흐르며 일정대로 (조작은 설정에서)
   }
 })
 
