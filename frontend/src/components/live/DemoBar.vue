@@ -565,6 +565,7 @@ async function goNextStop() {
   await props.live.placeAt(next.lat, next.lng, true)
   visitedIds.add(next.id)
   placedKey = next.id + ':in'
+  if (devMode.speed === 0) syncClock(await setDevSpeed(MANUAL_SPEED)) // 돌발로 멈춘 시계: 대안·공유 화면을 보는 동안은 멈춰 있다가, 다음 장소에 도착하면 다시 흐름
   await props.live.refresh()
 }
 
