@@ -178,7 +178,7 @@ function turnOff() {
 
       <div class="dev-panel__row">
         <button type="button" class="btn btn--secondary btn--sm" :disabled="isBusy || !offsetMinutes" @click="backToRealTime">진짜 시각으로</button>
-        <button type="button" class="btn btn--ghost btn--sm" @click="turnOff">개발자 모드 끄기</button>
+        <button v-if="!inline" type="button" class="btn btn--ghost btn--sm" @click="turnOff">개발자 모드 끄기</button><!-- 마이에 펼친 칸에서는 실수로 안 꺼지게 숨김 (11/08). 다시 켜기: 버전 1.0.0 5번 -->
       </div>
     </div>
   </template>
