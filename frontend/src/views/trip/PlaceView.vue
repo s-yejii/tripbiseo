@@ -87,7 +87,6 @@ function addToPlan() {
   <div class="scr scr-Place">
     <div class="app app--white">
       <img :src="place.img" :alt="place.name + ' 사진'" class="pl-photo" />
-      <span class="badge tn pl-count">1 / 12</span>
       <header class="topbar topbar--float">
         <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/plan/check')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <span style="flex: 1"></span>
@@ -144,7 +143,6 @@ function addToPlan() {
 
 <style>
 .scr-Place .pl-photo{position:absolute;top:0;left:0;width:100%;height:300px;object-fit:cover}
-.scr-Place .pl-count{position:absolute;right:16px;top:260px;background:rgba(24,33,58,.7);color:#fff}
 .scr-Place .why{display:flex;gap:10px;padding:12px;border-radius:var(--radius-md);background:var(--navy-soft)}
 .scr-Place .why>span{display:flex;flex-direction:column;gap:6px}
 .scr-Place .why__tags{display:flex;flex-wrap:wrap;gap:6px}
