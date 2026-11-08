@@ -41,11 +41,12 @@ public class DemoScenario {
     private static final double STAY_LNG = 126.9089452;
     private static final String STAY_CHECK_IN = "15:00";
     private static final String STAY_CHECK_OUT = "11:00";
+    private static final String START_TIME = "15:00"; // 시연 계정은 1일차 이 시각부터 (가마산로 242에서 출발, 11/08 주형)
 
     // 일차, 시각, 이름, 장소 번호(retrip_place.id, 없으면 null), 종류, 위도, 경도, 머무는 분, 고정, 메모
     private static final Object[][] STOPS = {
-        { 1, "15:00", "여의도한강공원", "tour-1059479", "시민공원", 37.5263997727, 126.9336095794, 80, false, "한강 바로 옆 · 다음 카페까지 걸어서 7분" },
-        { 1, "16:40", "테디뵈르하우스 더현대서울점", "naver-1096877686", "카페,디저트", 37.5253257, 126.9287361, 70, false, "인스타에서 담은 카페 · 평점 4.8" },
+        { 1, "15:40", "여의도한강공원", "tour-1059479", "시민공원", 37.5263997727, 126.9336095794, 60, false, "가마산로에서 지하철로 40분 · 다음 카페까지 걸어서 7분" },
+        { 1, "16:50", "테디뵈르하우스 더현대서울점", "naver-1096877686", "카페,디저트", 37.5253257, 126.9287361, 60, false, "인스타에서 담은 카페 · 평점 4.8" },
         { 1, "18:30", "문래 골목집", "naver-597569164", "오리요리", 37.5133865, 126.8931051, 100, true, null },
         { 1, "20:40", "호텔 GMS", "demo-hotel-gms", "숙소", 37.5174808, 126.9089452, 30, false, "예약해 둔 숙소 · 영등포역 5번 출구 걸어서 4분 · 다음 날 여기서 출발" },
         { 2, "10:00", "영등포공원", "demo-yeongdeungpo-park", "관광지", 37.5150168, 126.9107969, 80, false, "숙소에서 걸어서 5분 · 아침 산책" },
@@ -90,6 +91,7 @@ public class DemoScenario {
         setup.setStayLng(STAY_LNG);
         setup.setStayCheckInTime(STAY_CHECK_IN);
         setup.setStayCheckOutTime(STAY_CHECK_OUT);
+        setup.setStartTime(START_TIME);
         return setup;
     }
 

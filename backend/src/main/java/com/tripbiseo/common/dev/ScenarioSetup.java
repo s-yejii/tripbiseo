@@ -21,4 +21,5 @@ public class ScenarioSetup {
     private Double stayLng;
     private String stayCheckInTime;
     private String stayCheckOutTime;
+    private String startTime;   // 1일차 시작 시각 "15:00": 로그인하면 시연 시계를 오늘 이 시각으로
 }
