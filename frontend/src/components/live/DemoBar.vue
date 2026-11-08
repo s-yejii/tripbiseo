@@ -259,6 +259,9 @@ let flowTimer = null
 let placedKey = ''
 let isPlacing = false
 let rainDay = 0
+let lastSentAt = 0
+const visitedIds = new Set() // 이번 흐름에서 도착 처리한 칸 (장면을 건너뛰어도 앞 칸을 먼저 다녀오게)
+const WALK_SEND_MS = 3000 // 이동 중에도 이만큼마다 위치를 서버에 보냄 (떠남 판정·늦음 계산)
 
 // 그날 칸마다 [도착, 떠남] 분. 마지막 날 서울역 앞 야외(한강)는 늦을 때까지 머무름(돌발 ③)
 function planOf(day) {
@@ -339,14 +342,33 @@ async function placeOnce(stop, isArrive = true) {
   const key = stop.id + (isArrive ? ':in' : ':near')
   if (placedKey === key) return
   placedKey = key
+  if (isArrive) await visitEarlier(stop)
   await props.live.placeAt(stop.lat, stop.lng, isArrive)
+  if (isArrive) visitedIds.add(stop.id)
   await props.live.refresh()
 }
 
-function walkBetween(from, to, rate) {
+// 장면을 건너뛰어 왔으면 그 앞 칸(앞날 포함)을 차례로 먼저 다녀옴 → 서버가 "아직 안 간 곳"으로 늦음 계산을 하지 않게
+async function visitEarlier(target) {
+  for (let day = 1; day <= target.day; day++) {
+    for (const stop of stopsOf(day)) {
+      if (stop.id === target.id) return
+      if (visitedIds.has(stop.id) || isVisited(stop)) continue
+      await props.live.placeAt(stop.lat, stop.lng, true)
+      visitedIds.add(stop.id)
+    }
+  }
+}
+
+// 이동 중: 지도 위 위치는 매번, 서버에는 몇 초마다 보내서 앞 칸 "떠남"과 남은 이동 시간이 맞게
+async function walkBetween(from, to, rate) {
   const ratio = Math.min(1, Math.max(0, rate))
+  const lat = from.lat + (to.lat - from.lat) * ratio
+  const lng = from.lng + (to.lng - from.lng) * ratio
   placedKey = 'walk:' + from.id
-  props.live.showAt(from.lat + (to.lat - from.lat) * ratio, from.lng + (to.lng - from.lng) * ratio)
+  if (Date.now() - lastSentAt < WALK_SEND_MS) return props.live.showAt(lat, lng)
+  lastSentAt = Date.now()
+  await props.live.placeAt(lat, lng, false)
 }
 
 onMounted(() => { flowTimer = setInterval(flowTick, FLOW_TICK_MS) })
@@ -385,6 +407,7 @@ async function runCommand(command) {
     if (target) await setClock(dateOf(day), target.arrive)
   } else if (command.type === 'restart') {
     rainDay = 0
+    visitedIds.clear()
     await clearDevRain()
     const day1 = stopsOf(1)
     await setClock(dateOf(1), toMinutes(day1[0].time) - 40)
