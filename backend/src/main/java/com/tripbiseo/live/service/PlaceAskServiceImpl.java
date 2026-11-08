@@ -5,6 +5,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
@@ -39,6 +41,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class PlaceAskServiceImpl implements PlaceAskService {
 
+    private static final Logger log = LoggerFactory.getLogger(PlaceAskServiceImpl.class); // 왜 못 찾았는지 남김 (좌표·질문 원문은 안 남김)
+
     private static final int STAY_MINUTES = 30;  // 들르면 머무는 시간(분). 프롬프트 규칙과 같음
     private static final int BAND_METERS = 190;  // 지도 띠 폭: 가는 길 양옆 190m = 걸어서 왕복 약 5분
     private static final String ROUTE = "route";
@@ -68,6 +72,7 @@ public class PlaceAskServiceImpl implements PlaceAskService {
             return makeFallback();
         }
         if (!Boolean.TRUE.equals(answer.getSupported())) {
+            log.info("AI에게 묻기: 표에 없는 조건 - {}", answer.getReason());
             return makeUnsupported(answer);
         }
         SqlCheck check = checkAnswer(answer, usable);
@@ -76,6 +81,7 @@ public class PlaceAskServiceImpl implements PlaceAskService {
             check = answer == null ? check : checkAnswer(answer, usable);
         }
         if (answer == null || !check.isOk()) {
+            log.warn("AI에게 묻기 fallback: SQL 검사 두 번 탈락 - {} / SQL: {}", check.getReason(), answer == null ? null : answer.getSql());
             return makeFallback();
         }
         return runAndFinish(answer, check, situation);
@@ -143,11 +149,13 @@ public class PlaceAskServiceImpl implements PlaceAskService {
     /** Gemini에게 SQL 받기. 키가 없거나 실패하면 null */
     private SqlAnswer askSql(String message, Set<String> usable, String retryReason) {
         if (!aiService.isReady()) {
+            log.warn("AI에게 묻기 fallback: Gemini 키가 없어요");
             return null;
         }
         try {
             return aiService.askJsonQuick(sqlPromptMaker.makePrompt(message, usable, retryReason), SqlAnswer.class);
         } catch (ApiException e) {
+            log.warn("AI에게 묻기 fallback: Gemini 호출 실패 - {}", e.getMessage());
             return null;
         }
     }
@@ -177,8 +185,10 @@ public class PlaceAskServiceImpl implements PlaceAskService {
         try {
             places = askSqlRunner.run(check, situation);
         } catch (DataAccessException e) { // DataAccessException: 스프링이 DB 오류를 감싸는 예외
+            log.warn("AI에게 묻기 fallback: DB 실행 오류 - {} / SQL: {}", e.getMostSpecificCause().getMessage(), answer.getSql());
             return makeFallback();
         }
+        log.info("AI에게 묻기 SQL: {} → {}곳", answer.getSql(), places.size());
         List<AskedPlace> openPlaces = addOpenAndSlack(places, situation.getSlack());
         String band = null;
         if (check.getPlaceholders().contains(ROUTE)) {
