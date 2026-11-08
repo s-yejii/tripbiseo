@@ -333,6 +333,7 @@ onMounted(() => {
 // 시연 계정(개발자 모드): 발표 이야기대로 출발지(가마산로 242)·이미 잡은 KTX·숙소를 미리 채워 둠 (11/08 주형)
 //   값은 서버 plan/service/DemoScenario.java 한 곳에 있어요. 사용자가 이미 고른 칸은 안 덮어써요
 const scenario = ref(null)
+const BOARDING_EARLY_MIN = 15 // 기차는 출발 15분 전 도착 (서버 PlanServiceImpl과 같음)
 onMounted(async () => {
   if (!devMode.isOn) return
   try {
@@ -355,6 +356,16 @@ function fillScenarioStay() {
 
 // "시간 추천": 추천 시작·끝 시각으로 맞춤 (지금은 기본값, 통계가 오면 utils/timeRecommend.js만 바꿈)
 function useRecommendedTime() {
+  // 시연 계정: 시나리오 시각으로 (11/08 주형). 시작은 첫날(가마산로 출발 15:00), 끝은 마지막 날(KTX 15분 전 도착)
+  //   값은 서버 DemoScenario.java 한 곳 (startTime, fixed KTX). 시작·끝은 PlanRuleMaker가 첫날·마지막 날에만 써요
+  if (scenario.value) {
+    const train = scenario.value.fixed[0]
+    const end = toTime(toMinutes(train.time) - BOARDING_EARLY_MIN)
+    store.planFromTime = scenario.value.startTime
+    store.planToTime = end
+    showToast('첫날 ' + scenario.value.startTime + ' 출발 · 마지막 날 ' + end + ' 서울역 (KTX ' + train.time + ' 15분 전)')
+    return
+  }
   const time = recommendTime()
   store.planFromTime = time.start
   store.planToTime = time.end
