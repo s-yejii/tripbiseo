@@ -27,6 +27,8 @@ import LiveCards from '@/components/live/LiveCards.vue'
 import DevDot from '@/components/live/DevDot.vue'
 import DemoDrive from '@/components/live/DemoDrive.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
+import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
+import { clearLiveNotice, liveBanner } from '@/utils/liveBanner'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
@@ -56,12 +58,14 @@ const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
 const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
-// 시연 계정: 돌발에서 시연 시계가 멈추면(배속 0) 그 알림을 위에서 내려오는 알림으로 펼쳐 둠 (11/08: 멈춘 이유가 바로 보이게)
-//   돌발 알림(출발 알림 leave-·늦음 late-)만. 휴무 같은 다른 알림은 평소대로 한 번만 (11/08: 휴무 배너가 계속 다시 뜨던 문제)
-const INCIDENT_KEYS = /^(leave|late|next|overdue)-/
-watch(() => [devMode.speed, status.value && status.value.alert], ([speed, alert]) => {
-  if (devMode.isOn && speed === 0 && alert && INCIDENT_KEYS.test(alert.key || '')) notiOpen.value = true
+// 위쪽 배너는 한 장만, 몇 초 뒤 저절로 접힘 (11/08 주형: 알림이 겹쳐서 뭐가 뭔지 모르겠음). 위로 밀어도 닫힘(AppNoti)
+const BANNER_SHOW_MS = 5000
+let bannerTimer = null
+watch(notiOpen, (isOpen) => {
+  clearTimeout(bannerTimer)
+  if (isOpen) bannerTimer = setTimeout(() => (notiOpen.value = false), BANNER_SHOW_MS)
 })
+onUnmounted(() => clearTimeout(bannerTimer))
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
@@ -124,6 +128,10 @@ const isAlertMuted = computed(() => {
 })
 const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
 const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
+// 중요한 알림(예약에 늦음 = 대안이 필요한 돌발)은 배너 대신 가운데 카드로. [나중에]를 누르면 그 알림은 알약으로만
+const laterKey = ref('')
+const isCriticalAlert = computed(() => !!currentAlert.value && /^late-/.test(currentAlert.value.key || ''))
+const isCardOpen = computed(() => isCriticalAlert.value && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
 
 // 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
@@ -600,10 +608,14 @@ function restartMoving() {
           <NotiBell float />
         </header>
 
-        <!-- 위쪽 알림: 늦으면 접어서 +N분 알약으로 -->
-        <template v-if="status.alert && !isAlertMuted && !adding">
+        <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
+        <CriticalAlertCard v-if="isCardOpen" :title="status.alert.title" :text="status.alert.text" :to="alertLink || '/live/delay'" @later="laterKey = status.alert.key" />
+        <!-- 시연 "다음 장소로" 출발 안내: 서버 알림 대신 한 장으로 -->
+        <AppNoti v-else-if="liveBanner.notice" :title="liveBanner.notice.title" :body="liveBanner.notice.body" icon="i-route" :warn="liveBanner.notice.warn" @close="clearLiveNotice" />
+        <!-- 위쪽 알림: 한 장만, 접으면 알약으로 (늦으면 +N분) -->
+        <template v-else-if="status.alert && !isAlertMuted && !adding">
           <AppNoti
-            v-if="notiOpen"
+            v-if="notiOpen && !isCriticalAlert"
             :warn="status.alert.level === 'danger' || isLate"
             icon="i-warning"
             :title="status.alert.title"

@@ -4,7 +4,7 @@
 //   머무는 동안 시계는 실제 시간대로 흘러요. 발표자가 설정의 [+10분]으로 감으면 늦음 알림·대안이 다른 계정과 똑같이 떠요.
 //   개발자 모드(시연 계정)이고 가짜 GPS가 켜져 있을 때만 보여요. 다른 계정은 이 컴포넌트가 아무것도 안 해요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import AppNoti from '@/components/common/AppNoti.vue'
+import { clearLiveNotice, showLiveNotice } from '@/utils/liveBanner'
 import { getDevScenario, setDevClock, setDevSpeed } from '@/api/dev'
 import { getTrip } from '@/api/trips'
 import { addDays } from '@/utils/dates'
@@ -33,7 +33,6 @@ const NEARBY_M = 200 // 이만큼 가까우면(같은 건물·바로 옆) 길 �
 const INSIDE_WALK_MIN = 2 // 다음 날 아침: 첫 장소로 떠날 시각 몇 분 전에 일어난 걸로
 
 const isBusy = ref(false)
-const notice = ref(null) // 출발 안내 { title, body, warn } (앱 위쪽 알림 모양)
 const origin = ref(null) // 시나리오 출발지 (가마산로 242)
 let wanderTimer = null
 
@@ -153,9 +152,9 @@ function stayEndOf(stop) {
 // 출발 안내를 먼저 보여 주고 잠깐 기다림 (예약이면 "지금 출발해야 해요", 느슨하면 부드럽게)
 async function showNotice(next, travelMin) {
   const move = '이동 ' + travelMin + '분'
-  notice.value = next.fixed
+  showLiveNotice(next.fixed
     ? { title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true }
-    : { title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false }
+    : { title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false })
   await wait(NOTICE_MS)
 }
 
@@ -163,7 +162,7 @@ async function showNotice(next, travelMin) {
 async function arrive(next, date, minutes) {
   await setSpeed(STAY_SPEED)
   await setClock(date, minutes)
-  notice.value = null
+  clearLiveNotice()
   await props.live.placeAt(next.lat, next.lng, true)
   await props.live.refresh()
 }
@@ -175,7 +174,7 @@ async function walkInside(current, next) {
   await setClock(date, departMin)
   const isSameBuilding = (next.memo || '').includes('같은 건물') // 일정 메모에 적힌 대로 (예: 테디뵈르 "같은 건물 지하 1층")
   const title = isSameBuilding ? next.memo.split('·')[0].trim() + '이에요' : '바로 옆이에요'
-  notice.value = { title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false }
+  showLiveNotice({ title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false })
   await wait(NOTICE_MS)
   await arrive(next, date, departMin + INSIDE_WALK_MIN)
 }
@@ -247,7 +246,6 @@ onUnmounted(() => clearInterval(wanderTimer))
 </script>
 
 <template>
-  <AppNoti v-if="notice" :title="notice.title" :body="notice.body" icon="i-route" :warn="notice.warn" @close="notice = null" />
   <button v-if="isShown" type="button" class="demo-next" :disabled="isBusy" @click="goNext">
     <i class="ic ic--s i-next" aria-hidden="true"></i>{{ isBusy ? '이동 중' : '다음 장소로' }}
   </button>
