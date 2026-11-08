@@ -5,7 +5,7 @@
 // "회고 보기"를 누르면 부모가 여행을 끝내고(finishTrip) 회고로 가요.
 import { computed } from 'vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
-import { toWonText, tripBudget } from '@/utils/budget'
+import { SHOW_PRICE_ESTIMATE, toWonText, tripBudget } from '@/utils/budget'
 
 const props = defineProps({
   trip: { type: Object, required: true }, // { title, people, stops: [{ category, mode, state }] }
@@ -37,7 +37,7 @@ const paymentCount = 0 // 결제 메모 (서버 저장이 생기면 여기서 �
     <h2 class="h-title" style="text-align: center">{{ placeName }} 도착, 여행을 마쳤어요</h2>
     <p v-if="arrivedAt" class="t-cap tn" style="text-align: center; margin: 0">{{ arrivedAt }} 도착 · {{ trip.title }}</p>
 
-    <section class="trip-end__sum" aria-label="총 지출">
+    <section v-if="SHOW_PRICE_ESTIMATE" class="trip-end__sum" aria-label="총 지출"><!-- 추정 금액이라 중간발표에서는 숨김 (11/08) -->
       <div class="trip-end__row">
         <b class="t-strong">총 지출 (예상)</b>
         <b class="t-big tn">{{ toWonText(perPerson.total * people) }}</b>
