@@ -662,14 +662,9 @@ button.dur-delta .ic{width:12px;height:12px}
 .ico-tile--coral{background:var(--coral-soft);color:var(--coral-ink)}
 .pin__tag{position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);max-width:150px;padding:3px 8px;border-radius:6px;background:var(--navy);color:#fff;font-size:12px;line-height:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* 마이 페이지는 지금 모양 그대로 (11/04 결정): 공통 값을 되돌려도 이 화면들은 안 바뀌게 고정 */
+/* 마이 페이지는 지금 모양 그대로 (11/04 결정): 공통 값을 되돌려도 이 화면들은 안 바뀌게 고정 (하단바는 11/8부터 다른 화면과 같은 둥근 바) */
 .scr-My,.scr-ProfileEdit,.scr-StyleEdit,.scr-FriendInvite,.scr-LocHistory,.scr-CardAdd{--surface:#F7FBFE;--surface-sunken:#EEF4F8;--line:#DCE8F1;--navy-soft:#EAF4FB;--warning:#A9412A;--warning-soft:#FDEEE9;--radius-md:12px;--shadow-card:none;--shadow-sheet:0 2px 16px rgba(24,33,58,.16)}
 .scr-My .btn--lg,.scr-ProfileEdit .btn--lg,.scr-StyleEdit .btn--lg,.scr-FriendInvite .btn--lg,.scr-LocHistory .btn--lg,.scr-CardAdd .btn--lg{font-size:15px;font-weight:700}
 .scr-My .row,.scr-ProfileEdit .row,.scr-StyleEdit .row,.scr-FriendInvite .row,.scr-LocHistory .row,.scr-CardAdd .row{min-height:60px;padding:12px 16px}
 .scr-My .row+.row,.scr-ProfileEdit .row+.row,.scr-StyleEdit .row+.row,.scr-FriendInvite .row+.row,.scr-LocHistory .row+.row,.scr-CardAdd .row+.row{box-shadow:none}
 .scr-My .row+.row::after,.scr-ProfileEdit .row+.row::after,.scr-StyleEdit .row+.row::after,.scr-FriendInvite .row+.row::after,.scr-LocHistory .row+.row::after,.scr-CardAdd .row+.row::after{content:"";position:absolute;top:0;left:68px;right:16px;height:1px;background:var(--line)}
-.scr-My .tabbar{left:0;right:0;bottom:0;height:64px;padding:0 6px;border-top:1px solid var(--line);border-radius:0;background:var(--surface-raised);box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
-.scr-My .tabbar a{font:400 12px/16px var(--font-sans)}
-.scr-My .tabbar a.is-on{font-weight:700}
-.scr-My .tabbar a::before{display:none}
-.scr-My .app:has(> .tabbar) > .scroll{padding-bottom:84px}
