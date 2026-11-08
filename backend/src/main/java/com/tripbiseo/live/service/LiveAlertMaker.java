@@ -218,8 +218,8 @@ public class LiveAlertMaker {
     /** 다음 장소에 10분 넘게 늦으면 알림 (아니면 null) */
     private LiveAlert makeNextLateAlert(StatusContext context) {
         Stop nextStop = context.getNextStop();
-        if (nextStop == null) {
-            return null;
+        if (nextStop == null || LiveStopFinder.isStay(nextStop)) {
+            return null; // 숙소는 도착 시각이 마감이 아니라 늦음으로 안 봄 (11/08: 앞 일정이 길어지면 도착이 뒤로 밀릴 뿐)
         }
         int lateMinutes = context.getEtaMap().get(nextStop.getId()) - Geo.toMinutes(nextStop.getTime());
         if (lateMinutes <= NEXT_LATE_MIN) {

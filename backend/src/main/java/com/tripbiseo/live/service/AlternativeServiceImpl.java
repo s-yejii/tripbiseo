@@ -449,8 +449,8 @@ public class AlternativeServiceImpl implements AlternativeService {
         Stop dropStop = null;
         int dropRank = -1;
         for (Stop stop : stops) {
-            if (Boolean.TRUE.equals(stop.getFixed())) {
-                continue; // 고정 일정은 빼지 않음
+            if (Boolean.TRUE.equals(stop.getFixed()) || LiveStopFinder.isStay(stop)) {
+                continue; // 고정 일정·숙소는 빼지 않음 (11/08)
             }
             if (isMust(stop)) {
                 continue; // 꼭 갈 곳은 빼지 않음

@@ -117,6 +117,13 @@ public class LiveStopFinder {
     }
 
     /** 머무는 시간(분). 없으면 0 */
+    /** 숙소 칸인지 (종류가 숙소·호텔·숙박이거나 메모가 "숙소"로 시작). 숙소 도착 시각은 마감이 아니라서 늦음·빼기 대상이 아님 (11/08) */
+    public static boolean isStay(Stop stop) {
+        String category = stop.getCategory() == null ? "" : stop.getCategory();
+        String memo = stop.getMemo() == null ? "" : stop.getMemo();
+        return category.matches(".*(숙소|호텔|숙박|모텔|게스트하우스).*") || memo.startsWith("숙소") || memo.startsWith("예약해 둔 숙소");
+    }
+
     public int getStay(Stop stop) {
         return stop.getStay() == null ? 0 : stop.getStay();
     }
