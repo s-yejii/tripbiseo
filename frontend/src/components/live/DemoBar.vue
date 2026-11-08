@@ -3,7 +3,7 @@
 // 장면 버튼 하나로 시연 시계·가짜 위치·비 예보를 한 번에 맞춰서, 실제 사용자가 그 순간 보는 화면(알림·대안)을 바로 보여 줘요.
 //   1일차 출발 → ① 회식 출발 알림 → 숙소(밤 건너뛰기) → ② 2일차 아침 비 → ③ 한강에서 늦음 → 서울역 도착
 // 진행 중인 여행이 없으면 "시연 여행 시작": 가장 최근 예정 여행을 복사해서 시작해요 (원본은 본편용으로 그대로)
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain } from '@/api/dev'
 import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
@@ -34,10 +34,14 @@ const RAIN_CHECK_TIME = '09:30'
 const LATE_TARGET_MIN = 3 // ③ 대중교통으로 가면 이만큼 늦게 (택시면 안 늦게)
 const RAIN_FROM = '13:00'
 const SCENE_KEY = 'demoScene'
+const SCENE_TRIP_KEY = 'demoSceneTrip' // 장면 번호가 어느 여행 것인지 (새 여행이면 처음부터)
+const SCENE_PAUSE_MS = 4000 // 자동 재생: 장면 사이 사람이 읽을 시간
+const INCIDENT_PAUSE_MS = 10000 // 자동 재생: 돌발 장면(알림·대안)은 더 오래 보여 줌
 
 const sceneIndex = ref(readScene()) // 지금까지 끝낸 장면 수 (다음 장면 = 이 번호)
 const isBusy = ref(false)
 const isAuto = ref(false)
+let autoTimer = null
 
 const trip = computed(() => props.live.trip.value)
 const isOngoing = computed(() => props.live.phase.value !== 'none' && props.live.phase.value !== 'loading' && !!props.live.tripId.value)
@@ -166,14 +170,51 @@ async function runNext() {
   } finally {
     isBusy.value = false
   }
-  // 자동 재생: 돌발 장면에서는 멈춰서 알림·대안을 보여 줌
-  if (isAuto.value && nextScene.value && !lastScene.value.isIncident) runNext()
-  else isAuto.value = false
+  // 자동 재생 (11/08 주형: 안 눌러도 끝까지): 장면마다 읽을 시간만큼 기다렸다가 다음. 돌발 장면은 더 오래
+  if (!isAuto.value || !nextScene.value) {
+    isAuto.value = false
+    return
+  }
+  const pause = lastScene.value && lastScene.value.isIncident ? INCIDENT_PAUSE_MS : SCENE_PAUSE_MS
+  autoTimer = setTimeout(() => {
+    if (isAuto.value) runNext()
+  }, pause)
 }
 
 function playAuto() {
   isAuto.value = true
   runNext()
+}
+
+// 멈춤: 지금 장면에서 그대로 (다시 "자동"이나 "다음"으로 이어서)
+function stopAuto() {
+  isAuto.value = false
+  clearTimeout(autoTimer)
+}
+onUnmounted(() => clearTimeout(autoTimer))
+
+// 새 여행이면 장면을 처음부터, 개발자 모드에서 여행 중 화면이 준비되면 바로 자동 재생 (여행 시작만 누르면 끝까지)
+watch(() => [props.live.phase.value, props.live.tripId.value], ([phase, tripId]) => {
+  if (phase !== 'ready' || !tripId || !devMode.isOn) return
+  if (readSceneTrip() !== String(tripId)) {
+    saveSceneTrip(tripId)
+    saveScene(0)
+  }
+  if (sceneIndex.value === 0 && !isAuto.value && !isBusy.value) playAuto()
+})
+function readSceneTrip() {
+  try {
+    return localStorage.getItem(SCENE_TRIP_KEY)
+  } catch (e) {
+    return null
+  }
+}
+function saveSceneTrip(tripId) {
+  try {
+    localStorage.setItem(SCENE_TRIP_KEY, String(tripId))
+  } catch (e) {
+    // 저장소를 못 쓰면 이번 화면에서만
+  }
 }
 
 // 시연 중엔 진짜 GPS를 기다리지 않음: 위치 권한이 없거나(발표 PC) 새로 고쳐도 마지막으로 도착한 칸(없으면 첫 칸) 자리로 옮겨 둠
@@ -249,7 +290,8 @@ async function startDemoTrip() {
       </p>
       <div class="demo-bar__actions">
         <button v-if="nextScene" type="button" class="btn btn--primary btn--sm" :disabled="isBusy" @click="runNext">{{ isBusy ? '움직이는 중' : '다음: ' + nextScene.label }}</button>
-        <button v-if="nextScene && !isAuto" type="button" class="btn btn--secondary btn--sm" :disabled="isBusy" aria-label="자동 재생 (돌발에서 멈춤)" @click="playAuto">자동</button>
+        <button v-if="nextScene && !isAuto" type="button" class="btn btn--secondary btn--sm" :disabled="isBusy" aria-label="자동 재생" @click="playAuto">자동</button>
+        <button v-if="isAuto" type="button" class="btn btn--secondary btn--sm" aria-label="자동 재생 멈춤" @click="stopAuto">멈춤</button>
         <button v-if="!nextScene" type="button" class="btn btn--secondary btn--sm" @click="saveScene(0)">처음부터</button>
       </div>
     </template>
