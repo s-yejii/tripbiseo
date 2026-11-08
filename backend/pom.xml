@@ -105,6 +105,11 @@
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 			<version>3.2.0</version>
 		</dependency>
+		<dependency>
+		    <groupId>com.github.jsqlparser</groupId>
+		    <artifactId>jsqlparser</artifactId>
+		    <version>5.3</version>
+		</dependency>
 
 		<!-- 사진·영상 파일 안의 찍은 시각(EXIF) 읽기 (⑤ 앨범) -->
 		<dependency>

@@ -23,6 +23,7 @@
 | `db/16_trash.sql` | 휴지통: `trip.deleted_at` 추가 (11/04, 이상재 확인 필요) | ③ |
 | `db/14_live.sql` | ④ 테이블 (`trip_track`) | ④ |
 | `db/17_place_area.sql` | 넓은 장소 경계 `place_area` + 여의도한강공원 1줄 (OSM, 11/06, 이상재 확인 필요) | ④ |
+| `db/18_ask_place.sql` | AI에게 묻기(Text-to-SQL)용 뷰 `ask_place`·`ask_review`, 함수 `detour_minutes`, 읽기 전용 계정 `ask_reader`, 리뷰 검색 인덱스 (11/06, 이상재 확인 필요) | ④ |
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
@@ -296,6 +297,20 @@
 - 칸과 잇는 법: `place_id`가 같거나 이름이 같을 때만(띄어쓰기 무시). 좌표로만 이으면 안 돼요 (여의도샛강생태공원도 여의도한강공원 경계 안에 있음)
 - 도착: 지금 점·앞 점 둘 다 경계 30m 안. 출발: 둘 다 경계 80m 밖. 경계 없는 칸은 예전처럼 150m/200m
 - 지금 들어 있는 곳: 여의도한강공원 1개. 출처 © OpenStreetMap contributors (ODbL), 앱에 경계를 보여주면 출처 표기 필요
+### ask_place · ask_review · ask_reader · AI에게 묻기 (④, `18_ask_place.sql`, 11/06)
+
+여행 중 "가는 길에 5분 안 카페"처럼 물으면 AI(Gemini)가 SQL을 써 주고, 서버가 검사한 뒤 실행해요. AI는 SQL을 글자로 쓰기만 하고 DB에 붙지 않아요.
+
+| 이름 | 종류 | 내용 |
+|---|---|---|
+| `ask_place` | 뷰 (retrip_place) | id, name, kind(cafe/food/bar/tour/culture/shop/stay/etc), biz_type, rating_adj(보정 평점), review_count, amenities, use_time, rest_date, lat, lng, geom |
+| `ask_review` | 뷰 (retrip_review) | place_id, content |
+| `detour_minutes(place, route)` | 함수 | 경로선까지 거리 × 2 ÷ 75m/분, 올림 = 가는 길에서 들르면 몇 분 더 |
+| `ask_reader` | 계정(롤, 로그인 불가) | 위 뷰 2개 읽기 + 함수만. 서버가 AI SQL을 실행할 때만 `SET LOCAL ROLE ask_reader` |
+| `idx_retrip_review_content_trgm` | 인덱스 (pg_trgm) | 리뷰 글 ILIKE 검색용 |
+
+- kind·rating_adj 계산은 `PlaceMapper.xml`의 kindCase·adjustedRating과 같아요. 한쪽을 고치면 같이 고쳐요
+- 확인: `SET ROLE ask_reader; SELECT * FROM member;` → permission denied가 나와야 정상 (`RESET ROLE;`로 돌아오기)
 
 ### ⑤ 여행 후 (박석진)
 (payment, card, photo, extra_visit, amenity)
