@@ -304,6 +304,7 @@ function dateText(date) {
 
 async function flowTick() {
   if (!devMode.isFlow || !trip.value || props.live.phase.value === 'none' || isPlacing || isBusy.value) return
+  if (!devMode.isAutoSpeed) return manualTick() // 직접 조작: 시계만 흐르고 "다음 장소로"를 누를 때만 움직임
   const now = appNow()
   const day = daysBetween(trip.value.startDate, dateText(now)) + 1
   if (day < 1 || day > lastDay()) return
@@ -482,6 +483,78 @@ onMounted(async () => {
   syncClock(await setDevSpeed(SPEED_NORMAL).catch(() => ({ offsetMinutes: devMode.clockOffsetMs / 60000, speed: devMode.speed })))
 })
 
+// ------------------------------------------------------------ 직접 조작 (11/08 주형: 발표자가 회색 점을 누를 때마다 다음 장소로)
+const MANUAL_SPEED = 60 // 직접 조작일 때 시계가 흐르는 배속 (화면 시계가 움직이는 게 보이게)
+const MOVE_STEPS = 8 // 이동하는 모습을 몇 번에 나눠 보여 줄지
+const MOVE_STEP_MS = 450 // 약 3.6초 동안 이동
+const ALERT_SHOW_MS = 2500 // 떠나기 직전 출발 알림이 뜰 시간
+const LATE_TRAVEL_MIN = 20 // 돌발 뒤 대안(지하철)으로 서울역까지 걸리는 분 (대략, 실제 대안 값은 화면에)
+let overstayArmed = false // 돌발 장소에서 "다음 장소로"를 눌러 나갈 시각이 된 상태 (늦어지면 멈춤)
+
+function orderedStops() {
+  return trip.value.stops.filter((stop) => stop.state !== 'skipped').sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
+}
+// 지금 있는 칸: 마지막으로 도착한 칸 (없으면 출발지)
+function currentStop() {
+  const list = orderedStops()
+  let current = null
+  for (const stop of list) if (visitedIds.has(stop.id) || isVisited(stop)) current = stop
+  return current
+}
+
+async function manualTick() {
+  if (devMode.speed === 1) syncClock(await setDevSpeed(MANUAL_SPEED)) // 여행 중 화면에서는 시계가 흐르게
+  if (!overstayArmed || pausedAt.has('overstay')) return
+  isPlacing = true
+  try {
+    await props.live.refresh()
+    const fixed = props.live.status.value && props.live.status.value.fixed
+    if (fixed && fixed.slackMin != null && fixed.slackMin < 0) await pauseFor('overstay') // 돌발: 도착 목표보다 늦어진 순간
+  } finally {
+    isPlacing = false
+  }
+}
+
+// "다음 장소로": 지금 칸을 떠날 시각으로 감기(출발 알림이 제때 뜨게) → 몇 초 동안 걸어가는 모습 → 다음 칸 시각에 도착
+async function goNextStop() {
+  const list = orderedStops()
+  const current = currentStop()
+  const next = list[current ? list.indexOf(current) + 1 : 0]
+  if (!next) return showToast('마지막 장소예요')
+  const setup = scenario.value
+  const isOverstayStop = current && setup && current.day === setup.overstayDay && current.name === setup.overstayName
+  if (isOverstayStop && !pausedAt.has('overstay')) { // 돌발 장소: 서울역으로 바로 가지 않고 나갈 시각부터 그대로 머묾 → 늦어지면 멈춤
+    overstayArmed = true
+    await setClock(dateOf(current.day), toMinutes(current.time) + (current.stay || 0) - 1)
+    await props.live.refresh()
+    return
+  }
+  const now = appNow()
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const isSameDayNow = current && dateText(now) === dateOf(current.day)
+  const leaveMin = current ? toMinutes(current.time) + (current.stay || 0) - 1 : 0
+  if (current && !(isSameDayNow && nowMin >= leaveMin)) { // 떠나기 직전으로 (이미 지났으면 시계를 되돌리지 않음): 출발 알림이 뜨게
+    await setClock(dateOf(current.day), leaveMin)
+    await props.live.refresh()
+    await wait(ALERT_SHOW_MS)
+  }
+  const from = props.live.position.value || (current ? { lat: current.lat, lng: current.lng } : null)
+  const isLateLeave = isSameDayNow && next.day === current.day && nowMin + LATE_TRAVEL_MIN > toMinutes(next.time) // 늦게 떠남(돌발 뒤): 지금부터 이동 시간만큼 뒤에 도착
+  await setClock(dateOf(next.day), isLateLeave ? nowMin + LATE_TRAVEL_MIN : toMinutes(next.time) - 1)
+  if (from) {
+    for (let step = 1; step < MOVE_STEPS; step++) {
+      const rate = step / MOVE_STEPS
+      props.live.showAt(from.lat + (next.lat - from.lat) * rate, from.lng + (next.lng - from.lng) * rate)
+      await wait(MOVE_STEP_MS)
+    }
+  }
+  await visitEarlier(next)
+  await props.live.placeAt(next.lat, next.lng, true)
+  visitedIds.add(next.id)
+  placedKey = next.id + ':in'
+  await props.live.refresh()
+}
+
 // ------------------------------------------------------------ 설정(DevDot)에서 보낸 일
 // 장면 바로 가기: 그 장면 시각으로 시계를 옮기면 위 흐르기가 자리를 맞춤
 function sceneMinute(index) {
@@ -510,7 +583,10 @@ async function runCommand(command) {
     if (command.index < 3) { rainDay = 0; await clearDevRain() }
     pausedAt.clear()
     overstayLeftAt = null
+    overstayArmed = false
     await setClock(dateOf(target.day), target.minute)
+  } else if (command.type === 'stop' && command.step > 0 && !devMode.isAutoSpeed) {
+    await goNextStop()
   } else if (command.type === 'stop') {
     const now = appNow()
     const day = Math.max(1, Math.min(lastDay(), daysBetween(trip.value.startDate, dateText(now)) + 1))
@@ -525,6 +601,7 @@ async function runCommand(command) {
     visitedIds.clear()
     pausedAt.clear()
     overstayLeftAt = null
+    overstayArmed = false
     await clearDevRain()
     const day1 = stopsOf(1)
     await setClock(dateOf(1), toMinutes(day1[0].time) - 40)

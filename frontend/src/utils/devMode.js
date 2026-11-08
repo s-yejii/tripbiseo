@@ -10,7 +10,7 @@ import { isPracticeTrip } from '@/utils/practice'
 
 const KEY = 'devMode'
 const LOGIN_SPEED = 1 // 로그인하면 15:00에서 보통 속도 (일정을 짜는 동안 시간이 흘러가 버리지 않게). 여행 중 화면에서 자동 배속이 빠르게 돌림
-const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, isFlowTouched: false, isAutoSpeed: true, command: null }
+const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, isFlowTouched: false, isAutoSpeed: false, command: null } // 11/08 주형: 기본은 발표자가 "다음 장소로"로 직접 (자동 배속은 설정에서 켜기)
 
 function load() {
   try {
@@ -152,7 +152,7 @@ export async function prepareDemo() {
   await setDevClock(today, setup.startTime)
   syncClock(await setDevSpeed(1))
   devMode.isFlowTouched = false
-  devMode.isAutoSpeed = true
+  devMode.isAutoSpeed = false
   devMode.command = null
   setFakeGps(true)
   setFlow(true)

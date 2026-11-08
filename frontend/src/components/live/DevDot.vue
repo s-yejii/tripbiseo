@@ -21,6 +21,27 @@ const SCENES = ['출발', '회식', '숙소', '2일차 아침', '타임스퀘어
 
 const isOpen = ref(false)
 
+// 회색 점: 짧게 누르면 "다음 장소로"(직접 조작일 때), 길게 누르면 설정 열기 (11/08 주형: 관객에게 버튼이 안 보이게)
+const LONG_PRESS_MS = 600
+let pressTimer = null
+let isLongPress = false
+function onDotDown() {
+  isLongPress = false
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => { isLongPress = true; isOpen.value = !isOpen.value }, LONG_PRESS_MS)
+}
+function onDotUp() {
+  clearTimeout(pressTimer)
+  if (isLongPress) return
+  if (isOpen.value) { isOpen.value = false; return }
+  if (devMode.isAutoSpeed) { isOpen.value = true; return } // 자동 배속일 때는 예전처럼 설정 열기
+  sendCommand({ type: 'stop', step: 1 })
+  emit('clock')
+}
+function onDotCancel() {
+  clearTimeout(pressTimer)
+}
+
 // 돌발 안내 (발표자용, 11/08 주형: 시간은 흐르지만 어디서 돌발이 나는지 알아야): 지금 여행에서 ①·③이 언제·어디서 나는지
 const LEAVE_ALERT_BEFORE_MIN = 5 // DemoBar와 같음
 const LATE_BEFORE_MIN = 27
@@ -221,7 +242,7 @@ function turnOff() {
 
 <template>
   <template v-if="devMode.isOn">
-    <button v-if="!inline" type="button" class="dev-dot" :class="{ 'is-soon': isSoon }" aria-label="개발자 모드" @click="isOpen = !isOpen"></button>
+    <button v-if="!inline" type="button" class="dev-dot" :class="{ 'is-soon': isSoon }" aria-label="개발자 모드" @pointerdown="onDotDown" @pointerup="onDotUp" @pointerleave="onDotCancel" @contextmenu.prevent></button>
     <div v-if="isOpen || inline" class="dev-panel" :class="{ 'dev-panel--inline': inline }" role="dialog" aria-label="개발자 모드">
       <div class="dev-panel__row">
         <b class="t-strong">개발자 모드</b>
@@ -270,7 +291,7 @@ function turnOff() {
 
       <div class="dev-panel__row">
         <button type="button" class="chip chip--sm" @click="goStop(-1)">이전 장소</button>
-        <button type="button" class="chip chip--sm" @click="goStop(1)">다음 장소</button>
+        <button type="button" class="chip chip--sm" @click="goStop(1)">다음 장소로</button>
         <button type="button" class="chip chip--sm" :class="{ 'is-on': devMode.isFlow }" @click="toggleFlow">자동 진행 {{ devMode.isFlow ? '켜짐' : '꺼짐' }}</button>
         <button type="button" class="chip chip--sm" @click="restart">처음부터</button>
       </div>
