@@ -2,7 +2,8 @@
 // S12 장소 상세 (②): 사진, 별점, 보여 준 이유, 영업시간·브레이크 타임, 주소, 머무는 시간, 일정에 담기
 // 주소: /place?id=daelim (시연용 가짜 장소) 또는 /place?id={DB 장소 id} (서버 GET /api/places/{id})
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import AddToTripSheet from '@/components/trip/AddToTripSheet.vue'
 import { places } from '@/data/places'
 import { concertTrip } from '@/data/trips'
 import { getPlaceDetail, getPlacePhotos } from '@/api/trips'
@@ -18,17 +19,16 @@ const STAY_MIN_OF_KIND = { food: 70, cafe: 60, bar: 90 }
 const OTHER_STAY_MIN = 80
 
 const route = useRoute()
+const router = useRouter()
 const store = useTripStore()
 const isFake = !!places[route.query.id] || !route.query.id
 const id = places[route.query.id] ? route.query.id : 'daelim'
 const server = ref(null) // 서버 장소 상세 (화면이 쓰는 모양으로 바꾼 것)
 const place = computed(() => server.value || places[id])
-// 실제 장소는 지금 만드는 여행 초안(draft)에 담겼는지로 확인. id가 숫자·글자 섞일 수 있어 글자로 바꿔 비교. 담으면 바로 바뀌게 computed
-const inPlan = computed(() => {
-  if (isFake) return concertTrip.stops.some((stop) => stop.id === id)
-  return store.draft.stops.some((stop) => stop.placeId != null && String(stop.placeId) === String(route.query.id))
-})
+// 가짜 장소만 여기서 확인. 실제 장소는 담을 일정을 고르는 시트 안에서 일정마다 확인
+const inPlan = isFake && concertTrip.stops.some((stop) => stop.id === id)
 const saved = ref(false)
+const isSheetOpen = ref(false) // "어디에 담을까요?" 시트
 
 // 진짜 사진 찾기. 실패해도 상세는 보여야 해서 여기서만 잡고 빈 목록으로
 async function findPhotos(placeId) {
@@ -86,12 +86,23 @@ function toggleSave() {
   showToast(saved.value ? '저장했어요' : '저장을 취소했어요')
 }
 function addToPlan() {
-  if (server.value) {
-    store.addDraftPlace(server.value)
-    store.draft.stops[store.draft.stops.length - 1].stay = server.value.dur // store는 늘 60분으로 넣어서 방금 넣은 칸(맨 끝)만 고침
+  if (isFake) {
+    // 시연용 가짜 장소는 예전 동작 그대로 (일정 점검에서 들어와서 뒤로 가면 거기로 돌아감)
+    showToast(place.value.name + '을(를) 동선에 맞춰 넣었어요')
+    return goBack('/plan/check')
   }
-  showToast(place.value.name + '을(를) 동선에 맞춰 넣었어요')
-  goBack('/plan/check')
+  // 실제 장소: 시트의 "새 여행 만들기"
+  store.addDraftPlace(server.value)
+  store.draft.stops[store.draft.stops.length - 1].stay = server.value.dur // store는 늘 60분으로 넣어서 방금 넣은 칸(맨 끝)만 고침
+  showToast(place.value.name + '을(를) 새 여행에 넣었어요')
+  router.push('/plan/check') // goBack은 앱 안에서 왔으면 전 화면(홈 등)으로 가서, 담은 뒤엔 꼭 일정 점검으로
+}
+
+// [일정에 담기]: 가짜 장소는 지금처럼 바로 담고, 실제 장소는 어디에 담을지 고르는 시트를 엶
+function onAddClick() {
+  if (isFake) return addToPlan()
+  if (!server.value) return showToast('장소 정보를 불러오지 못했어요')
+  isSheetOpen.value = true
 }
 </script>
 
@@ -146,10 +157,12 @@ function addToPlan() {
       </div>
 
       <div class="cta cta--white">
-        <button type="button" class="btn btn--lg btn--block" :class="inPlan ? 'btn--secondary' : 'btn--primary'" :disabled="inPlan" @click="addToPlan">
+        <button type="button" class="btn btn--lg btn--block" :class="inPlan ? 'btn--secondary' : 'btn--primary'" :disabled="inPlan" @click="onAddClick">
           <i class="ic" :class="inPlan ? 'i-check' : 'i-plus'" aria-hidden="true"></i>{{ inPlan ? '일정에 담겨 있어요' : '일정에 담기' }}
         </button>
       </div>
+
+      <AddToTripSheet v-if="isSheetOpen" :place="server" @close="isSheetOpen = false" @new-trip="addToPlan" />
     </div>
   </div>
 </template>
