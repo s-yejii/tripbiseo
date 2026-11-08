@@ -12,7 +12,7 @@ const props = defineProps({
   inline: { type: Boolean, default: false }, // 마이 화면 안에 펼친 채로 (11/08: 발표자가 바로 찾게)
 })
 const emit = defineEmits(['clock', 'gps'])
-const FORWARD_STEPS = [10, 30, 60]
+const FORWARD_STEPS = [5, 10, 30, 60] // 11/08: +5분은 '여유 5분 이하' 돌발을 맞추기 쉽게
 const SPEEDS = [1, 10, 30, 60] // 시계 배속 (11/08 주형: 마이에서 고르게)
 
 const isOpen = ref(false)

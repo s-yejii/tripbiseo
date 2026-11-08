@@ -223,12 +223,14 @@ async function setUp() {
   if (place && !props.live.position.value) await props.live.placeAt(place.lat, place.lng, false)
 }
 
-// 돌발: 예약(서울역 등)에 늦게 되는 순간 시연 시계를 멈춤 → 발표자가 알림을 눌러 대안을 보고 고를 시간 (시연 계정만)
+// 돌발: 예약(회식·서울역)까지 여유가 5분 이하가 되거나 늦게 되는 순간 시연 시계를 멈춤 → 발표자가 알림을 눌러 대안을 보고 고를 시간 (시연 계정만)
 //   대안을 적용하고 여행 중 지도로 돌아오면(안 늦게 되면) 다시 실제 시간으로 흐름. 늦음 알림·대안 자체는 다른 계정과 같은 코드
 let pausedFor = null // 멈춘 고정 일정 이름
 watch(() => props.live.status.value, async (status) => {
   if (!devMode.isOn || isBusy.value || !status || !status.fixed) return
-  const isLate = status.fixed.slackMin < 0
+  // 늦기 직전("지금 나가지 않으면 늦어요 · 여유 N분")이나 늦은 순간 = 가운데 카드가 뜨는 알림(late-)일 때 멈춤
+  //   (11/08 주형 ①: 늦기 전에 멈춰야 지하철·택시 대안이 둘 다 안 늦게 나와요)
+  const isLate = !!status.alert && /^late-/.test(status.alert.key || '')
   if (isLate && pausedFor !== status.fixed.name && devMode.speed > 0) {
     pausedFor = status.fixed.name
     await setSpeed(0).catch(() => {})
