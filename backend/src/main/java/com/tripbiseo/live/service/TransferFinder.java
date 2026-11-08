@@ -6,7 +6,6 @@ import org.springframework.stereotype.Component;
 
 import com.tripbiseo.common.external.GuideStep;
 import com.tripbiseo.common.external.RouteClient;
-import com.tripbiseo.common.external.RouteGuide;
 import com.tripbiseo.common.external.RouteGuideClient;
 
 import lombok.Data;
@@ -47,8 +46,12 @@ public class TransferFinder {
         best.setMinutes(minutesOf(fromLat, fromLng, toLat, toLng, "taxi"));
         best.setText("택시 " + best.getMinutes() + "분");
 
-        RouteGuide guide = routeGuideClient.getGuide(fromLat, fromLng, toLat, toLng, "subway");
-        List<GuideStep> steps = guide.getSteps();
+        List<GuideStep> steps;
+        try {
+            steps = routeGuideClient.getGuide(fromLat, fromLng, toLat, toLng, "subway").getSteps();
+        } catch (RuntimeException e) {
+            steps = List.of(); // 지하철 안내를 못 받으면(키 없음·느린 인터넷) "택시로 바로 가기"만 비교 (11/08: 발표장에서 ③ 대안이 안 나오는 일 없게)
+        }
         int lastGetoff = findLastGetoff(steps);
         for (int i = 0; i < lastGetoff; i++) {
             GuideStep step = steps.get(i);
