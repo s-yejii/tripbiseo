@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import com.tripbiseo.common.dev.ScenarioSetup;
 import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.plan.dto.DayWeather;
 import com.tripbiseo.plan.dto.FixedVisit;
 import com.tripbiseo.plan.dto.PlanConditions;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
@@ -58,6 +59,11 @@ public class DemoScenario {
 
     // 비 예보(시연 고정): 2일차 13:00부터 비 → 일정 짤 때 알려 주고 [반영하기]를 누르면 2일차를 이 순서로 (11/08 주형: 날씨는 돌발 아님)
     private static final int RAIN_DAY = 2;
+    private static final String CLEAR_SKY = "맑음";
+    private static final int CLEAR_POP = 10;
+    private static final String RAIN_SKY = "비";
+    private static final int RAIN_POP = 80;
+    private static final String UMBRELLA_NOTE = "13:00부터 비 · 우산 챙기기";
     private static final String RAIN_FROM = "13:00";
     private static final Object[][] RAIN_DAY_STOPS = {
         { 2, "10:00", "영등포공원", "demo-yeongdeungpo-park", "관광지", 37.5150168, 126.9107969, 80, false, "숙소에서 걸어서 5분 · 아침 산책" },
@@ -109,6 +115,30 @@ public class DemoScenario {
             setup.getRainDayStops().add(toStop(row));
         }
         return setup;
+    }
+
+    /**
+     * 시연 계정 날씨 카드: 진짜 오늘 = 1일차 맑음, 내일 = 2일차 13:00부터 비 (기온은 진짜 예보 그대로).
+     * 예보가 없는 날(3일 뒤보다 먼 날)은 그대로 둠
+     */
+    public void applyWeather(List<DayWeather> list) {
+        LocalDate today = Geo.now().toLocalDate();
+        for (DayWeather day : list) {
+            if (!day.isAvailable()) {
+                continue;
+            }
+            LocalDate date = LocalDate.parse(day.getDate());
+            if (date.equals(today)) {
+                day.setSky(CLEAR_SKY);
+                day.setMaxPop(CLEAR_POP);
+                day.setRainFrom(null);
+            } else if (date.equals(today.plusDays(RAIN_DAY - 1))) {
+                day.setSky(RAIN_SKY);
+                day.setMaxPop(RAIN_POP);
+                day.setRainFrom(RAIN_FROM);
+                day.setOutfitNote(UMBRELLA_NOTE);
+            }
+        }
     }
 
     private Stop toStop(Object[] row) {
