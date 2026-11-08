@@ -12,7 +12,8 @@ import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 import KakaoShareDemo from '@/components/live/KakaoShareDemo.vue'
 import { shareToKakao } from '@/utils/kakaoShare'
-import { devMode } from '@/utils/devMode'
+import { devMode, syncClock } from '@/utils/devMode'
+import { setDevSpeed } from '@/api/dev'
 
 const UNDO_CHECK_MS = 15000 // 되돌리기 버튼을 숨길지 다시 보는 간격
 
@@ -26,6 +27,10 @@ let undoTimer = null
 onMounted(async () => {
   undoTimer = setInterval(() => (canUndo.value = replan.canUndo()), UNDO_CHECK_MS)
   if (!replan.applied) return
+  if (devMode.isOn && devMode.speed === 0) { // 시연 계정: 돌발로 멈춘 시계를 대안을 고른 뒤 다시 실제 시간으로 (③ 11/08)
+    const clock = await setDevSpeed(1).catch(() => null)
+    if (clock) syncClock(clock)
+  }
   try {
     after.value = await getLiveStatus(replan.tripId, replan.position.lat, replan.position.lng)
   } catch (e) {
