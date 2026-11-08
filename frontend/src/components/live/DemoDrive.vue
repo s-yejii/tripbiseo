@@ -115,6 +115,7 @@ async function moveToNext() {
   const status = props.live.status.value
   const route = status && status.next && status.next.id === next.id ? status.next : null
   const travelMin = Math.max(1, route ? route.minutes : guessMinutes(from, next))
+  if (await isBlockedByIncident(status)) return // 예약에 늦기 직전·늦음이면 출발하기 전에 카드부터 (대안을 고른 뒤 이동)
 
   // 떠나는 시각: 예약(고정)이면 그 시각에 맞춰, 느슨한 곳이면 지금 장소에서 머무는 시간이 끝나면 (계획보다 밀려도 괜찮음)
   const departDate = isNextDay ? dateOf(next.day) : dateText(appNow())
@@ -132,6 +133,16 @@ async function moveToNext() {
     await wait(MOVE_MS / MOVE_STEPS)
   }
   await arrive(next, departDate, departMin + travelMin)
+}
+
+// 출발 전 확인 (11/08 주형: 대안을 고른 다음에 움직여야지): 예약까지 여유 5분 이하·늦음 알림(late-)이면 시계를 멈추고 출발 안 함
+//   → 가운데 카드에서 대안을 고르면(안 늦게 되면) 다음에 누를 때 출발. "나중에"·"그냥 갈게요" 뒤 한 번 더 누르면 그대로 출발
+async function isBlockedByIncident(status) {
+  const key = status && status.alert ? status.alert.key || '' : ''
+  if (!/^late-/.test(key) || blockedKey === key) return false
+  blockedKey = key
+  await setSpeed(0)
+  return true
 }
 
 // 떠나는 시각(분): 지금보다 앞으로는 안 감 (시계를 되돌리지 않음)
@@ -226,6 +237,7 @@ async function setUp() {
 // 돌발: 예약(회식·서울역)까지 여유가 5분 이하가 되거나 늦게 되는 순간 시연 시계를 멈춤 → 발표자가 알림을 눌러 대안을 보고 고를 시간 (시연 계정만)
 //   대안을 적용하고 여행 중 지도로 돌아오면(안 늦게 되면) 다시 실제 시간으로 흐름. 늦음 알림·대안 자체는 다른 계정과 같은 코드
 let pausedFor = null // 멈춘 고정 일정 이름
+let blockedKey = '' // 출발을 한 번 막은(카드를 띄운) 알림 key
 watch(() => props.live.status.value, async (status) => {
   if (!devMode.isOn || isBusy.value || !status || !status.fixed) return
   // 늦기 직전("지금 나가지 않으면 늦어요 · 여유 N분")이나 늦은 순간 = 가운데 카드가 뜨는 알림(late-)일 때 멈춤
@@ -233,6 +245,7 @@ watch(() => props.live.status.value, async (status) => {
   const isLate = !!status.alert && /^late-/.test(status.alert.key || '')
   if (isLate && pausedFor !== status.fixed.name && devMode.speed > 0) {
     pausedFor = status.fixed.name
+    blockedKey = status.alert.key // 카드가 이미 떴으니 "나중에" 뒤 [다음 장소로]는 바로 출발
     await setSpeed(0).catch(() => {})
   } else if (!isLate && devMode.speed === 0) { // 대안을 적용하고 지도로 돌아오면 다시 흐름 (대안·바뀐 일정·카톡 공유 동안은 멈춰 있어서 도착 시각이 화면과 같음)
     pausedFor = null

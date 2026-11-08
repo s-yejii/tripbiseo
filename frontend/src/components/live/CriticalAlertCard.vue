@@ -6,7 +6,7 @@ defineProps({
   text: { type: String, default: '' },
   to: { type: String, default: '/live/delay' },
 })
-const emit = defineEmits(['later'])
+const emit = defineEmits(['later', 'go'])
 </script>
 
 <template>
@@ -17,7 +17,7 @@ const emit = defineEmits(['later'])
       <span v-if="text" class="crit__text">{{ text }}</span>
       <div class="crit__buttons">
         <button type="button" class="btn btn--secondary btn--lg" @click="emit('later')">나중에</button>
-        <RouterLink :to="to" class="btn btn--primary btn--lg">대안 보기</RouterLink>
+        <RouterLink :to="to" class="btn btn--primary btn--lg" @click="emit('go')">대안 보기</RouterLink>
       </div>
     </div>
   </div>

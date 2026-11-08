@@ -10,7 +10,7 @@
 //     대중교통·차는 실선, 걷기는 동그라미 점, 길찾기 실패로 거리 추정이면 점선 직선. 그 뒤 남은 장소끼리는 점선 직선
 // 진행 중인 여행이 없거나 위치를 못 받으면 가짜 화면 대신 안내 문구를 보여 줘요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useLiveTrip } from '@/utils/useLiveTrip'
 import { imageFor } from '@/utils/mapView'
 import { toMinutes, toTime } from '@/utils/time'
@@ -131,7 +131,9 @@ const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
 // 중요한 알림(예약에 늦음 = 대안이 필요한 돌발)은 배너 대신 가운데 카드로. [나중에]를 누르면 그 알림은 알약으로만
 const laterKey = ref('')
 const isCriticalAlert = computed(() => !!currentAlert.value && /^late-/.test(currentAlert.value.key || ''))
-const isCardOpen = computed(() => isCriticalAlert.value && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
+const pageRoute = useRoute()
+// 여행 중 화면 자체일 때만 (지연·대안 화면이 위에 열려 있으면 카드를 안 띄움: 11/08 카드가 지연 화면을 가리던 문제)
+const isCardOpen = computed(() => isCriticalAlert.value && pageRoute.path === '/live' && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
 
 // 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
@@ -609,7 +611,7 @@ function restartMoving() {
         </header>
 
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
-        <CriticalAlertCard v-if="isCardOpen" :title="status.alert.title" :text="status.alert.text" :to="alertLink || '/live/delay'" @later="laterKey = status.alert.key" />
+        <CriticalAlertCard v-if="isCardOpen" :title="status.alert.title" :text="status.alert.text" :to="'/live/alt'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
         <!-- 시연 "다음 장소로" 출발 안내: 서버 알림 대신 한 장으로 -->
         <AppNoti v-else-if="liveBanner.notice" :title="liveBanner.notice.title" :body="liveBanner.notice.body" icon="i-route" :warn="liveBanner.notice.warn" @close="clearLiveNotice" />
         <!-- 위쪽 알림: 한 장만, 접으면 알약으로 (늦으면 +N분) -->
