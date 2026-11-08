@@ -516,6 +516,14 @@ async function manualTick() {
 }
 
 // "다음 장소로": 지금 칸을 떠날 시각으로 감기(출발 알림이 제때 뜨게) → 몇 초 동안 걸어가는 모습 → 다음 칸 시각에 도착
+// 고정 일정(서울역)까지 지금 걸리는 분: 화면이 보여 주는 예상 도착(대안 적용 뒤면 택시·지하철 값)과 맞춤
+async function travelToFixed() {
+  await props.live.refresh()
+  const status = props.live.status.value
+  if (!status || !status.fixed || !status.fixed.eta || !status.now) return LATE_TRAVEL_MIN
+  return toMinutes(status.fixed.eta) - toMinutes(status.now)
+}
+
 async function goNextStop() {
   const list = orderedStops()
   const current = currentStop()
@@ -523,25 +531,28 @@ async function goNextStop() {
   if (!next) return showToast('마지막 장소예요')
   const setup = scenario.value
   const isOverstayStop = current && setup && current.day === setup.overstayDay && current.name === setup.overstayName
-  if (isOverstayStop && !pausedAt.has('overstay')) { // 돌발 장소: 서울역으로 바로 가지 않고 나갈 시각부터 그대로 머묾 → 늦어지면 멈춤
-    if (overstayArmed) return // 이미 나갈 시각이 지나 늦어지기를 기다리는 중 (다시 눌러도 시계를 되돌리지 않음)
-    overstayArmed = true
-    await setClock(dateOf(current.day), toMinutes(current.time) + (current.stay || 0) - 1)
-    await props.live.refresh()
-    return
-  }
   const now = appNow()
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const isSameDayNow = current && dateText(now) === dateOf(current.day)
   const leaveMin = current ? toMinutes(current.time) + (current.stay || 0) - 1 : 0
-  if (current && !(isSameDayNow && nowMin >= leaveMin)) { // 떠나기 직전으로 (이미 지났으면 시계를 되돌리지 않음): 출발 알림이 뜨게
+  const isPastLeave = isSameDayNow && nowMin >= leaveMin
+  if (isOverstayStop && !pausedAt.has('overstay') && !isPastLeave) { // 돌발 장소: 서울역으로 바로 가지 않고 나갈 시각부터 그대로 머묾 → 늦어지면 멈춤
+    overstayArmed = true
+    await setClock(dateOf(current.day), leaveMin)
+    await props.live.refresh()
+    return
+  }
+  if (isOverstayStop && overstayArmed && !pausedAt.has('overstay')) return // 늦어지기를 기다리는 중 (다시 눌러도 시계를 되돌리지 않음)
+  if (current && !isPastLeave) { // 떠나기 직전으로 (이미 지났으면 시계를 되돌리지 않음): 출발 알림이 뜨게
     await setClock(dateOf(current.day), leaveMin)
     await props.live.refresh()
     await wait(ALERT_SHOW_MS)
   }
   const from = props.live.position.value || (current ? { lat: current.lat, lng: current.lng } : null)
-  const isLateLeave = isSameDayNow && next.day === current.day && nowMin + LATE_TRAVEL_MIN > toMinutes(next.time) // 늦게 떠남(돌발 뒤): 지금부터 이동 시간만큼 뒤에 도착
-  await setClock(dateOf(next.day), isLateLeave ? nowMin + LATE_TRAVEL_MIN : toMinutes(next.time) - 1)
+  const isAfterIncident = isOverstayStop && isPastLeave // 돌발 장소를 늦게 떠남: 화면의 예상 도착(대안 적용 뒤 값)대로 도착
+  const travelMin = isAfterIncident && next.fixed ? await travelToFixed() : LATE_TRAVEL_MIN
+  const isLateLeave = isAfterIncident || (isSameDayNow && next.day === current.day && nowMin + travelMin > toMinutes(next.time)) // 늦게 떠남: 지금부터 이동 시간만큼 뒤에 도착
+  await setClock(dateOf(next.day), isLateLeave ? nowMin + travelMin : toMinutes(next.time) - 1)
   if (from) {
     for (let step = 1; step < MOVE_STEPS; step++) {
       const rate = step / MOVE_STEPS

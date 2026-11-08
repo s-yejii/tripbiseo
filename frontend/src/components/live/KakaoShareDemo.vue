@@ -2,7 +2,8 @@
 // 시연 계정용 카카오톡 공유 화면 (③, 11/08 주형): 발표 PC에서 카카오 로그인 창이 뜨거나 진짜 사람에게 가지 않게,
 //   카카오톡 공유 흐름(대상 고르기 → 채팅방에 피드 메시지)을 앱 안에서 보여 줘요. 실제로 보내지는 않아요.
 //   1) 공유할 대상 선택 (팀 채팅방 체크) → 2) 보내기 → 3) 채팅방에 피드 카드 + 팀원 답장
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
+import { appNow } from '@/utils/devMode'
 
 const props = defineProps({
   message: { type: Object, required: true }, // { title, description, imageUrl }
@@ -10,7 +11,11 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const ROOM = { name: '영등포 출장', count: 4, members: '김 팀장, 이 과장, 최 대리' }
-const REPLY = { name: '이 과장', text: '팀장님 괜찮으세요? 1호선 타요' }
+// 팀원 답장: 고른 방법에 맞춰서
+const REPLY = computed(() => ({
+  name: '이 과장',
+  text: (props.message.description || '').includes('택시') ? '팀장님 괜찮으세요? 택시 잡아 둘게요' : '팀장님 괜찮으세요? 1호선 타요',
+}))
 const REPLY_DELAY_MS = 1800 // 보낸 뒤 답장이 오는 시간
 
 const step = ref('pick') // pick → room
@@ -25,7 +30,7 @@ function send() {
 onUnmounted(() => clearTimeout(replyTimer))
 
 function nowText() {
-  const now = new Date()
+  const now = new Date(appNow()) // 앱 시계(시연 시각)에 맞춤
   const hour = now.getHours()
   return (hour < 12 ? '오전 ' : '오후 ') + ((hour % 12) || 12) + ':' + String(now.getMinutes()).padStart(2, '0')
 }
