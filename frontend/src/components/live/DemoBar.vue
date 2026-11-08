@@ -1,5 +1,8 @@
 <script setup>
-// 시연 진행 띠 (③, 11/06): 개발자 모드(시연 계정)에서만 여행 중 화면 위에 떠요.
+// 시연 엔진 (③, 11/06 → 11/08 화면에서 띠를 뺌): 개발자 모드(시연 계정)에서만, 여행 중 화면에 보이는 것은 없어요.
+// 11/08 주형: "티 나면 안 됨" → 가짜 GPS가 시연 시계(빠르게 도는 시계)에 맞춰 일정 자리로 움직여서 여행이 저절로 흘러가요.
+//   돌발 ① 회식 5분 전 출발 알림 · ② 2일차 아침 비 · ③ 마지막 야외에서 늦게까지 → 서울역 늦음, 은 그 시각이 되면 진짜 알림으로 떠요
+//   조작(배속·멈춤·장면 바로 가기·다음/이전 장소·처음부터)은 반투명 점(DevDot)의 설정에서 → devMode.command로 받음
 // 장면 버튼 하나로 시연 시계·가짜 위치·비 예보를 한 번에 맞춰서, 실제 사용자가 그 순간 보는 화면(알림·대안)을 바로 보여 줘요.
 //   1일차 출발 → ① 회식 출발 알림 → 숙소(밤 건너뛰기) → ② 2일차 아침 비 → ③ 한강에서 늦음 → 서울역 도착
 // 진행 중인 여행이 없으면 "시연 여행 시작": 가장 최근 예정 여행을 복사해서 시작해요 (원본은 본편용으로 그대로)
@@ -9,7 +12,7 @@ import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain } 
 import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
 import { addDays, daysBetween } from '@/utils/dates'
 import { isPracticeTrip, PRACTICE_MARK } from '@/utils/practice'
-import { devMode, setClockOffset } from '@/utils/devMode'
+import { appNow, clearCommand, devMode, setClockOffset, syncClock } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 
@@ -34,7 +37,6 @@ const RAIN_CHECK_TIME = '09:30'
 const LATE_TARGET_MIN = 3 // ③ 대중교통으로 가면 이만큼 늦게 (택시면 안 늦게)
 const RAIN_FROM = '13:00'
 const SCENE_KEY = 'demoScene'
-const SCENE_TRIP_KEY = 'demoSceneTrip' // 장면 번호가 어느 여행 것인지 (새 여행이면 처음부터)
 const SCENE_PAUSE_MS = 4000 // 자동 재생: 장면 사이 사람이 읽을 시간
 const INCIDENT_PAUSE_MS = 10000 // 자동 재생: 돌발 장면(알림·대안)은 더 오래 보여 줌
 
@@ -81,7 +83,7 @@ const isOutdoor = (stop) => /한강|공원|숲|산책/.test(stop.name + ' ' + (s
 // ------------------------------------------------------------ 시계·이동
 async function setClock(date, minutes) {
   const status = await setDevClock(date, toTime(minutes))
-  setClockOffset(status.offsetMinutes) // 상태바·홈 시계도 같이
+  syncClock(status) // 상태바·홈 시계도 같이 (배속까지)
 }
 
 // 앞 위치에서 그 칸까지 걸어가는 모습 → 도착 시각으로 맞추고 도착
@@ -193,30 +195,6 @@ function stopAuto() {
 }
 onUnmounted(() => clearTimeout(autoTimer))
 
-// 새 여행이면 장면을 처음부터, 개발자 모드에서 여행 중 화면이 준비되면 바로 자동 재생 (여행 시작만 누르면 끝까지)
-watch(() => [props.live.phase.value, props.live.tripId.value], ([phase, tripId]) => {
-  if (phase !== 'ready' || !tripId || !devMode.isOn) return
-  if (readSceneTrip() !== String(tripId)) {
-    saveSceneTrip(tripId)
-    saveScene(0)
-  }
-  if (sceneIndex.value === 0 && !isAuto.value && !isBusy.value) playAuto()
-})
-function readSceneTrip() {
-  try {
-    return localStorage.getItem(SCENE_TRIP_KEY)
-  } catch (e) {
-    return null
-  }
-}
-function saveSceneTrip(tripId) {
-  try {
-    localStorage.setItem(SCENE_TRIP_KEY, String(tripId))
-  } catch (e) {
-    // 저장소를 못 쓰면 이번 화면에서만
-  }
-}
-
 // 시연 중엔 진짜 GPS를 기다리지 않음: 위치 권한이 없거나(발표 PC) 새로 고쳐도 마지막으로 도착한 칸(없으면 첫 칸) 자리로 옮겨 둠
 watch(() => props.live.phase.value, async (phase) => {
   if ((phase !== 'gps' && phase !== 'gps-error') || !devMode.isOn || !props.live.tripId.value) return
@@ -272,30 +250,163 @@ async function startDemoTrip() {
     isBusy.value = false
   }
 }
+
+// ------------------------------------------------------------ 일정대로 흐르기 (11/08): 시연 시각에 맞는 자리로 "나"를 옮김
+const FLOW_TICK_MS = 1000
+const NIGHT_WAKE_BEFORE_MIN = 30 // 밤을 건너뛰고 다음 날 첫 장소 몇 분 전으로
+const TRAVEL_MIN = 20 // ③ 늦게 떠난 뒤 서울역까지 걸리는 시간 (화면에서 움직이는 모습용)
+let flowTimer = null
+let placedKey = ''
+let isPlacing = false
+let rainDay = 0
+
+// 그날 칸마다 [도착, 떠남] 분. 마지막 날 서울역 앞 야외(한강)는 늦을 때까지 머무름(돌발 ③)
+function planOf(day) {
+  const list = stopsOf(day)
+  const plan = []
+  for (const stop of list) plan.push({ stop, arrive: toMinutes(stop.time), leave: toMinutes(stop.time) + (stop.stay || 0) })
+  if (day === lastDay()) {
+    const station = list.filter((stop) => stop.fixed).pop()
+    const park = list.filter((stop) => stop !== station && isOutdoor(stop)).pop()
+    const parkPlan = plan.find((item) => item.stop === park)
+    if (station && parkPlan && parkPlan.stop.time < station.time) {
+      parkPlan.leave = Math.max(parkPlan.leave, toMinutes(station.time) - LATE_BEFORE_MIN)
+      parkPlan.isLate = true
+    }
+  }
+  return plan
+}
+
+function dateText(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0')
+}
+
+async function flowTick() {
+  if (!devMode.isFlow || !trip.value || props.live.phase.value === 'none' || isPlacing || isBusy.value) return
+  const now = appNow()
+  const day = daysBetween(trip.value.startDate, dateText(now)) + 1
+  if (day < 1 || day > lastDay()) return
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const plan = planOf(day)
+  if (!plan.length) return
+  isPlacing = true
+  try {
+    // ② 마지막 날이 여러 날 여행의 둘째 날이면 아침에 시연 비 예보 (13:00부터) → 진짜 "비 소식" 알림
+    if (day === lastDay() && day > 1 && rainDay !== day) {
+      rainDay = day
+      await setDevRain(RAIN_FROM)
+    }
+    await moveForTime(day, plan, nowMin)
+  } catch (e) {
+    // 한 번 못 하면 다음 틱에 다시
+  } finally {
+    isPlacing = false
+  }
+}
+
+async function moveForTime(day, plan, nowMin) {
+  const last = plan[plan.length - 1]
+  if (nowMin >= last.leave && day < lastDay()) { // 밤: 다음 날 아침으로 건너뜀
+    const next = planOf(day + 1)[0]
+    if (next) {
+      await setClock(dateOf(day + 1), next.arrive - NIGHT_WAKE_BEFORE_MIN)
+      await props.live.refresh()
+    }
+    return
+  }
+  for (let i = 0; i < plan.length; i++) {
+    const item = plan[i]
+    const leave = item.isLate ? lateLeave(item) : item.leave
+    if (nowMin >= item.arrive && nowMin < leave) return placeOnce(item.stop)
+    const next = plan[i + 1]
+    if (next && nowMin >= leave && nowMin < Math.max(next.arrive, leave + 1)) {
+      if (next.stop.fixed && item.isLate) return walkBetween(item.stop, next.stop, (nowMin - leave) / TRAVEL_MIN)
+      return walkBetween(item.stop, next.stop, (nowMin - leave) / Math.max(1, next.arrive - leave))
+    }
+  }
+  if (nowMin >= last.arrive) return placeOnce(last.stop) // 마지막 칸(서울역)에 도착 → 여행 끝
+  if (nowMin < plan[0].arrive) return placeOnce(plan[0].stop, false) // 첫 장소로 가는 중
+}
+
+// ③ 야외에서 늦게까지: 서울역에 아직 안 늦으면(여유 0분 이상) 조금 더 머묾
+function lateLeave(item) {
+  const fixed = props.live.status.value && props.live.status.value.fixed
+  if (fixed && fixed.slackMin != null && fixed.slackMin >= 0) return item.leave + fixed.slackMin + LATE_TARGET_MIN
+  return item.leave
+}
+
+async function placeOnce(stop, isArrive = true) {
+  const key = stop.id + (isArrive ? ':in' : ':near')
+  if (placedKey === key) return
+  placedKey = key
+  await props.live.placeAt(stop.lat, stop.lng, isArrive)
+  await props.live.refresh()
+}
+
+function walkBetween(from, to, rate) {
+  const ratio = Math.min(1, Math.max(0, rate))
+  placedKey = 'walk:' + from.id
+  props.live.showAt(from.lat + (to.lat - from.lat) * ratio, from.lng + (to.lng - from.lng) * ratio)
+}
+
+onMounted(() => { flowTimer = setInterval(flowTick, FLOW_TICK_MS) })
+onUnmounted(() => clearInterval(flowTimer))
+
+// ------------------------------------------------------------ 설정(DevDot)에서 보낸 일
+// 장면 바로 가기: 그 장면 시각으로 시계를 옮기면 위 흐르기가 자리를 맞춤
+function sceneMinute(index) {
+  const day1 = stopsOf(1)
+  const days = lastDay()
+  const list = stopsOf(days)
+  const station = list.filter((stop) => stop.fixed).pop() || list[list.length - 1]
+  const dinner = day1.find((stop) => stop.fixed) || day1[day1.length - 1]
+  const before = day1[day1.indexOf(dinner) - 1] || day1[0]
+  if (index === 0) return { day: 1, minute: toMinutes(day1[0].time) - 40 }
+  if (index === 1) return { day: 1, minute: toMinutes(before.time) + (before.stay || 0) - LEAVE_ALERT_BEFORE_MIN - 1 }
+  if (index === 2) return { day: 1, minute: toMinutes(day1[day1.length - 1].time) }
+  if (index === 3) return { day: days, minute: toMinutes(RAIN_CHECK_TIME) }
+  if (index === 4) return { day: days, minute: toMinutes(station.time) - LATE_BEFORE_MIN }
+  return { day: days, minute: toMinutes(station.time) }
+}
+
+async function runCommand(command) {
+  if (command.type === 'scene') {
+    const target = sceneMinute(command.index)
+    if (command.index < 3) { rainDay = 0; await clearDevRain() }
+    await setClock(dateOf(target.day), target.minute)
+  } else if (command.type === 'stop') {
+    const now = appNow()
+    const day = Math.max(1, Math.min(lastDay(), daysBetween(trip.value.startDate, dateText(now)) + 1))
+    const plan = planOf(day)
+    const nowMin = now.getHours() * 60 + now.getMinutes()
+    let index = plan.findIndex((item) => item.arrive > nowMin) // 다음 장소
+    if (index < 0) index = plan.length
+    const target = command.step > 0 ? plan[index] : plan[Math.max(0, index - 2)]
+    if (target) await setClock(dateOf(day), target.arrive)
+  } else if (command.type === 'restart') {
+    rainDay = 0
+    await clearDevRain()
+    const day1 = stopsOf(1)
+    await setClock(dateOf(1), toMinutes(day1[0].time) - 40)
+  }
+  placedKey = ''
+  await props.live.refresh()
+}
+
+watch(() => [devMode.command, props.live.phase.value, trip.value && trip.value.id], async ([command]) => {
+  if (!command || !trip.value || props.live.phase.value === 'none') return
+  clearCommand()
+  try {
+    await runCommand(command)
+  } catch (e) {
+    showToast(e.message)
+  }
+}, { immediate: true })
 </script>
 
 <template>
-  <div v-if="devMode.isOn" class="demo-bar" role="region" aria-label="시연 진행">
-    <template v-if="!isOngoing || !trip">
-      <span class="demo-bar__text">진행 중인 여행이 없어요</span>
-      <button type="button" class="btn btn--primary btn--sm" :disabled="isBusy" @click="startDemoTrip">시연 여행 시작</button>
-    </template>
-    <template v-else>
-      <div class="demo-bar__steps" aria-hidden="true">
-        <span v-for="(scene, i) in SCENES" :key="scene.label" class="demo-bar__dot" :class="{ 'is-done': i < sceneIndex, 'is-now': i === sceneIndex }"></span>
-      </div>
-      <p class="demo-bar__text">
-        <b>{{ lastScene ? lastScene.label : '시작 전' }}</b>
-        <span v-if="lastScene"> · 사용자에게는: {{ lastScene.user }}</span>
-      </p>
-      <div class="demo-bar__actions">
-        <button v-if="nextScene" type="button" class="btn btn--primary btn--sm" :disabled="isBusy" @click="runNext">{{ isBusy ? '움직이는 중' : '다음: ' + nextScene.label }}</button>
-        <button v-if="nextScene && !isAuto" type="button" class="btn btn--secondary btn--sm" :disabled="isBusy" aria-label="자동 재생" @click="playAuto">자동</button>
-        <button v-if="isAuto" type="button" class="btn btn--secondary btn--sm" aria-label="자동 재생 멈춤" @click="stopAuto">멈춤</button>
-        <button v-if="!nextScene" type="button" class="btn btn--secondary btn--sm" @click="saveScene(0)">처음부터</button>
-      </div>
-    </template>
-  </div>
+  <!-- 화면에 보이는 것 없음 (11/08: 시연이 티 나지 않게). 조작은 DevDot -->
+  <span v-if="false"></span>
 </template>
 
 <style>
