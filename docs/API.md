@@ -1101,13 +1101,27 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 | kind | 같이 오는 필드 | 뜻 |
 |---|---|---|
-| `"ask-radius"` | `category`(기본 "카페"), `tags`(원하는 분위기, 없으면 `[]`) | 추천 요청 → 화면이 반경을 묻고 `/live/recommend`에 `category`·`tags`를 그대로 넘겨 호출 |
+| `"places"` | `found` | 추천 요청 → 말을 SQL로 바꿔 바로 찾은 결과 (Text-to-SQL, 11/08). 아래 표 |
+| `"ask-radius"` | `category`(기본 "카페"), `tags`(원하는 분위기, 없으면 `[]`) | 추천 요청인데 AI로 못 찾았을 때 → 화면이 반경을 묻고 `/live/recommend`에 `category`·`tags`를 그대로 넘겨 호출 |
 | `"alternatives"` | `data` | 일정 바꾸기 요청 → `data`는 `/live/alternatives` 응답 전체 (reason `"request"`) |
 | `"text"` | `text` | 그 밖의 질문에 대한 답 |
 
 **오류** 400 "메시지를 1~300자로 입력해 주세요." · 공통 오류 · (alternatives로 가면) 400 "오늘 남은 일정이 없어요."
 
 > 분류는 낱말 규칙이 먼저예요. 한 종류만 걸리면 Gemini를 부르지 않고, 애매할 때만 Gemini(JSON, 정해진 값 중에서만)를 불러요. Gemini가 실패하면 질문(text)으로 보고 오류는 내지 않아요.
+
+**`found` (kind `"places"`)**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| message | string | 안내 한 줄 ("4곳을 찾았어요", 표에 없는 조건이면 "가격 정보가 없어서 …"처럼 이유) |
+| explain | string | 어떻게 찾았는지 한 줄 (Gemini가 씀, 없으면 null) |
+| sql | string | AI가 쓴 SQL. 빈칸(`:route`·`:me`·`:next`·`:slack`) 그대로라 좌표 없음. "이렇게 찾았어요"에 보여 줌 |
+| slack | number | 다음 일정까지 지금 여유(분), 남은 일정이 없으면 null |
+| band | string | 지도에 그릴 가는 길 띠 (경로 양옆 190m, GeoJSON). 가는 길로 찾지 않았으면 null |
+| places | array | 찾은 곳 (최대 10, AI SQL이 정한 순서). `id`, `name`, `kind`, `category`, `lat`, `lng`, `rating`(보정 평점), `reviewCount`, `detourMinutes`(가는 길에서 몇 분 더, 없으면 null), `joinLat`·`joinLng`(가는 길 위 가장 가까운 점), `closeAt`, `closingSoon`, `slackAfter`(30분 머물고 남는 여유, 계산 못 하면 null). 지금 닫힌 곳은 빠짐 |
+
+> Text-to-SQL: Gemini가 SQL을 쓰고(좌표 없이 빈칸만) → `SqlChecker`(JSqlParser)가 SELECT 하나·허용한 뷰(`ask_place`·`ask_review`)·함수·상한·LIMIT 10을 검사(떨어지면 이유를 붙여 한 번 더) → 읽기 전용 트랜잭션에서 `ask_reader` 계정 + 3초 제한으로 실행해요 (`db/18_ask_place.sql`). 가는 길(`:route`)은 다음 칸까지 걸어갈 때만 써요. Gemini 실패·검사 두 번 탈락·DB 3초 초과면 `"ask-radius"`로 돌아가요.
 
 > `text` 답: 자주 하는 질문(다음 일정·여유·날씨)은 정해진 문장으로, 그 밖은 Gemini가 **서버가 계산한 오늘 상황(live/status)만 근거로** 답해요. 답에 근거에 없는 시각·분이 있으면 버리고 기본 문장으로 바꿔요. 좌표는 Gemini에 보내지 않아요.
 

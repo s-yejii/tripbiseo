@@ -21,6 +21,7 @@ import com.tripbiseo.live.dto.ChatIntent;
 import com.tripbiseo.live.dto.InsertRequest;
 import com.tripbiseo.live.dto.InsertResponse;
 import com.tripbiseo.live.dto.LocationRequest;
+import com.tripbiseo.live.dto.PlaceAskResult;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.live.dto.RecommendPlace;
 import com.tripbiseo.live.dto.RecommendRequest;
@@ -64,8 +65,9 @@ public class LiveServiceImpl implements LiveService {
     private final LiveChatClassifier liveChatClassifier;   // 말 분류 (규칙 → Gemini)
     private final LiveChatAnswerer liveChatAnswerer;       // 질문 답 (템플릿 → Gemini RAG)
     private final PlaceTagReader placeTagReader;           // 리뷰 태그 점수·이유 칩
+    private final PlaceAskService placeAskService;         // 추천 질문 → SQL로 바꿔 찾기 (Text-to-SQL, 11/08)
 
-    /** 여행 중 채팅: 말 분류 → 추천이면 반경 묻기, 바꾸기면 대안, 질문이면 오늘 상황으로 답 */
+    /** 여행 중 채팅: 말 분류 → 추천이면 질문으로 바로 찾기(못 찾으면 반경 묻기), 바꾸기면 대안, 질문이면 오늘 상황으로 답 */
     @Override
     public AssistResponse assist(long memberId, long tripId, AssistRequest request) {
         String message = request.getMessage() == null ? "" : request.getMessage().trim();
@@ -76,9 +78,7 @@ public class LiveServiceImpl implements LiveService {
         ChatIntent intent = liveChatClassifier.classify(message);
         AssistResponse response = new AssistResponse();
         if ("recommend".equals(intent.getKind())) {
-            response.setKind("ask-radius");
-            response.setCategory(intent.getCategory());
-            response.setTags(intent.getTags());
+            answerRecommend(response, memberId, tripId, request, message, intent);
         } else if ("change".equals(intent.getKind())) {
             response.setKind("alternatives");
             response.setData(alternativeService.makeAlternatives(memberId, tripId, toAlternativesRequest(request, message)));
@@ -143,6 +143,20 @@ public class LiveServiceImpl implements LiveService {
     }
 
     // ---------------------------------------------------------------- 채팅 도우미
+
+    /** 추천 질문: Text-to-SQL로 바로 찾기 (places). AI로 못 찾으면 예전처럼 반경 묻기 (ask-radius) */
+    private void answerRecommend(AssistResponse response, long memberId, long tripId, AssistRequest request,
+                                 String message, ChatIntent intent) {
+        PlaceAskResult found = placeAskService.findPlaces(memberId, tripId, message, request.getLat(), request.getLng());
+        if (found.isFallback()) {
+            response.setKind("ask-radius");
+            response.setCategory(intent.getCategory());
+            response.setTags(intent.getTags());
+            return;
+        }
+        response.setKind("places");
+        response.setFound(found);
+    }
 
     private AlternativesRequest toAlternativesRequest(AssistRequest request, String message) {
         AlternativesRequest alternativesRequest = new AlternativesRequest();
