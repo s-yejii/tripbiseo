@@ -12,6 +12,7 @@ import { addDays } from '@/utils/dates'
 import { appNow, clearCommand, devMode, ensureDemoFlow, syncClock } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
+import { planDeparture } from '@/utils/departure'
 
 const props = defineProps({
   live: { type: Object, required: true }, // useLiveTrip() 결과
@@ -36,6 +37,7 @@ const INSIDE_WALK_MIN = 2 // 다음 날 아침: 첫 장소로 떠날 시각 몇 
 const isBusy = ref(false)
 const replan = useReplanStore()
 const MUTE_AGAIN_MIN = 10 // 여행 중 화면 MUTE_AGAIN_MIN과 같음
+const TIGHT_SLACK_MIN = 5 // 예약까지 여유가 이 이하면 돌발 (서버 "지금 나가지 않으면 늦어요"와 같은 기준)
 const origin = ref(null) // 시나리오 출발지 (가마산로 242)
 const scenario = ref(null) // 시연 시나리오 (조금 더 머무는 곳 등)
 let wanderTimer = null
@@ -119,12 +121,24 @@ async function moveToNext() {
   await props.live.refresh()
   const status = props.live.status.value
   const route = status && status.next && status.next.id === next.id ? status.next : null
-  const travelMin = Math.max(1, route ? route.minutes : guessMinutes(from, next))
-  if (await isBlockedByIncident(status)) return // 예약에 늦기 직전·늦음이면 출발하기 전에 카드부터 (대안을 고른 뒤 이동)
+  // 이동 시간: 여행 중 화면이 보여 주는 예상 도착(서버 계산)과 같게 → 늦음 판단·카드·도착 시각이 한 숫자 (11/09: 길찾기 두 번 결과가 달라 늦음 카드 없이 떠나던 문제)
+  const nextStatus = status && status.stops ? status.stops.find((stop) => stop.id === next.id) : null
+  const etaTravel = nextStatus && nextStatus.eta && !isNextDay ? toMinutes(nextStatus.eta) - Math.max(minutesOf(appNow()), current ? stayEndOf(current) : 0) : 0
+  const travelMin = Math.max(1, etaTravel > 0 ? etaTravel : route ? route.minutes : guessMinutes(from, next))
 
   // 떠나는 시각: 예약(고정)이면 그 시각에 맞춰, 느슨한 곳이면 지금 장소에서 머무는 시간이 끝나면 (계획보다 밀려도 괜찮음)
   const departDate = isNextDay ? dateOf(next.day) : dateText(appNow())
-  const departMin = departMinute(current, next, travelMin)
+  const plan = planDeparture({
+    nowMin: minutesOf(appNow()),
+    stayEndMin: current ? stayEndOf(current) : null,
+    extraMin: current ? extraStayOf(current) : 0,
+    travelMin,
+    nextTimeMin: toMinutes(next.time),
+    isNextFixed: !!next.fixed,
+    isNextDay,
+  })
+  if (await isBlocked(plan, status)) return // 예약까지 여유 5분 이하·늦음이면 출발하지 않고 카드부터 (대안을 고른 뒤 이동)
+  const departMin = plan.departMin
   if (departMin > minutesOf(appNow())) await setClock(departDate, departMin)
   await showNotice(next, travelMin)
 
@@ -137,8 +151,10 @@ async function moveToNext() {
     else props.live.showAt(lat, lng)
   }
   // 떠난 뒤 다시 계산해서 예약에 늦게 되면 그 자리에서 멈춤 (시계도 멈춤) → 카드에서 고른 뒤 다시 [다음 장소로] (11/09 주형: 시간도 공간도 stop)
-  if (isIncident(props.live.status.value)) {
-    blockedKey = props.live.status.value.alert.key
+  const after = props.live.status.value
+  const isNowTight = next.fixed && after && after.fixed && after.fixed.slackMin <= TIGHT_SLACK_MIN && !replan.isMutedFor(props.live.tripId.value, after.fixed.name, Math.max(0, -after.fixed.slackMin))
+  if (isIncident(after) || isNowTight) {
+    blockedKey = after.alert ? after.alert.key : blockedKey
     await setSpeed(0)
     return
   }
@@ -159,20 +175,16 @@ function isIncident(status) {
   const lateMin = Math.max(0, -status.fixed.slackMin)
   return !replan.isMutedFor(props.live.tripId.value, status.fixed.name, lateMin)
 }
-async function isBlockedByIncident(status) {
-  const key = status && status.alert ? status.alert.key || '' : ''
-  if (!isIncident(status) || blockedKey === key) return false
+// 출발 안내와 같은 계산(planDeparture)으로 여유 5분 이하면 막음. 대안을 골랐거나 그냥 가기로 한 늦음(10분 더 늦기 전), 카드에서 [나중에] 뒤 다시 누름은 통과
+async function isBlocked(plan, status) {
+  if (!plan.isTight) return false
+  const fixedName = status && status.fixed ? status.fixed.name : ''
+  if (replan.isMutedFor(props.live.tripId.value, fixedName, Math.max(0, -plan.slack))) return false
+  const key = status && status.alert && /^late-/.test(status.alert.key || '') ? status.alert.key : 'tight-' + plan.departMin
+  if (blockedKey === key) return false
   blockedKey = key
   await setSpeed(0)
   return true
-}
-
-// 떠나는 시각(분): 지금보다 앞으로는 안 감 (시계를 되돌리지 않음)
-function departMinute(current, next, travelMin) {
-  const now = minutesOf(appNow())
-  if (next.fixed && current && now >= stayEndOf(current)) return now // 이미 나갈 시각이 지났으면 바로 (돌발 뒤 "택시로 바로 가기")
-  if (next.fixed || !current || next.day !== current.day) return Math.max(now, toMinutes(next.time) - travelMin) // 예약·다음 날 첫 곳은 계획 시각에 맞춰 도착
-  return Math.max(now, stayEndOf(current) + extraStayOf(current)) // 느슨한 곳: 머무는 시간을 다 채우고 (시나리오가 정한 곳은 조금 더)
 }
 // 시나리오에서 계획보다 조금 더 머무는 분 (사람들이 실제로 그러듯, 서버 DemoScenario EXTRA_STAYS)
 function extraStayOf(stop) {
