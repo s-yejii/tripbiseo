@@ -73,7 +73,7 @@ const sentAt = nowText()
               <span>{{ message.description }}</span>
             </div>
             <span class="ks__feed-btn">바뀐 일정 보기</span>
-            <span class="ks__feed-from">여행어때</span>
+            <span class="ks__feed-from">착착트립</span>
           </div>
         </div>
         <div v-if="showReply" class="ks__them">
