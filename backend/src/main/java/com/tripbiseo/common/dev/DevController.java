@@ -44,6 +44,12 @@ public class DevController {
         return devService.forwardClock(loginUser.id(), request.getMinutes());
     }
 
+    /** 시연 시계 배속 { "speed": 30 } (0 멈춤) */
+    @PostMapping("/clock/speed")
+    public DevStatus setSpeed(@RequestBody SpeedRequest request) {
+        return devService.setSpeed(loginUser.id(), request.getSpeed());
+    }
+
     /** 시연 비 예보 넣기 { "from": "13:00" } */
     @PostMapping("/rain")
     public DevStatus setRain(@RequestBody RainRequest request) {

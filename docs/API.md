@@ -110,7 +110,7 @@
 | `GET /api/plans/weather` | 여행 날짜 날씨(기온·습도·하늘·비 시작 시각) + 기온별 옷차림. 기상청 단기예보라 3일 뒤까지 | trip/PlanCheckView (TripWeather) | 있음 (11/06) |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
 | `GET /api/dev/status` | [개발자 모드] 시연 계정인지 + 시연 시계 상태 | member/MyView (VersionTap), live/DevDot | 있음 (11/06) |
-| `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
+| `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `POST /api/dev/clock/speed` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
 | `GET /api/dev/scenario` | [개발자 모드] AI 일정 화면에 미리 채울 발표 시나리오 출발지·예약(KTX)·숙소 (시연 계정만, 값은 `plan/service/DemoScenario.java`) | plan/PlanAiView | 있음 (11/08) |
 
 #### 개발자 모드 · 시연 시계 (11/06, ③)
@@ -123,6 +123,7 @@
 | `GET /api/dev/status` | 없음 | 시연 계정인지 + 지금 시연 시계 |
 | `POST /api/dev/clock` | `{ "date": "2026-11-07", "time": "18:05" }` (date를 비우면 오늘) | 그 시각으로 맞춤 |
 | `POST /api/dev/clock/forward` | `{ "minutes": 15 }` (1~720) | 그만큼 빨리 감기 |
+| `POST /api/dev/clock/speed` | `{ "speed": 60 }` (0~120, 0이면 멈춤) | 시연 시계 배속: 진짜 1초에 speed초씩 흐름. 응답 `speed` 칸 (11/08) |
 | `DELETE /api/dev/clock` | 없음 | 진짜 시각으로 |
 | `POST /api/dev/rain` | `{ "from": "13:00" }` | 시연 비 예보 넣기: 그 계정은 기상청 대신 "오늘 13:00부터 비(강수확률 80%)"로 봄 (돌발 ②) |
 | `DELETE /api/dev/rain` | 없음 | 시연 비 예보 빼기 (진짜 예보로) |

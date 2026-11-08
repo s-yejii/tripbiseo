@@ -15,6 +15,9 @@ public interface DevService {
     /** 시연 시계를 몇 분 빨리 감기 (시연 계정만) */
     DevStatus forwardClock(long memberId, int minutes);
 
+    /** 시연 시계 배속: 0 멈춤, 1 보통, 30이면 30배로 흐름 (시연 계정만) */
+    DevStatus setSpeed(long memberId, int speed);
+
     /** 시연 시계를 끄고 진짜 시각으로 */
     DevStatus resetClock(long memberId);
 
