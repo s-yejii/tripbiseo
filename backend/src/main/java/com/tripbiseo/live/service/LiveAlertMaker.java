@@ -32,11 +32,13 @@ public class LiveAlertMaker {
         Stop current = context.getCurrent();
         Stop nextStop = context.getNextStop();
         int now = context.getNow();
-        if (current != null) {
-            String to = nextStop == null ? null : nextStop.getName();
-            return toLeave(current, context.getLeaveAt(), context.getLeaveAt() - now, to, true);
+        if (nextStop == null || !isFixed(nextStop)) {
+            return null; // 11/08 주형: 시간을 꼭 지킬 곳은 예약(고정) 일정뿐. 식당·카페·공원은 늦어도 뒤 일정이 밀릴 뿐이라 출발 알림을 안 냄
         }
-        if (nextStop == null || context.getMissedStops().contains(nextStop)) {
+        if (current != null) {
+            return toLeave(current, context.getLeaveAt(), context.getLeaveAt() - now, nextStop.getName(), true);
+        }
+        if (context.getMissedStops().contains(nextStop)) {
             return null;
         }
         // 이동 중이면 eta = 지금 + 이동 시간이라, 이동 시간 = eta − 지금
@@ -79,8 +81,8 @@ public class LiveAlertMaker {
         if (leave != null) {
             return makeLeaveAlert(leave);
         }
-        if (!context.getMissedStops().isEmpty()) {
-            Stop missed = context.getMissedStops().get(0);
+        Stop missed = findMissedFixed(context);
+        if (missed != null) {
             return newAlert("missed-" + missed.getId(), "warn",
                     missed.getName() + " 계획 시간이 지났어요", "아직 안 갔다면 '대안 보기'에서 빼거나 바꿀 수 있어요");
         }
@@ -141,7 +143,7 @@ public class LiveAlertMaker {
         if (isLate(context.getSlack())) {
             return true;
         }
-        if (!context.getMissedStops().isEmpty()) {
+        if (findMissedFixed(context) != null) {
             return true;
         }
         if (makeNextLateAlert(context) != null) {
@@ -154,7 +156,24 @@ public class LiveAlertMaker {
 
     /** 지금 칸에서 계획한 출발 시각이 지났는지 (더 머묾) */
     private boolean isOverdue(StatusContext context) {
-        return context.getCurrent() != null && context.getNow() >= context.getLeaveAt();
+        Stop nextStop = context.getNextStop();
+        boolean isBeforeFixed = nextStop != null && isFixed(nextStop); // 11/08: 다음이 예약일 때만 "나갈 시간"을 따짐 (느슨한 곳은 뒤 일정이 밀릴 뿐)
+        return context.getCurrent() != null && isBeforeFixed && context.getNow() >= context.getLeaveAt();
+    }
+
+    /** 예약(고정) 일정인지 */
+    private boolean isFixed(Stop stop) {
+        return Boolean.TRUE.equals(stop.getFixed());
+    }
+
+    /** 계획 시각이 지났는데 안 간 예약(고정) 일정 첫 칸 (없으면 null). 느슨한 곳은 시간이 밀릴 뿐이라 안 봄 (11/08) */
+    private Stop findMissedFixed(StatusContext context) {
+        for (Stop stop : context.getMissedStops()) {
+            if (isFixed(stop)) {
+                return stop;
+            }
+        }
+        return null;
     }
 
     /** 고정 일정에 늦는지 (여유가 음수) */
@@ -227,8 +246,8 @@ public class LiveAlertMaker {
     /** 다음 장소에 10분 넘게 늦으면 알림 (아니면 null) */
     private LiveAlert makeNextLateAlert(StatusContext context) {
         Stop nextStop = context.getNextStop();
-        if (nextStop == null || LiveStopFinder.isStay(nextStop)) {
-            return null; // 숙소는 도착 시각이 마감이 아니라 늦음으로 안 봄 (11/08: 앞 일정이 길어지면 도착이 뒤로 밀릴 뿐)
+        if (nextStop == null || !isFixed(nextStop)) {
+            return null; // 예약(고정)만 늦음으로 봄 (11/08 주형: 식당·카페·숙소는 앞 일정이 길어지면 도착이 뒤로 밀릴 뿐)
         }
         int lateMinutes = context.getEtaMap().get(nextStop.getId()) - Geo.toMinutes(nextStop.getTime());
         if (lateMinutes <= NEXT_LATE_MIN) {

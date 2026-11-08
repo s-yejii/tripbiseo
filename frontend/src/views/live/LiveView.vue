@@ -286,6 +286,10 @@ const head = computed(() => {
     if (left >= 0) {
       return { cap: current.name + ' 출발', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
     }
+    const next = nextStop.value
+    if (!next || !next.fixed) { // 다음이 예약이 아니면 더 있어도 경고하지 않음 (뒤 일정이 밀릴 뿐, 11/08 주형)
+      return { cap: current.name + '에서', big: '+' + -left + '분', small: '계획보다 더 머무는 중', cls: '' }
+    }
     return { cap: '출발 시간 지남', big: '+' + -left + '분', small: toTime(leaveAt) + ' 출발', cls: 'c-warning' }
   }
   const next = nextStop.value
