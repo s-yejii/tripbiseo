@@ -7,6 +7,7 @@ import { clearDevRain, getDevScenario, getDevStatus, setDevClock, setDevSpeed } 
 import { finishTrip, getTripList } from '@/api/trips'
 import { readAllNotifications } from '@/api/notifications'
 import { isPracticeTrip } from '@/utils/practice'
+import { clearLiveNotices } from '@/utils/liveBanner'
 
 const KEY = 'devMode'
 const LOGIN_SPEED = 1 // 로그인하면 15:00에서 보통 속도 (일정을 짜는 동안 시간이 흘러가 버리지 않게). 여행 중 화면에서 자동 배속이 빠르게 돌림
@@ -146,6 +147,7 @@ const PROTECTED_TRIP_IDS = [51, 81, 82, 83, 84, 85, 86]
 const DEMO_TRIP_TITLE = '영등포 워크숍' // 시나리오 여행 제목 앞부분 (서버 DemoScenario의 TITLE)
 const isDemoTrip = (trip) => isPracticeTrip(trip) || (typeof trip.title === 'string' && trip.title.startsWith(DEMO_TRIP_TITLE))
 export async function prepareTripStart(tripId) {
+  clearLiveNotices() // 지난 여행의 위쪽 알림 줄 비우기
   const trips = await getTripList()
   for (const other of trips) {
     const isOtherDemo = other.status === 'ongoing' && other.id !== tripId && isDemoTrip(other)
@@ -159,6 +161,7 @@ export async function prepareTripStart(tripId) {
 }
 
 export async function prepareDemo() {
+  clearLiveNotices()
   const trips = await getTripList()
   for (const trip of trips) {
     if (trip.status === 'ongoing' && isPracticeTrip(trip)) await finishTrip(trip.id)

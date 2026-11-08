@@ -28,7 +28,7 @@ import DevDot from '@/components/live/DevDot.vue'
 import DemoDrive from '@/components/live/DemoDrive.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
 import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
-import { clearLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
+import { closeLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
@@ -57,26 +57,14 @@ const selected = ref(null) // 고른 카드·핀 (칸 id)
 const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
-const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
-// 위쪽 배너는 한 장만, 몇 초 뒤 저절로 접힘 (11/08 주형: 알림이 겹쳐서 뭐가 뭔지 모르겠음). 위로 밀어도 닫힘(AppNoti)
-const BANNER_SHOW_MS = 5000
-let bannerTimer = null
-watch(notiOpen, (isOpen) => {
-  clearTimeout(bannerTimer)
-  if (isOpen) bannerTimer = setTimeout(() => (notiOpen.value = false), BANNER_SHOW_MS)
-})
-onUnmounted(() => clearTimeout(bannerTimer))
-// 자동 일정 조정 안내 (서버가 늦게 떠난 걸 보고 뒤 일정을 밀거나 줄였을 때): 위쪽 배너 한 장으로 잠깐 (11/08)
-const ADJUST_SHOW_MS = 7000
-let adjustTimer = null
+// 위쪽 배너는 한 장만 (11/08 주형: 알림이 겹쳐서 뭐가 뭔지 모르겠음). 저절로 사라지지 않고, 발표자가 위로 밀거나 눌러야 닫힘
+//   (11/08 주형: "알림은 내가 눌러서 끄기 전에는 없애지 마") · 새 알림이 오면 이전 것과 바꿔치기
+// 자동 일정 조정 안내 (서버가 늦게 떠난 걸 보고 뒤 일정을 밀거나 줄였을 때): 위쪽 배너 한 장 (닫을 때까지)
 watch(() => (status.value && status.value.adjust ? status.value.adjust.key : null), (key) => {
   if (!key) return
   const adjust = status.value.adjust
-  showLiveNotice({ title: adjust.title, body: adjust.text, warn: false, from: 'adjust' })
-  clearTimeout(adjustTimer)
-  adjustTimer = setTimeout(() => clearLiveNotice('adjust'), ADJUST_SHOW_MS)
+  showLiveNotice({ key: adjust.key, title: adjust.title, body: adjust.text, warn: false, icon: 'i-route' })
 })
-onUnmounted(() => clearTimeout(adjustTimer))
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
@@ -150,9 +138,14 @@ const isCardOpen = computed(() => isCriticalAlert.value && pageRoute.path === '/
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
   const alert = currentAlert.value
   if (!alert) return
-  notiOpen.value = shouldOpenAlert(alert)
-  if (notiOpen.value) rememberAlert(alert)
+  if (!shouldOpenAlert(alert) || /^late-/.test(alert.key || '')) return // 늦음(돌발)은 가운데 카드로
+  rememberAlert(alert)
+  queueAlert(alert)
 }, { immediate: true })
+// 서버 알림을 위쪽 알림 줄에 넣기 (닫을 때까지 남고, 앞 알림을 닫으면 이어서 보임)
+function queueAlert(alert) {
+  showLiveNotice({ key: alert.key || alert.title, title: alert.title, body: alert.text || '', warn: alert.level === 'danger', icon: 'i-warning', to: alertLink.value })
+}
 
 // 첫 칸을 가운데에 고름 (지금 있는 곳 → 다음 곳)
 watch(stops, (list) => {
@@ -623,19 +616,20 @@ function restartMoving() {
 
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
         <CriticalAlertCard v-if="isCardOpen" :title="status.alert.title" :text="status.alert.text" :to="'/live/alt'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
-        <!-- 시연 "다음 장소로" 출발 안내: 서버 알림 대신 한 장으로 -->
-        <AppNoti v-else-if="liveBanner.notice" :title="liveBanner.notice.title" :body="liveBanner.notice.body" icon="i-route" :warn="liveBanner.notice.warn" @close="clearLiveNotice()" />
-        <!-- 위쪽 알림: 한 장만, 접으면 알약으로 (늦으면 +N분) -->
+        <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
+        <AppNoti
+          v-else-if="liveBanner.queue.length && !adding"
+          :key="liveBanner.queue[0].kind"
+          :title="liveBanner.queue[0].title"
+          :body="liveBanner.queue[0].body + (liveBanner.queue.length > 1 ? ' · 알림 ' + (liveBanner.queue.length - 1) + '개 더' : '')"
+          :icon="liveBanner.queue[0].icon || 'i-route'"
+          :warn="liveBanner.queue[0].warn"
+          :to="liveBanner.queue[0].to || ''"
+          @close="closeLiveNotice"
+        />
+        <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
         <template v-else-if="status.alert && !isAlertMuted && !adding">
-          <AppNoti
-            v-if="notiOpen && !isCriticalAlert"
-            :warn="status.alert.level === 'danger' || isLate"
-            icon="i-warning"
-            :title="status.alert.title"
-            :to="alertLink"
-            @close="notiOpen = false"
-          />
-          <button v-else type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="notiOpen = true">
+          <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="queueAlert(status.alert)">
             <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + lateMin + '분' : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
         </template>

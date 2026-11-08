@@ -4,7 +4,7 @@
 //   머무는 동안 시계는 실제 시간대로 흘러요. 발표자가 설정의 [+10분]으로 감으면 늦음 알림·대안이 다른 계정과 똑같이 떠요.
 //   개발자 모드(시연 계정)이고 가짜 GPS가 켜져 있을 때만 보여요. 다른 계정은 이 컴포넌트가 아무것도 안 해요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { clearLiveNotice, showLiveNotice } from '@/utils/liveBanner'
+import { showLiveNotice } from '@/utils/liveBanner'
 import { getDevScenario, setDevClock, setDevSpeed } from '@/api/dev'
 import { getTrip } from '@/api/trips'
 import { useReplanStore } from '@/stores/replan'
@@ -185,8 +185,8 @@ function stayEndOf(stop) {
 async function showNotice(next, travelMin) {
   const move = '이동 ' + travelMin + '분'
   showLiveNotice(next.fixed
-    ? { title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true, from: 'drive' }
-    : { title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false, from: 'drive' })
+    ? { key: 'drive-' + next.id, title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true }
+    : { key: 'drive-' + next.id, title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false })
   await wait(NOTICE_MS)
 }
 
@@ -194,7 +194,6 @@ async function showNotice(next, travelMin) {
 async function arrive(next, date, minutes) {
   await setSpeed(STAY_SPEED)
   await setClock(date, minutes)
-  clearLiveNotice('drive')
   await props.live.placeAt(next.lat, next.lng, true)
   await props.live.refresh()
 }
@@ -206,7 +205,7 @@ async function walkInside(current, next) {
   await setClock(date, departMin)
   const isSameBuilding = (next.memo || '').includes('같은 건물') // 일정 메모에 적힌 대로 (예: 테디뵈르 "같은 건물 지하 1층")
   const title = isSameBuilding ? next.memo.split('·')[0].trim() + '이에요' : '바로 옆이에요'
-  showLiveNotice({ title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false, from: 'drive' })
+  showLiveNotice({ key: 'drive-' + next.id, title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false })
   await wait(NOTICE_MS)
   await arrive(next, date, departMin + INSIDE_WALK_MIN)
 }
