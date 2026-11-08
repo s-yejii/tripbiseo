@@ -29,7 +29,7 @@ import naverLogo from '@/assets/brand/naver.svg'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
 import { recommendTime } from '@/utils/timeRecommend'
-import { devMode } from '@/utils/devMode'
+import { appNow, devMode } from '@/utils/devMode'
 import { getDevScenario } from '@/api/dev'
 
 const AUTO_NEXT_MS = 180 // 하나만 고르는 칸은 고른 것이 보인 뒤 넘김
@@ -183,14 +183,16 @@ const toTime = (minutes) => String(Math.floor(minutes / 60)).padStart(2, '0') + 
 function dateText(date) {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0')
 }
-const isToday = () => store.planStartDate === dateText(new Date())
+// 지금: 시연 계정은 시연 시계(예: 오늘 15:00), 아니면 진짜 시계 (11/08: 밤에 연습하면 "늦어서 내일로"가 뜨던 문제)
+const appToday = () => (devMode.isOn ? appNow() : new Date())
+const isToday = () => store.planStartDate === dateText(appToday())
 function nowMinutes() {
-  const now = new Date()
+  const now = appToday()
   return now.getHours() * 60 + now.getMinutes()
 }
 // 날짜를 내일로: 끝 날짜가 내일보다 앞이거나 같으면 당일치기로
 function moveToTomorrow() {
-  const tomorrow = addDays(dateText(new Date()), 1)
+  const tomorrow = addDays(dateText(appToday()), 1)
   isMovingDate = true
   store.planStartDate = tomorrow
   if (store.planEndDate && store.planEndDate <= tomorrow) store.planEndDate = null
@@ -339,16 +341,9 @@ onMounted(async () => {
   }
   const setup = scenario.value
   if (!store.planOrigin) store.planOrigin = { name: setup.originName, address: setup.originAddress, category: '출발지', lat: setup.originLat, lng: setup.originLng }
-  if (!fixedList.value.length) store.planConditions = { ...(store.planConditions || {}), fixed: setup.fixed }
-  fillScenarioStay()
+  // 예약(KTX)은 미리 넣지 않음 (11/08 주형: 발표자가 "예약한 곳" 단계에서 서울역을 직접 찾아 넣음). 시나리오 일정은 그대로 서울역 18:30 도착
 })
-// 숙소는 날짜를 고른 뒤에: 첫날 체크인 → 다음 날 체크아웃
-watch(() => [store.planStartDate, store.planEndDate], fillScenarioStay)
-function fillScenarioStay() {
-  const setup = scenario.value
-  if (!setup || !store.planStartDate || !store.planEndDate || store.planStartDate === store.planEndDate || store.planStays.length) return
-  store.planStays = [{ name: setup.stayName, address: setup.stayAddress, lat: setup.stayLat, lng: setup.stayLng, checkInDate: store.planStartDate, checkInTime: setup.stayCheckInTime, checkOutDate: addDays(store.planStartDate, 1), checkOutTime: setup.stayCheckOutTime }]
-}
+// 숙소는 미리 넣지 않음 (11/08 주형: 시연에서 숙소 단계에서 직접 찾아 넣는 모습을 보여 줌)
 
 // "시간 추천": 추천 시작·끝 시각으로 맞춤 (지금은 기본값, 통계가 오면 utils/timeRecommend.js만 바꿈)
 function useRecommendedTime() {

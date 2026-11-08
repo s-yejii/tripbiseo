@@ -36,7 +36,7 @@ public class DemoScenario {
     private static final double ORIGIN_LNG = 126.88768106730573;
     private static final String TRAIN_NAME = "서울역";
     private static final String TRAIN_TIME = "19:00"; // KTX 출발. 시나리오 일정엔 30분 전 18:30 도착 (DEMO.md)
-    private static final String STAY_NAME = "호텔 GMS";
+    private static final String STAY_NAME = "GMS호텔";
     private static final String STAY_ADDRESS = "서울 영등포구 경인로 867";
     private static final double STAY_LAT = 37.5174808;
     private static final double STAY_LNG = 126.9089452;
@@ -51,10 +51,10 @@ public class DemoScenario {
     // DEMO.md(11/06 팀 시나리오)대로 + 출발만 가마산로 242 15:00 (11/08 주형 확정)
     // 일차, 시각, 이름, 장소 번호, 종류, 위도, 경도, 머무는 분, 고정, 메모, 중요도(must면 줄이기·빼기 대상 아님)
     private static final Object[][] STOPS = {
-        { 1, "16:00", "호텔 GMS", "demo-hotel-gms", "숙소", 37.5174808, 126.9089452, 120, false, "체크인 16:00 · 짐 풀고 쉬기 · 영등포역 5번 출구 4분", null },
+        { 1, "16:00", "GMS호텔", "demo-hotel-gms", "숙소", 37.5174808, 126.9089452, 120, false, "체크인 16:00 · 짐 풀고 쉬기 · 영등포역 5번 출구 4분", null },
         { 1, "18:30", "문래 골목집", "naver-597569164", "오리요리", 37.5133865, 126.8931051, 100, true, null, null },
         { 1, "20:20", "하나마토 문래", "naver-2085802165", "이자카야", 37.5117226, 126.8923321, 70, false, "2차 · 회식 장소에서 걸어서 3분", null },
-        { 1, "21:40", "호텔 GMS", "demo-hotel-gms", "숙소", 37.5174808, 126.9089452, 30, false, "숙소 · 다음 날 여기서 출발", null },
+        { 1, "21:40", "GMS호텔", "demo-hotel-gms", "숙소", 37.5174808, 126.9089452, 30, false, "숙소 · 다음 날 여기서 출발", null },
         { 2, "11:00", "무탄 여의도점", "naver-1971705948", "중식", 37.5215212, 126.9228725, 70, false, "어제 저녁이 오리요리라 점심은 겹치지 않게 중식으로 골랐어요", null },
         { 2, "12:30", "여의도한강공원", "tour-1059479", "시민공원", 37.5263997727, 126.9336095794, 60, false, "점심 뒤 해 있을 때 산책", null },
         { 2, "13:50", "더현대 서울", "demo-thehyundai-seoul", "백화점", 37.5259638, 126.9284184, 60, false, "실내 구경 · 지하 1층에 다음 카페", null },
