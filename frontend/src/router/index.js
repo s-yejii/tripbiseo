@@ -45,7 +45,7 @@ const routes = [
   { path: '/plan/edit/delete', component: () => import('@/views/trip/DeleteConfirmView.vue'), meta: { parent: '/plan/edit', owner: 2, title: 'S10-c 일정 빼기 확인', overlay: true } },
   { path: '/trips/detail', component: () => import('@/views/trip/TripDetailView.vue'), meta: { parent: '/trips', owner: 2, title: 'S11 여행 상세 · 여행 전' } },
   { path: '/trips/today', component: () => import('@/views/trip/TripDetailTodayView.vue'), meta: { parent: '/', owner: 2, title: 'S11-b 여행 상세 · 여행 날' } },
-  { path: '/place', component: () => import('@/views/trip/PlaceView.vue'), meta: { parent: '/plan/check', history: true, owner: 2, title: 'S12 장소 상세' } },
+  { path: '/place', component: () => import('@/views/trip/PlaceView.vue'), meta: { parent: '/', history: true, owner: 2, title: 'S12 장소 상세' } }, // 장소 상세는 홈·지도·여행 중에서도 열려서 기록 없으면 홈으로
 
   // ③ 새 여행·AI 일정 만들기·테마 코스·릴스 담기
   { path: '/theme', component: () => import('@/views/plan/ThemeView.vue'), meta: { parent: '/', owner: 3, title: 'S04-d 테마 코스' } },
