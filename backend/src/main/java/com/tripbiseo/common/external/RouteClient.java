@@ -81,8 +81,10 @@ public class RouteClient {
             String key = String.format("%s:%.4f,%.4f>%.4f,%.4f", mode, lat1, lng1, lat2, lng2);
             result = cache.get(key, CACHE_MS, () -> callRouteApi(lat1, lng1, lat2, lng2, mode));
         }
-        // 시연 계정(시연 시계를 쓰는 요청): 시나리오 구간은 미리 받아 둔 실제 값으로 (API 한도가 차도 숫자가 같게, 11/08)
-        Integer demoMinutes = DemoClock.offsetSeconds() != 0 ? DemoRoutes.findMinutes(lat1, lng1, lat2, lng2, mode) : null;
+        // 시연 계정(시연 시계를 쓰는 요청): 평소엔 다른 계정처럼 실제 길찾기 값. 길찾기가 실패해서 어림값이 나왔을 때만
+        //   시나리오 구간을 미리 받아 둔 실제 값으로 (11/08 주형: 고정값은 대비용)
+        boolean isGuess = "estimate".equals(result.getSource());
+        Integer demoMinutes = isGuess && DemoClock.offsetSeconds() != 0 ? DemoRoutes.findMinutes(lat1, lng1, lat2, lng2, mode) : null;
         return demoMinutes == null ? result : withMinutes(result, demoMinutes);
     }
 
