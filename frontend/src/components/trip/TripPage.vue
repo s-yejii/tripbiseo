@@ -9,6 +9,7 @@
 //   reorderable: 목록 칸을 끌어 순서 바꾸기 → reorder 이벤트(원래 번호를 새 순서로 담은 목록) (11/04)
 //   지도: 점검 결과에 구간별 경로(trip.legs)가 있으면 진짜 길로, 없으면 장소끼리 점선
 import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
 import TripBudget from '@/components/trip/TripBudget.vue'
@@ -29,6 +30,7 @@ const props = defineProps({
   activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
 })
 const emit = defineEmits(['reorder', 'change-mode'])
+const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
 const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
 
 const selected = ref(null)
@@ -190,6 +192,11 @@ watch(() => props.activeStop, async (i) => {
   await nextTick()
   const el = scrollBox.value && scrollBox.value.querySelector(`[data-stop="${i}"]`)
   if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+})
+
+// 일차를 바꾸면(주소의 ?day= 가 바뀌면) 시트 안 목록을 맨 위로 → 다음 날도 첫 칸부터 보이게
+watch(() => route.query.day, () => {
+  if (scrollBox.value) scrollBox.value.scrollTop = 0
 })
 
 // 핀이나 목록을 누르면 같이 강조하고, 목록은 그 칸이 보이게 스크롤
