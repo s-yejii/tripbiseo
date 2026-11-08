@@ -225,6 +225,7 @@ async function logout() {
           </div>
         </section>
 
+        <DevDot inline /><!-- 개발자 설정: 시연 계정(개발자 모드)만 보임 · 배속·멈춤·장면·다음 장소 (③ 11/08) -->
         <div class="my-foot">
           <button type="button" class="btn btn--ghost btn--sm" @click="logout"><i class="ic ic--s i-logout" aria-hidden="true"></i>로그아웃</button>
           <VersionTap />

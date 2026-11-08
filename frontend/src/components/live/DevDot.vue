@@ -2,17 +2,31 @@
 // 개발자 모드 점 (③, 11/06): 여행 중 화면 왼쪽의 반투명 점. 개발자 모드(시연 계정)일 때만 보여요.
 // 누르면: 가짜 GPS 켜고 끄기 · 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
 import { devMode, sendCommand, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
+const props = defineProps({
+  inline: { type: Boolean, default: false }, // 마이 화면 안에 펼친 채로 (11/08: 발표자가 바로 찾게)
+})
 const emit = defineEmits(['clock', 'gps'])
 const FORWARD_STEPS = [10, 30, 60]
 const SPEEDS = [1, 10, 30, 60] // 시계 배속 (11/08 주형: 마이에서 고르게)
-const SCENES = ['출발', '회식', '숙소', '아침 비', '한강 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
+const SCENES = ['출발', '회식', '숙소', '2일차 아침', '서울역 늦음', '서울역'] // 장면 바로 가기 (DemoBar의 장면 순서와 같음)
 
 const isOpen = ref(false)
+
+// 숨은 방법: 상태바(맨 위 시계 줄)를 두 번 누르면 설정이 열림 (관객 눈엔 안 보이게, 11/08)
+function onDoubleClick(event) {
+  if (props.inline || !devMode.isOn) return
+  const bar = document.querySelector('.statusbar')
+  if (!bar) return
+  const box = bar.getBoundingClientRect()
+  if (event.clientY >= box.top && event.clientY <= box.bottom && event.clientX >= box.left && event.clientX <= box.right) isOpen.value = !isOpen.value
+}
+onMounted(() => document.addEventListener('dblclick', onDoubleClick))
+onUnmounted(() => document.removeEventListener('dblclick', onDoubleClick))
 const serverNow = ref('') // "2026-11-07T18:05"
 const offsetMinutes = ref(0)
 const rainFrom = ref(null) // 시연 비 시작 시각 (돌발 ②)
@@ -116,8 +130,8 @@ function turnOff() {
 
 <template>
   <template v-if="devMode.isOn">
-    <button type="button" class="dev-dot" aria-label="개발자 모드" @click="isOpen = !isOpen"></button>
-    <div v-if="isOpen" class="dev-panel" role="dialog" aria-label="개발자 모드">
+    <button v-if="!inline" type="button" class="dev-dot" aria-label="개발자 모드" @click="isOpen = !isOpen"></button>
+    <div v-if="isOpen || inline" class="dev-panel" :class="{ 'dev-panel--inline': inline }" role="dialog" aria-label="개발자 모드">
       <div class="dev-panel__row">
         <b class="t-strong">개발자 모드</b>
         <span class="t-cap tn">서버 시각 {{ serverNow.replace('T', ' ') }}<template v-if="offsetMinutes"> (시연)</template></span>
@@ -169,8 +183,9 @@ function turnOff() {
 </template>
 
 <style>
-.dev-dot { position: absolute; left: 10px; top: 168px; z-index: 6; width: 18px; height: 18px; border-radius: 50%; border: 0; background: var(--navy, #1f3a68); opacity: 0.28; cursor: pointer; }
-.dev-panel { position: absolute; left: 10px; top: 192px; z-index: 9; width: min(330px, calc(100% - 20px)); max-height: calc(100% - 210px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.dev-dot { position: absolute; left: 6px; top: 16px; z-index: 30; width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 0; background: #8a93a3; opacity: 0.55; cursor: pointer; } /* 상태바 시계 왼쪽 (11/08: 발표자가 찾기 쉽게, 마이·여행 중 같은 자리) */
+.dev-panel { position: absolute; left: 10px; top: 40px; z-index: 9; width: min(330px, calc(100% - 20px)); max-height: calc(100% - 210px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-lg, 16px); background: var(--surface, #fff); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .dev-panel__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .dev-panel__input { flex: 1 1 130px; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line, #ddd); border-radius: 8px; font: inherit; }
+.dev-panel--inline { position: static; width: auto; max-height: none; box-shadow: none; border: 1px solid var(--line, #ddd); }
 </style>
