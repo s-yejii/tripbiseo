@@ -486,8 +486,10 @@ onMounted(async () => {
 // ------------------------------------------------------------ 직접 조작 (11/08 주형: 발표자가 회색 점을 누를 때마다 다음 장소로)
 const MANUAL_SPEED = 60 // 직접 조작일 때 시계가 흐르는 배속 (화면 시계가 움직이는 게 보이게)
 const MOVE_STEPS = 8 // 이동하는 모습을 몇 번에 나눠 보여 줄지
+const LEFT_STEP = 2 // 이동 몇 번째 걸음에서 서버에 "떠났다"를 보낼지 (장소 반경 밖)
 const MOVE_STEP_MS = 450 // 약 3.6초 동안 이동
-const ALERT_SHOW_MS = 2500 // 떠나기 직전 출발 알림이 뜰 시간
+const ALERT_SHOW_MS = 2500 // 출발 알림을 보여 주고 움직이기 시작할 때까지 (60배속이라 앱 시계로 약 2~3분)
+const LEAVE_LEAD_MIN = 5 // 나갈 시각 몇 분 전으로 감을지 (11/08 주형: 알림이 먼저, GPS는 그 뒤에)
 const WARN_SLACK_MIN = 5 // 돌발 장소에서 고정 일정 여유가 이 이하가 되면 멈춤 ("지금 안 나가면 늦어요" 알림과 같은 기준)
 const LATE_TRAVEL_MIN = 20 // 돌발 뒤 대안(지하철)으로 서울역까지 걸리는 분 (대략, 실제 대안 값은 화면에)
 let overstayArmed = false // 돌발 장소에서 "다음 장소로"를 눌러 나갈 시각이 된 상태 (늦어지면 멈춤)
@@ -544,8 +546,9 @@ async function goNextStop() {
     return
   }
   if (isOverstayStop && overstayArmed && !pausedAt.has('overstay')) return // 늦어지기를 기다리는 중 (다시 눌러도 시계를 되돌리지 않음)
-  if (current && !isPastLeave) { // 떠나기 직전으로 (이미 지났으면 시계를 되돌리지 않음): 출발 알림이 뜨게
-    await setClock(dateOf(current.day), leaveMin)
+  const alertMin = leaveMin + 1 - LEAVE_LEAD_MIN
+  if (current && !(isSameDayNow && nowMin >= alertMin)) { // 나갈 시각 몇 분 전으로 (이미 지났으면 되돌리지 않음): "곧 출발해야 해요"가 먼저 뜨고, 그다음 움직임
+    await setClock(dateOf(current.day), alertMin)
     await props.live.refresh()
     await wait(ALERT_SHOW_MS)
   }
@@ -553,14 +556,19 @@ async function goNextStop() {
   const isAfterIncident = isOverstayStop && isPastLeave // 돌발 장소를 늦게 떠남: 화면의 예상 도착(대안 적용 뒤 값)대로 도착
   const travelMin = isAfterIncident && next.fixed ? await travelToFixed() : LATE_TRAVEL_MIN
   const isLateLeave = isAfterIncident || (isSameDayNow && next.day === current.day && nowMin + travelMin > toMinutes(next.time)) // 늦게 떠남: 지금부터 이동 시간만큼 뒤에 도착
-  await setClock(dateOf(next.day), isLateLeave ? nowMin + travelMin : toMinutes(next.time) - 1)
+  const arriveMin = isLateLeave ? nowMin + travelMin : toMinutes(next.time) - 1
   if (from) {
     for (let step = 1; step < MOVE_STEPS; step++) {
       const rate = step / MOVE_STEPS
-      props.live.showAt(from.lat + (next.lat - from.lat) * rate, from.lng + (next.lng - from.lng) * rate)
+      const lat = from.lat + (next.lat - from.lat) * rate
+      const lng = from.lng + (next.lng - from.lng) * rate
+      // 떠난 걸 서버에도 알림 (11/08 주형: 이동 중인데 "나갈 시간이에요"가 계속 떠 있던 문제) → 화면이 "이동 중"으로 바뀜
+      if (step === LEFT_STEP) await props.live.placeAt(lat, lng, false)
+      else props.live.showAt(lat, lng)
       await wait(MOVE_STEP_MS)
     }
   }
+  await setClock(dateOf(next.day), arriveMin) // 도착할 때 시계를 도착 시각으로 (11/08: 움직이기 전에 감아서 "출발 시간 지남"이 뜨던 문제)
   await visitEarlier(next)
   await props.live.placeAt(next.lat, next.lng, true)
   visitedIds.add(next.id)
