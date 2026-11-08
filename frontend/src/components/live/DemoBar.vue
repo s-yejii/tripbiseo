@@ -8,7 +8,7 @@
 // 진행 중인 여행이 없으면 "시연 여행 시작": 가장 최근 예정 여행을 복사해서 시작해요 (원본은 본편용으로 그대로)
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain } from '@/api/dev'
+import { clearDevRain, forwardDevClock, getDevStatus, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
 import { createTrip, getTrip, getTripList, startTrip } from '@/api/trips'
 import { addDays, daysBetween } from '@/utils/dates'
 import { isPracticeTrip, PRACTICE_MARK } from '@/utils/practice'
@@ -262,6 +262,8 @@ let rainDay = 0
 let lastSentAt = 0
 const visitedIds = new Set() // 이번 흐름에서 도착 처리한 칸 (장면을 건너뛰어도 앞 칸을 먼저 다녀오게)
 const WALK_SEND_MS = 3000 // 이동 중에도 이만큼마다 위치를 서버에 보냄 (떠남 판정·늦음 계산)
+const ARRIVE_EARLY_MIN = 10 // 이동은 다음 칸 시각보다 이만큼 일찍 끝나게 (서버의 남은 시간 계산이 늦음으로 안 보이게)
+const pausedAt = new Set() // 돌발마다 한 번만 시계를 멈춤 ('leave' · 'rain' · 'late')
 
 // 그날 칸마다 [도착, 떠남] 분. 마지막 날 서울역 앞 야외(한강)는 늦을 때까지 머무름(돌발 ③)
 function planOf(day) {
@@ -298,6 +300,8 @@ async function flowTick() {
     if (day === lastDay() && day > 1 && rainDay !== day) {
       rainDay = day
       await setDevRain(RAIN_FROM)
+      await props.live.refresh()
+      await pauseFor('rain')
     }
     await moveForTime(day, plan, nowMin)
   } catch (e) {
@@ -319,23 +323,56 @@ async function moveForTime(day, plan, nowMin) {
   }
   for (let i = 0; i < plan.length; i++) {
     const item = plan[i]
-    const leave = item.isLate ? lateLeave(item) : item.leave
-    if (nowMin >= item.arrive && nowMin < leave) return placeOnce(item.stop)
     const next = plan[i + 1]
-    if (next && nowMin >= leave && nowMin < Math.max(next.arrive, leave + 1)) {
-      if (next.stop.fixed && item.isLate) return walkBetween(item.stop, next.stop, (nowMin - leave) / TRAVEL_MIN)
-      return walkBetween(item.stop, next.stop, (nowMin - leave) / Math.max(1, next.arrive - leave))
+    // ① 고정 일정(회식) 앞 칸: 떠날 시각 5분 전이 되면 "출발해야 해요" 알림이 보이게 시계를 멈춤
+    if (next && next.stop.fixed && !item.isLate && nowMin >= item.leave - LEAVE_ALERT_BEFORE_MIN && nowMin < item.leave) {
+      await placeOnce(item.stop)
+      if (pausedAt.has('leave' + day)) return
+      await props.live.refresh()
+      return pauseFor('leave' + day)
+    }
+    if (item.isLate && nowMin >= item.arrive) {
+      const result = await stayLate(item, next, nowMin)
+      if (result !== 'gone') return result
+      continue
+    }
+    if (nowMin >= item.arrive && nowMin < item.leave) return placeOnce(item.stop)
+    if (next && nowMin >= item.leave && nowMin < Math.max(next.arrive, item.leave + 1)) {
+      const travel = Math.max(5, next.arrive - item.leave - ARRIVE_EARLY_MIN)
+      return walkBetween(item.stop, next.stop, (nowMin - item.leave) / travel)
     }
   }
   if (nowMin >= last.arrive) return placeOnce(last.stop) // 마지막 칸(서울역)에 도착 → 여행 끝
   if (nowMin < plan[0].arrive) return placeOnce(plan[0].stop, false) // 첫 장소로 가는 중
 }
 
-// ③ 야외에서 늦게까지: 서울역에 아직 안 늦으면(여유 0분 이상) 조금 더 머묾
-function lateLeave(item) {
+// ③ 마지막 야외(한강)에서 늦게까지: 서울역에 늦을 때까지(여유가 -3분 아래) 머물고, 늦으면 시계를 멈춰 "늦음·대안"을 보여 줌
+//   다시 재생하면 서울역으로 떠남 (TRAVEL_MIN 동안 움직임)
+let lateFrom = null
+async function stayLate(item, next, nowMin) {
+  if (lateFrom != null) {
+    if (!next) return 'gone'
+    if (nowMin >= lateFrom + TRAVEL_MIN) return 'gone'
+    return walkBetween(item.stop, next.stop, (nowMin - lateFrom) / TRAVEL_MIN)
+  }
+  await placeOnce(item.stop)
+  if (nowMin < item.leave) return 'stay'
+  await props.live.refresh()
   const fixed = props.live.status.value && props.live.status.value.fixed
-  if (fixed && fixed.slackMin != null && fixed.slackMin >= 0) return item.leave + fixed.slackMin + LATE_TARGET_MIN
-  return item.leave
+  if (fixed && fixed.slackMin != null && fixed.slackMin >= -LATE_TARGET_MIN) return 'stay' // 아직 안 늦음 → 더 머묾
+  if (!pausedAt.has('late')) {
+    await pauseFor('late')
+    return 'stay'
+  }
+  lateFrom = nowMin // 재생하면 여기서부터 떠남
+  return 'stay'
+}
+
+// 돌발 순간: 시계를 멈춰서 알림이 화면에 남게 (발표자가 대안을 보여 주고 설정의 "재생"으로 이어감)
+async function pauseFor(name) {
+  if (pausedAt.has(name)) return
+  pausedAt.add(name)
+  syncClock(await setDevSpeed(0))
 }
 
 async function placeOnce(stop, isArrive = true) {
@@ -395,6 +432,8 @@ async function runCommand(command) {
   if (command.type === 'scene') {
     const target = sceneMinute(command.index)
     if (command.index < 3) { rainDay = 0; await clearDevRain() }
+    pausedAt.clear()
+    lateFrom = null
     await setClock(dateOf(target.day), target.minute)
   } else if (command.type === 'stop') {
     const now = appNow()
@@ -408,6 +447,8 @@ async function runCommand(command) {
   } else if (command.type === 'restart') {
     rainDay = 0
     visitedIds.clear()
+    pausedAt.clear()
+    lateFrom = null
     await clearDevRain()
     const day1 = stopsOf(1)
     await setClock(dateOf(1), toMinutes(day1[0].time) - 40)

@@ -2,7 +2,7 @@
 // 개발자 모드 점 (③, 11/06): 여행 중 화면 왼쪽의 반투명 점. 개발자 모드(시연 계정)일 때만 보여요.
 // 누르면: 가짜 GPS 켜고 끄기 · 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
 import { devMode, sendCommand, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
@@ -20,7 +20,7 @@ const rainInput = ref('13:00')
 const dateInput = ref('')
 const timeInput = ref('')
 const isBusy = ref(false)
-const speed = ref(1)
+const speed = computed(() => devMode.speed) // 서버 시계 배속 (시연 엔진이 돌발에서 멈추면 0)
 const pausedSpeed = ref(60) // 멈춤 전 배속 (재생하면 이 배속으로)
 
 // 개발자 모드일 때만 서버에 물어봄 (끈 사람·로그아웃한 사람은 요청 안 함, 11/06)
@@ -37,7 +37,6 @@ async function loadStatus() {
 function showStatus(status) {
   serverNow.value = status.now
   offsetMinutes.value = status.offsetMinutes
-  speed.value = status.speed == null ? 1 : status.speed
   syncClock(status) // 홈의 D-day·상태바 시계도 시연 시계로 (배속까지)
   rainFrom.value = status.rainFrom
   dateInput.value = status.now.slice(0, 10)
