@@ -225,7 +225,7 @@ async function setUp() {
 }
 
 // 돌발: 예약(서울역 등)에 늦게 되는 순간 시연 시계를 멈춤 → 발표자가 알림을 눌러 대안을 보고 고를 시간 (시연 계정만)
-//   대안을 적용해서 안 늦게 되면 다시 실제 시간으로 흐름. 늦음 알림·대안 자체는 다른 계정과 같은 코드
+//   대안을 적용하고 여행 중 지도로 돌아오면(안 늦게 되면) 다시 실제 시간으로 흐름. 늦음 알림·대안 자체는 다른 계정과 같은 코드
 let pausedFor = null // 멈춘 고정 일정 이름
 watch(() => props.live.status.value, async (status) => {
   if (!devMode.isOn || isBusy.value || !status || !status.fixed) return
@@ -233,7 +233,7 @@ watch(() => props.live.status.value, async (status) => {
   if (isLate && pausedFor !== status.fixed.name && devMode.speed > 0) {
     pausedFor = status.fixed.name
     await setSpeed(0).catch(() => {})
-  } else if (!isLate && pausedFor && devMode.speed === 0) {
+  } else if (!isLate && devMode.speed === 0) { // 대안을 적용하고 지도로 돌아오면 다시 흐름 (대안·바뀐 일정·카톡 공유 동안은 멈춰 있어서 도착 시각이 화면과 같음)
     pausedFor = null
     await setSpeed(STAY_SPEED).catch(() => {})
   }
