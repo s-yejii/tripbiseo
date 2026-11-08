@@ -44,6 +44,7 @@ const INCIDENT_PAUSE_MS = 10000 // 자동 재생: 돌발 장면(알림·대안)�
 const sceneIndex = ref(readScene()) // 지금까지 끝낸 장면 수 (다음 장면 = 이 번호)
 const isBusy = ref(false)
 const isAuto = ref(false)
+const scenario = ref(null) // 시연 시나리오 (출발지 가마산로 242·시작 15:00, 서버 DemoScenario.java)
 let autoTimer = null
 
 const trip = computed(() => props.live.trip.value)
@@ -203,7 +204,10 @@ watch(() => props.live.phase.value, async (phase) => {
     const saved = await getTrip(props.live.tripId.value)
     const arrived = saved.stops.filter((stop) => stop.arrivedAt).sort((a, b) => a.arrivedAt.localeCompare(b.arrivedAt))
     const ordered = saved.stops.slice().sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
-    if (!arrived.length && devMode.isFlow) return // 아직 아무 데도 안 갔으면 일정대로 흐르기가 출발지에서 시작 (11/08)
+    if (!arrived.length && devMode.isFlow) { // 아직 아무 데도 안 갔으면 출발지(가마산로 242)에 놓고 시작 → 위치 권한이 없어도 화면이 열림 (11/08)
+      const setup = scenario.value || (await getDevScenario().catch(() => null))
+      if (setup && setup.originLat != null) return props.live.placeAt(setup.originLat, setup.originLng, false)
+    }
     const spot = arrived[arrived.length - 1] || ordered[0]
     if (spot) await props.live.placeAt(spot.lat, spot.lng, false)
   } catch (e) {
@@ -466,7 +470,6 @@ async function walkBetween(from, to, rate) {
   await props.live.placeAt(lat, lng, false)
 }
 
-const scenario = ref(null) // 시연 시나리오 (출발지 가마산로 242·시작 15:00, 서버 DemoScenario.java)
 onMounted(async () => {
   ensureDemoFlow()
   flowTimer = setInterval(flowTick, FLOW_TICK_MS)
