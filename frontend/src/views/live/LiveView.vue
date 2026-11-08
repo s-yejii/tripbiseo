@@ -28,7 +28,7 @@ import DevDot from '@/components/live/DevDot.vue'
 import DemoDrive from '@/components/live/DemoDrive.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
 import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
-import { clearLiveNotice, liveBanner } from '@/utils/liveBanner'
+import { clearLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import SegSheet from '@/components/live/SegSheet.vue'
@@ -66,6 +66,17 @@ watch(notiOpen, (isOpen) => {
   if (isOpen) bannerTimer = setTimeout(() => (notiOpen.value = false), BANNER_SHOW_MS)
 })
 onUnmounted(() => clearTimeout(bannerTimer))
+// 자동 일정 조정 안내 (서버가 늦게 떠난 걸 보고 뒤 일정을 밀거나 줄였을 때): 위쪽 배너 한 장으로 잠깐 (11/08)
+const ADJUST_SHOW_MS = 7000
+let adjustTimer = null
+watch(() => (status.value && status.value.adjust ? status.value.adjust.key : null), (key) => {
+  if (!key) return
+  const adjust = status.value.adjust
+  showLiveNotice({ title: adjust.title, body: adjust.text, warn: false, from: 'adjust' })
+  clearTimeout(adjustTimer)
+  adjustTimer = setTimeout(() => clearLiveNotice('adjust'), ADJUST_SHOW_MS)
+})
+onUnmounted(() => clearTimeout(adjustTimer))
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
@@ -613,7 +624,7 @@ function restartMoving() {
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
         <CriticalAlertCard v-if="isCardOpen" :title="status.alert.title" :text="status.alert.text" :to="'/live/alt'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
         <!-- 시연 "다음 장소로" 출발 안내: 서버 알림 대신 한 장으로 -->
-        <AppNoti v-else-if="liveBanner.notice" :title="liveBanner.notice.title" :body="liveBanner.notice.body" icon="i-route" :warn="liveBanner.notice.warn" @close="clearLiveNotice" />
+        <AppNoti v-else-if="liveBanner.notice" :title="liveBanner.notice.title" :body="liveBanner.notice.body" icon="i-route" :warn="liveBanner.notice.warn" @close="clearLiveNotice()" />
         <!-- 위쪽 알림: 한 장만, 접으면 알약으로 (늦으면 +N분) -->
         <template v-else-if="status.alert && !isAlertMuted && !adding">
           <AppNoti

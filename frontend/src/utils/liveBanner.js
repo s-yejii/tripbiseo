@@ -9,7 +9,7 @@ export function showLiveNotice(notice) {
   liveBanner.notice = notice
 }
 
-// 안내 내리기
-export function clearLiveNotice() {
-  liveBanner.notice = null
+// 안내 내리기. from을 주면 그 쪽이 띄운 안내일 때만 (예: 시연 이동 안내가 자동 조정 안내를 지우지 않게)
+export function clearLiveNotice(from) {
+  if (!from || (liveBanner.notice && liveBanner.notice.from === from)) liveBanner.notice = null
 }
