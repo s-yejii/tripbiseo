@@ -27,7 +27,7 @@ img { max-width: 100%; }
 /* 상태바 (시간·배터리) */
 .statusbar { position: absolute; left: 0; right: 0; top: 0; height: 47px; z-index: 50; display: flex; align-items: center; justify-content: space-between; padding: 4px 26px 0 34px; pointer-events: none; color: #18213A; font: 600 16px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
 .statusbar--light { color: #fff; }
-.phone__screen:has(.noti) .statusbar { opacity: 0; } /* 위쪽 알림이 내려오면 상태바를 가려요 */
+/* 11/08 주형: 위쪽 알림은 상태바 아래에서 내려와요 (시간·배터리가 늘 보이게) → yh.css .noti top */
 .statusbar__icons { display: flex; align-items: center; gap: 6px; }
 
 /* 토스트: 아래에 잠깐 뜨는 안내 */

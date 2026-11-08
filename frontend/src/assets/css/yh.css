@@ -517,7 +517,7 @@ a.banner:hover,button.banner:hover{filter:brightness(.97)}
 .noscroll::-webkit-scrollbar{display:none}
 .sheet.is-collapsed>*:not(.handle){visibility:hidden}
 
-.noti{position:absolute;top:8px;left:8px;right:8px;z-index:55;display:flex;align-items:flex-start;gap:10px;padding:12px 14px 16px;border-radius:22px;background:rgba(250,251,253,.97);box-shadow:0 10px 30px -6px rgba(24,33,58,.35),0 0 0 1px rgba(24,33,58,.06);color:var(--ink);text-decoration:none;touch-action:none;cursor:grab;user-select:none;animation:notiIn .45s cubic-bezier(.2,.9,.25,1.05) both}
+.noti{position:absolute;top:50px;left:8px;right:8px;z-index:55;display:flex;align-items:flex-start;gap:10px;padding:12px 14px 16px;border-radius:22px;background:rgba(250,251,253,.97);box-shadow:0 10px 30px -6px rgba(24,33,58,.35),0 0 0 1px rgba(24,33,58,.06);color:var(--ink);text-decoration:none;touch-action:none;cursor:grab;user-select:none;animation:notiIn .45s cubic-bezier(.2,.9,.25,1.05) both}
 .noti:hover{background:#fff}
 @keyframes notiIn{from{transform:translateY(-120%);opacity:0}to{transform:none;opacity:1}}
 .noti__app{flex:none;width:36px;height:36px;border-radius:9px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center}
