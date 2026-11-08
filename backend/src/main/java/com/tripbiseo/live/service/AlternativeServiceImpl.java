@@ -300,9 +300,19 @@ public class AlternativeServiceImpl implements AlternativeService {
         Alternative alternative = alternativeCalculator.calculate(trip, current, stops, lat, lng);
         alternative.setChanges(1);
         alternative.setShortName("transit".equals(mode) ? "지하철" : "택시");
+        markFixedStopChange(alternative, title); // 적용할 때 이 이름을 보고 고정 일정의 이동 수단을 바꿈 (updateChosenStop)
         alternative.setTitle(title);
         alternative.setReason(reason);
         return alternative;
+    }
+
+    /** 대안의 고정 일정 칸에 "택시로 바로 가기" 같은 바뀐 점을 적어 둠 */
+    private void markFixedStopChange(Alternative alternative, String change) {
+        for (AltStop stop : alternative.getStops()) {
+            if (Boolean.TRUE.equals(stop.getFixed())) {
+                stop.setChange(change);
+            }
+        }
     }
 
     /** 남은 칸 중 첫 고정 일정의 위치 (없으면 -1) */
@@ -822,8 +832,11 @@ public class AlternativeServiceImpl implements AlternativeService {
         update.setMode(original.getMode()); // ②의 updateStop은 mode·memo를 보낸 값으로 덮어써서, 원래 값을 그대로 보냄
         update.setMemo(original.getMemo());
         if (isFixed && chosen.getChange() != null && chosen.getChange().contains("택시")) {
-            update.setMemo(trimMemo(chosen.getChange())); // 갈아타기 대안: "지하철로 ○○역까지 → 택시"를 메모로 (11/06)
+            update.setMemo(trimMemo(chosen.getChange())); // 갈아타기·택시로 바로 가기: 메모로 남기고 택시로 (11/06)
             update.setMode("taxi");
+        } else if (isFixed && chosen.getChange() != null && chosen.getChange().contains("지하철로 바로")) {
+            update.setMemo(trimMemo(chosen.getChange())); // 지하철로 바로 가기 (11/08)
+            update.setMode("transit");
         }
         tripService.updateStop(memberId, tripId, original.getId(), update);
 
