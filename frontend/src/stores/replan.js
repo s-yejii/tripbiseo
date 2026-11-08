@@ -108,6 +108,7 @@ export const useReplanStore = defineStore('replan', () => {
     const ids = stops.value.map((stop) => stop.id)
     before.value = trip.value.stops.filter((stop) => ids.includes(stop.id))
     applied.value = await applyAlternative(tripId.value, alternative.key, alternative.stops, position.value.lat, position.value.lng)
+    mutedLate.value = Math.max(0, -(alternative.slackMin || 0)) // 대안을 골랐으면 그만큼 늦는 건 알고 가는 것 → 10분 더 늦어질 때만 다시 알림 (11/08)
     plan.value = alternative
     tripStore.applied = applied.value
     appliedAt.value = Date.now()
