@@ -11,6 +11,11 @@ import { imageFor } from '@/utils/mapView'
 import { goBack } from '@/utils/back'
 import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
+import { kindOf } from '@/utils/budget'
+
+// 종류별 보통 머무는 분 (PlanRuleMaker와 같은 값)
+const STAY_MIN_OF_KIND = { food: 70, cafe: 60, bar: 90 }
+const OTHER_STAY_MIN = 80
 
 const route = useRoute()
 const store = useTripStore()
@@ -36,7 +41,7 @@ onMounted(async () => {
       img: detail.imageUrl || imageFor(detail.category),
       rate: detail.rating ?? '-',
       hours: today ? today.text : detail.useTime,
-      dur: /카페|디저트/.test(detail.category || '') ? 40 : 60,
+      dur: STAY_MIN_OF_KIND[kindOf(detail.category)] || OTHER_STAY_MIN,
       outdoor: false,
     }
   } catch (e) {
@@ -69,7 +74,10 @@ function toggleSave() {
   showToast(saved.value ? '저장했어요' : '저장을 취소했어요')
 }
 function addToPlan() {
-  if (server.value) store.addDraftPlace(server.value)
+  if (server.value) {
+    store.addDraftPlace(server.value)
+    store.draft.stops[store.draft.stops.length - 1].stay = server.value.dur // store는 늘 60분으로 넣어서 방금 넣은 칸(맨 끝)만 고침
+  }
   showToast(place.value.name + '을(를) 동선에 맞춰 넣었어요')
   goBack('/plan/check')
 }
