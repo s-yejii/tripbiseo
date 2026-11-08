@@ -347,7 +347,7 @@ async function done() {
 .scr-PlanEdit .erow.is-sel .stop__card { border-color: var(--navy); }
 .scr-PlanEdit .elist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .scr-PlanEdit .grip { touch-action: none; }
-.scr-PlanEdit .pe-days { display: flex; gap: 6px; overflow-x: auto; }
+.scr-PlanEdit .pe-days { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .scr-PlanEdit .pe-days .chip { gap: 4px; flex: none; }
 .scr-PlanEdit .pe-days .chip.is-on .t-cap { color: inherit; }
 .scr-PlanEdit .erow.is-drag { position: relative; z-index: 5; pointer-events: none; }

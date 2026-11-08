@@ -86,6 +86,7 @@
 | `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
 | `GET /api/places/locations/hubs` | 출발지 추천: 근처 지하철역·구청·시청 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
 | `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? · 꼭 지킬 시간(예약한 곳) 역·건물·가게·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`, `?mode=fixed`) | 있음 |
+| `GET /api/places/locations/stays` | 숙소 위치 찍기: 숙소(호텔·모텔·게스트하우스 등)만 찾기, 없으면 주소 (카카오) | plan/StayPinView | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -762,6 +763,26 @@
 **응답** `{ "name": "현대백화점 천호점", "address": "서울 강동구 천호대로 1005", "category": "현재 위치", "lat": 37.538, "lng": 127.123 }` (건물 이름이 없으면 `name`도 주소)
 
 **오류** 404 "이 위치의 주소를 찾지 못했어요." · 502·503 `/areas`와 같아요
+
+### `GET /api/places/locations/stays`
+숙소 위치 찍기에서 숙소만 찾아요 (카카오 로컬, 숙박 분류 `AD5`). `/locations`는 역·학교·영화관까지 섞여 나와서 따로 만들었어요. 저장하지 않아요. · 로그인 필요 · 화면: plan/StayPinView (11/08 추가)
+
+**요청** 쿼리 `q` (1~40자)
+
+키워드 검색 + 숙박 분류만(최대 15개) → 결과가 없으면 주소 검색 (주소를 친 경우)
+
+**응답**
+```json
+[ { "name": "OO호텔 홍대", "address": "서울 마포구 …", "category": "호텔", "lat": 37.55, "lng": 126.92 } ]
+```
+| 필드 | 설명 |
+|---|---|
+| address | 도로명 주소, 없으면 지번 주소 |
+| category | 카카오 분류의 마지막 칸 (예: 호텔, 모텔, 게스트하우스). 주소 검색으로 찾았으면 `주소` |
+
+`distance`는 없어요.
+
+**오류** `/areas`와 같아요
 
 ### `GET /api/places/locations/hubs`
 "어디서 출발해요?" 추천이에요. 좌표 근처 지하철역 최대 4곳(3km 안)과 가까운 구청(10km 안)·시청(20km 안) 1곳씩을 가까운 순으로 줘요 (카카오 로컬). 좌표는 카카오에만 보내요. 저장하지 않아요. · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/04 추가)

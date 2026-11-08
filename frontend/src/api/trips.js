@@ -58,6 +58,7 @@ export const searchLocations = (q, lat, lng) => {
 }
 export const getLocationHubs = (lat, lng) => get(`/places/locations/hubs?lat=${lat}&lng=${lng}`)
 export const getLocationHere = (lat, lng) => get(`/places/locations/here?lat=${lat}&lng=${lng}`)
+export const searchStays = (q) => get('/places/locations/stays?' + new URLSearchParams({ q })) // 숙소 위치 찍기: 숙소만
 
 // ③ AI 일정
 export const chatPlan = (message, conditions) => post('/plans/chat', { message, conditions })

@@ -34,6 +34,7 @@ public class LocationSearchClient {
     private static final String OFFICE_NAME = "\\S*(구청|시청)"; // "구로구청 별관" 같은 곳은 뺌
     private static final String SIGHT_CODE = "AT4";           // 카카오 분류: 관광명소 (공원·거리·전망대 등)
     private static final int SIGHT_COUNT = 15;
+    private static final String STAY_CODE = "AD5";            // 카카오 분류: 숙박 (숙소 위치 찍기)
     private static final String SEOUL = "서울";             // 시범 지역: 지역 검색은 서울만
     private static final double SEOUL_LAT = 37.5665;         // 서울시청 (키워드 보충 검색의 중심)
     private static final double SEOUL_LNG = 126.9780;
@@ -87,6 +88,24 @@ public class LocationSearchClient {
             }
         }
         return locations;
+    }
+
+    /** 숙소 찾기: 키워드 + 숙박 분류(AD5)만 → 없으면 주소 (주소를 친 경우) */
+    public List<FoundLocation> searchStays(String query) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("query", query);
+        params.put("category_group_code", STAY_CODE);
+        params.put("size", KEYWORD_SIZE);
+        List<FoundLocation> stays = new ArrayList<>();
+        for (JsonNode doc : getDocuments(KEYWORD_URL, params)) {
+            stays.add(toLocation(doc));
+        }
+        if (stays.isEmpty()) {
+            for (JsonNode doc : getDocuments(ADDRESS_URL, Map.of("query", query, "size", KEYWORD_SIZE))) {
+                stays.add(addressToLocation(doc));
+            }
+        }
+        return stays;
     }
 
     /** 근처 관광명소 (일정에 넣을 들를 곳이 우리 DB에 없을 때), 가까운 순 */
