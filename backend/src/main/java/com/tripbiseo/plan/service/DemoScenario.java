@@ -41,6 +41,7 @@ public class DemoScenario {
         { 2, "무탄 여의도점", 20 },
         { 2, "더현대 서울", 10 },
     };
+    private static final String DEMO_DATE = "2026-11-10"; // 시연 계정의 "오늘" = 발표일(화). 로그인·[시연 준비]하면 시계를 이 날 15:00으로 (11/09 주형)
     private static final String DINNER_NAME = "문래 골목집";
     private static final String DINNER_TIME = "18:30"; // 회식 예약
     private static final String TRAIN_NAME = "서울역";
@@ -130,6 +131,7 @@ public class DemoScenario {
         setup.setStayCheckInTime(STAY_CHECK_IN);
         setup.setStayCheckOutTime(STAY_CHECK_OUT);
         setup.setStartTime(START_TIME);
+        setup.setDemoDate(DEMO_DATE);
         for (Object[] row : EXTRA_STAYS) {
             Stop extra = new Stop();
             extra.setDay((Integer) row[0]);

@@ -119,6 +119,13 @@ export function clearCommand() {
 // 로그인 바로 뒤에 부름 (11/08 주형: 시연 계정은 버전 5번 안 눌러도 시나리오대로)
 //   시연 계정이면 개발자 모드 + 가짜 GPS + 일정대로 흐르기를 켜고, 시연 시계를 오늘 시나리오 시작 시각(15:00)으로
 //   아니면 이 브라우저에 남은 개발자 모드를 끔
+// 시연 계정의 "오늘": 서버 시나리오의 발표일(11/10), 없으면 진짜 오늘 (11/09 주형: 무조건 10일)
+function demoToday(setup) {
+  if (setup && setup.demoDate) return setup.demoDate
+  const real = new Date()
+  return real.getFullYear() + '-' + String(real.getMonth() + 1).padStart(2, '0') + '-' + String(real.getDate()).padStart(2, '0')
+}
+
 export async function applyDemoAccount() {
   try {
     const status = await getDevStatus()
@@ -130,9 +137,7 @@ export async function applyDemoAccount() {
     setFakeGps(true)
     setFlow(true)
     const setup = await getDevScenario()
-    const real = new Date() // 시연 시계가 전에 다음 날로 넘어가 있어도 로그인하면 진짜 오늘 15:00으로 (11/08)
-    const today = real.getFullYear() + '-' + String(real.getMonth() + 1).padStart(2, '0') + '-' + String(real.getDate()).padStart(2, '0')
-    await setDevClock(today, setup.startTime)
+    await setDevClock(demoToday(setup), setup.startTime) // 로그인하면 시연 계정의 "오늘"(발표일 11/10) 15:00으로
     syncClock(await setDevSpeed(LOGIN_SPEED))
   } catch (e) {
     // 서버가 답을 못 하면 지금 상태 그대로
@@ -167,8 +172,7 @@ export async function prepareDemo() {
     if (trip.status === 'ongoing' && isPracticeTrip(trip)) await finishTrip(trip.id)
   }
   const setup = await getDevScenario()
-  const real = new Date()
-  const today = real.getFullYear() + '-' + String(real.getMonth() + 1).padStart(2, '0') + '-' + String(real.getDate()).padStart(2, '0')
+  const today = demoToday(setup)
   await clearDevRain()
   await setDevClock(today, setup.startTime)
   syncClock(await setDevSpeed(1))
