@@ -69,7 +69,8 @@ const incidents = computed(() => {
   const station = sorted.filter((stop) => stop.fixed).pop()
   if (cafe) {
     list.push({ name: '알림 · 나갈 시간이에요', scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0), where: cafe.name + ' (멈춤 없음)' })
-    list.push({ name: '돌발 · ' + (station ? station.name + ' 도착 목표(' + station.time + ')보다 늦음' : 'KTX 늦음'), scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0) + (setup.overstayMin || 10), where: cafe.name + '에 계속 있으면 (약, 시계 멈춤)' })
+    // 11/08 주형: 늦는 이유는 팀장님 배탈(화장실). 앱은 이유를 모르니 화면에는 안 나오고 발표자가 말함
+    list.push({ name: '돌발 · 팀장님 배탈(화장실)로 못 나감 → ' + (station ? station.name + ' 여유 5분 경고' : 'KTX 경고'), scene: 4, day: cafe.day, minute: toMin(cafe.time) + (cafe.stay || 0) + 5, where: cafe.name + '에 계속 있으면 (약, 시계 멈춤)' })
   }
   const now = new Date(nowTick.value) && appNow()
   const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
