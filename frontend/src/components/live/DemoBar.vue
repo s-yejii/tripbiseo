@@ -472,7 +472,19 @@ onMounted(async () => {
   flowTimer = setInterval(flowTick, FLOW_TICK_MS)
   if (devMode.isOn) scenario.value = await getDevScenario().catch(() => null)
 })
-onUnmounted(() => clearInterval(flowTimer))
+// 여행 중 화면을 떠나면(대안·길 안내 등) 시연 시계를 멈춤: 화면 밖에서 시간만 흘러 일정이 밀리지 않게 (11/08: 대안 보는 사이 22:31까지 흐른 문제)
+onUnmounted(() => {
+  clearInterval(flowTimer)
+  if (devMode.isOn && devMode.isFlow && devMode.speed > 0) {
+    devMode.pausedByLeave = true
+    setDevSpeed(0).then(syncClock).catch(() => {})
+  }
+})
+onMounted(async () => {
+  if (!devMode.pausedByLeave) return
+  devMode.pausedByLeave = false
+  syncClock(await setDevSpeed(SPEED_NORMAL).catch(() => ({ offsetMinutes: devMode.clockOffsetMs / 60000, speed: devMode.speed })))
+})
 
 // ------------------------------------------------------------ 설정(DevDot)에서 보낸 일
 // 장면 바로 가기: 그 장면 시각으로 시계를 옮기면 위 흐르기가 자리를 맞춤
