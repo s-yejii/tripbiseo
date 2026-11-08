@@ -10,6 +10,9 @@ import { useReplanStore } from '@/stores/replan'
 import { imageFor } from '@/utils/mapView'
 import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
+import KakaoShareDemo from '@/components/live/KakaoShareDemo.vue'
+import { shareToKakao } from '@/utils/kakaoShare'
+import { devMode } from '@/utils/devMode'
 
 const UNDO_CHECK_MS = 15000 // 되돌리기 버튼을 숨길지 다시 보는 간격
 
@@ -80,30 +83,32 @@ const banner = computed(() => {
   }
 })
 
-// 팀원 공유 (11/08 DEMO.md 8번): 바뀐 일정을 단톡방에 보낼 글로 만들어 휴대폰 공유 창(없으면 복사)으로
+// 팀원 공유 (11/08 DEMO.md 8번 → 주형: 카카오톡 공유): 바뀐 일정을 카카오톡 피드 메시지로
+//   시연 계정은 발표장에서 카카오 로그인이 뜨거나 진짜 사람에게 가지 않게 앱 안의 공유 화면(KakaoShareDemo)으로
 const isShared = ref(false)
-function shareText() {
-  const lines = ['[여행어때] 일정이 바뀌었어요', banner.value.title]
-  for (const row of rows.value) {
-    if (row.tag === 'done' && !row.isCurrent) continue
-    const change = row.was ? ` (${row.was} → ${row.now})` : ''
-    lines.push(`${row.time} ${row.name}${change}`)
+const isDemoShareOpen = ref(false)
+const shareMessage = computed(() => {
+  const fixed = after.value && after.value.fixed
+  const method = (replan.plan && replan.plan.title) || '' // 고른 대안 이름 (예: 지하철로 바로 가기)
+  const arrive = fixed ? `${fixed.name} ${fixed.eta} 도착` : banner.value.title
+  const current = rows.value.find((row) => row.isCurrent) || rows.value[0]
+  return {
+    title: '일정이 바뀌었어요',
+    description: arrive + (method ? ' · ' + method : '') + (fixed && fixed.slackMin >= 0 ? ' · 여유 ' + fixed.slackMin + '분' : ''),
+    imageUrl: current ? location.origin + imageFor(current.category) : '',
+    link: location.origin + '/live',
   }
-  for (const stop of gone.value) lines.push(`${stop.name} 뺌`)
-  return lines.join(String.fromCharCode(10)) // 줄바꿈
-}
+})
 async function share() {
-  const text = shareText()
+  if (devMode.isOn) {
+    isDemoShareOpen.value = true
+    return
+  }
   try {
-    if (navigator.share) {
-      await navigator.share({ title: '바뀐 일정', text })
-    } else {
-      await navigator.clipboard.writeText(text)
-      showToast('단톡방에 붙여 넣을 글을 복사했어요')
-    }
+    const result = await shareToKakao(shareMessage.value)
+    if (result === 'copied') showToast('카카오톡을 쓸 수 없어서 링크를 복사했어요')
     isShared.value = true
   } catch (e) {
-    if (e && e.name === 'AbortError') return // 공유 창을 닫음
     showToast('공유하지 못했어요 · ' + e.message)
   }
 }
@@ -191,16 +196,19 @@ async function undo() {
       </div>
 
       <div class="cta" style="display: flex; gap: 8px">
-        <button type="button" class="btn btn--secondary btn--lg" style="flex: 1" @click="share"><i class="ic i-share" aria-hidden="true"></i>{{ isShared ? '공유했어요' : '팀원에게 공유' }}</button>
+        <!-- 카카오톡 공유 버튼: 카카오 디자인 가이드 색(#FEE500 · 검은 글씨). 공식 말풍선 심볼은 developers.kakao.com 리소스에서 받아 넣기 (아직 없음) -->
+        <button type="button" class="btn btn--lg kakao-share" style="flex: 1" @click="share">{{ isShared ? '공유했어요' : '카카오톡으로 공유' }}</button>
         <RouterLink to="/live" class="btn btn--primary btn--lg" style="flex: 1"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
       </div>
       </template>
+      <KakaoShareDemo v-if="isDemoShareOpen" :message="shareMessage" @close="isDemoShareOpen = false; isShared = true" />
     </div>
   </div>
 </template>
 
 <style>
 .scr-Applied .legend{display:flex;gap:14px;align-items:center}
+.scr-Applied .kakao-share{background:#FEE500;color:#191919;border:0;font-weight:700}
 .scr-Applied .legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--ink-muted)}
 .scr-Applied .legend i.sw{width:12px;height:12px;border-radius:4px;display:inline-block}
 .scr-Applied .topbar .btn{flex:none}
