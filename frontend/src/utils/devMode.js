@@ -3,7 +3,10 @@
 //   켜지면 가짜 GPS + 빠르게 도는 시연 시계로 여행이 일정대로 흘러가요. 설정은 마이·여행 중 화면의 작은 반투명 점에서
 // 이 브라우저에만 기억해요 (localStorage). 시계 자체(시각·배속)는 서버가 계정마다 기억해요.
 import { reactive } from 'vue'
-import { getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/dev'
+import { clearDevRain, getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/dev'
+import { finishTrip, getTripList } from '@/api/trips'
+import { readAllNotifications } from '@/api/notifications'
+import { isPracticeTrip } from '@/utils/practice'
 
 const KEY = 'devMode'
 const LOGIN_SPEED = 1 // 로그인하면 15:00에서 보통 속도 (일정을 짜는 동안 시간이 흘러가 버리지 않게). 여행 중 화면에서 자동 배속이 빠르게 돌림
@@ -133,4 +136,26 @@ export async function applyDemoAccount() {
   } catch (e) {
     // 서버가 답을 못 하면 지금 상태 그대로
   }
+}
+
+// "시연 준비" (11/08): 끝나지 않은 연습 여행("(연습)")을 앱 흐름대로 끝내고, 시계 = 진짜 오늘 시나리오 시작 시각(15:00)·보통 속도,
+//   시연 비 빼기, 가짜 GPS·일정대로 흐르기·자동 배속 켜기, 쌓인 알림 읽음 처리. 진짜 예정 여행(86 등)은 안 건드림
+export async function prepareDemo() {
+  const trips = await getTripList()
+  for (const trip of trips) {
+    if (trip.status === 'ongoing' && isPracticeTrip(trip)) await finishTrip(trip.id)
+  }
+  const setup = await getDevScenario()
+  const real = new Date()
+  const today = real.getFullYear() + '-' + String(real.getMonth() + 1).padStart(2, '0') + '-' + String(real.getDate()).padStart(2, '0')
+  await clearDevRain()
+  await setDevClock(today, setup.startTime)
+  syncClock(await setDevSpeed(1))
+  devMode.isFlowTouched = false
+  devMode.isAutoSpeed = true
+  devMode.command = null
+  setFakeGps(true)
+  setFlow(true)
+  await readAllNotifications().catch(() => {})
+  return trips.filter((trip) => trip.status === 'ongoing' && !isPracticeTrip(trip)).length // 연습이 아닌 진행 중 여행 수 (있으면 안내)
 }

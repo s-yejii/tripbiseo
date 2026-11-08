@@ -7,7 +7,8 @@ import { getTrip } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { addDays, daysBetween } from '@/utils/dates'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
-import { appNow, devMode, sendCommand, setAutoSpeed, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
+import { useRouter } from 'vue-router'
+import { appNow, devMode, prepareDemo, sendCommand, setAutoSpeed, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const props = defineProps({
@@ -64,6 +65,25 @@ const incidents = computed(() => {
 const SOON_REAL_SEC = 5
 const isSoon = computed(() => incidents.value.some((item) => item.leftMin > 0 && devMode.speed > 0 && (item.leftMin * 60) / devMode.speed <= SOON_REAL_SEC))
 const clockText = computed(() => { nowTick.value; const now = appNow(); return (now.getMonth() + 1) + '/' + now.getDate() + ' ' + toHm(now.getHours() * 60 + now.getMinutes()) })
+// 시연 준비: 연습 여행 정리 + 시계 오늘 15:00 + 다 켜기 → 홈으로
+const router = useRouter()
+const prepared = ref('')
+async function onPrepare() {
+  if (isBusy.value) return
+  isBusy.value = true
+  try {
+    const realLeft = await prepareDemo()
+    await loadStatus()
+    prepared.value = realLeft ? '시연 준비됐어요 · 진행 중인 진짜 여행이 ' + realLeft + '개 있어요' : '시연 준비됐어요'
+    showToast(prepared.value)
+    isOpen.value = false
+    router.push('/')
+  } catch (e) {
+    showToast(e.message)
+  } finally {
+    isBusy.value = false
+  }
+}
 function goNextIncident() {
   const next = incidents.value.find((item) => item.leftMin > 0)
   if (next) goScene(next.scene)
@@ -217,6 +237,11 @@ function turnOff() {
       <div class="dev-panel__row">
         <input v-model="rainInput" type="time" class="dev-panel__input" aria-label="비 시작 시각" :disabled="!!rainFrom" />
         <button type="button" class="chip" :class="{ 'is-on': rainFrom }" :disabled="isBusy" @click="toggleRain">{{ rainFrom ? rainFrom + '부터 비 · 빼기' : '비 예보 넣기' }}</button>
+      </div>
+
+      <div class="dev-panel__row">
+        <button type="button" class="btn btn--primary btn--sm" :disabled="isBusy" @click="onPrepare">시연 준비</button>
+        <span v-if="prepared" class="t-cap">{{ prepared }}</span>
       </div>
 
       <div v-if="incidents.length" class="dev-panel__guide">
