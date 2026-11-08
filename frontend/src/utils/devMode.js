@@ -126,7 +126,8 @@ export async function applyDemoAccount() {
     setFakeGps(true)
     setFlow(true)
     const setup = await getDevScenario()
-    const today = status.now.slice(0, 10)
+    const real = new Date() // 시연 시계가 전에 다음 날로 넘어가 있어도 로그인하면 진짜 오늘 15:00으로 (11/08)
+    const today = real.getFullYear() + '-' + String(real.getMonth() + 1).padStart(2, '0') + '-' + String(real.getDate()).padStart(2, '0')
     await setDevClock(today, setup.startTime)
     syncClock(await setDevSpeed(LOGIN_SPEED))
   } catch (e) {
