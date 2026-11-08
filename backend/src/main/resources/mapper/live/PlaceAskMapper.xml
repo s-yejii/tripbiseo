@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ④ AI에게 묻기 (Text-to-SQL). 표는 db/18_ask_place.sql의 뷰 ask_place·ask_review, 계정은 ask_reader -->
+<mapper namespace="com.tripbiseo.live.mapper.PlaceAskMapper">
+
+  <!-- 이 트랜잭션이 끝날 때까지만 묻기 전용 계정 (LOCAL: 끝나면 원래 계정으로) -->
+  <update id="setRoleAskReader">
+    SET LOCAL ROLE ask_reader
+  </update>
+
+  <!-- 이 트랜잭션이 끝날 때까지만 쿼리 하나 3초 제한 -->
+  <update id="setStatementTimeout">
+    SET LOCAL statement_timeout = '3s'
+  </update>
+
+  <!-- AI가 쓴 SQL. ${sql}에는 SqlChecker를 통과한 SELECT만 들어옴 (CLAUDE.md 예외).
+       그 안의 #{route}·#{me}·#{next}·#{slack}은 MyBatis가 값을 안전하게 넣음 -->
+  <select id="selectPlaceIdsBySql" resultType="string">
+    ${sql}
+  </select>
+
+  <!-- 우리가 쓴 고정 SQL: 화면에 보낼 정보.
+       route 글자 앞에 SRID=4326; 이 붙어 있어서 geometry로 읽을 때는 ST_GeomFromEWKT -->
+  <select id="selectAskedPlaceList" resultType="com.tripbiseo.live.dto.AskedPlace">
+    SELECT p.id, p.name, p.kind, p.biz_type AS category, p.lat, p.lng,
+           p.rating_adj AS rating, p.review_count AS reviewCount,
+           p.use_time AS useTime, p.rest_date AS restDate
+    <if test="route != null">
+         , detour_minutes(p.geom, ST_GeogFromText(#{route})) AS detourMinutes
+         , ST_Y(ST_ClosestPoint(ST_GeomFromEWKT(#{route}), p.geom::geometry)) AS joinLat
+         , ST_X(ST_ClosestPoint(ST_GeomFromEWKT(#{route}), p.geom::geometry)) AS joinLng
+    </if>
+    FROM ask_place p
+    WHERE p.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+
+  <!-- 경로 양옆 meters m 띠 (지도에 반투명으로 그림) -->
+  <select id="selectRouteBand" resultType="string">
+    SELECT ST_AsGeoJSON(ST_Buffer(ST_GeogFromText(#{route}), #{meters}))
+  </select>
+
+</mapper>
