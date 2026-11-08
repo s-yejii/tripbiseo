@@ -304,7 +304,36 @@ async function flowTick() {
   }
 }
 
+// 자동 배속 (11/08 주형: 평가자에게 필요한 부분만 천천히): 도착하고 잠깐은 보통, 오래 머무는 중은 아주 빠르게,
+//   이동은 빠르게, 돌발(회식 출발 알림·서울역 늦음) 10분 앞부터는 천천히
+const SPEED_SLOW = 15
+const SPEED_NORMAL = 60
+const SPEED_MOVE = 120
+const SPEED_FAST = 480
+const SHOW_ARRIVAL_MIN = 8 // 도착하고 이만큼은 보통 속도로 보여 줌
+const SLOW_BEFORE_MIN = 10 // 돌발 이만큼 앞부터 천천히
+function wantedSpeed(day, plan, nowMin) {
+  for (let i = 0; i < plan.length; i++) {
+    const item = plan[i]
+    const next = plan[i + 1]
+    const incidentAt = next && next.stop.fixed ? (item.isLate ? item.leave : item.leave - LEAVE_ALERT_BEFORE_MIN) : null
+    if (incidentAt != null && nowMin >= incidentAt - SLOW_BEFORE_MIN && nowMin < incidentAt + LATE_TARGET_MIN) return SPEED_SLOW
+    if (nowMin >= item.arrive && nowMin < item.arrive + SHOW_ARRIVAL_MIN) return SPEED_NORMAL
+    if (nowMin >= item.arrive && nowMin < item.leave) return SPEED_FAST
+  }
+  return SPEED_MOVE
+}
+let lastSpeedSetAt = 0
+async function applyAutoSpeed(day, plan, nowMin) {
+  if (!devMode.isAutoSpeed || devMode.speed === 0 || Date.now() - lastSpeedSetAt < 1500) return // 멈춤(돌발)은 사람이 재생할 때까지 그대로
+  const wanted = wantedSpeed(day, plan, nowMin)
+  if (wanted === devMode.speed) return
+  lastSpeedSetAt = Date.now()
+  syncClock(await setDevSpeed(wanted))
+}
+
 async function moveForTime(day, plan, nowMin) {
+  await applyAutoSpeed(day, plan, nowMin)
   const last = plan[plan.length - 1]
   if (nowMin >= last.leave && day < lastDay()) { // 밤: 다음 날 아침으로 건너뜀
     const next = planOf(day + 1)[0]

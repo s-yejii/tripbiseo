@@ -123,7 +123,7 @@
 | `GET /api/dev/status` | 없음 | 시연 계정인지 + 지금 시연 시계 |
 | `POST /api/dev/clock` | `{ "date": "2026-11-07", "time": "18:05" }` (date를 비우면 오늘) | 그 시각으로 맞춤 |
 | `POST /api/dev/clock/forward` | `{ "minutes": 15 }` (1~720) | 그만큼 빨리 감기 |
-| `POST /api/dev/clock/speed` | `{ "speed": 60 }` (0~120, 0이면 멈춤) | 시연 시계 배속: 진짜 1초에 speed초씩 흐름. 응답 `speed` 칸 (11/08) |
+| `POST /api/dev/clock/speed` | `{ "speed": 60 }` (0~600, 0이면 멈춤) | 시연 시계 배속: 진짜 1초에 speed초씩 흐름. 응답 `speed` 칸 (11/08) |
 | `DELETE /api/dev/clock` | 없음 | 진짜 시각으로 |
 | `POST /api/dev/rain` | `{ "from": "13:00" }` | 시연 비 예보 넣기: 그 계정은 기상청 대신 "오늘 13:00부터 비(강수확률 80%)"로 봄 (돌발 ②) |
 | `DELETE /api/dev/rain` | 없음 | 시연 비 예보 빼기 (진짜 예보로) |

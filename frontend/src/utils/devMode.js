@@ -7,7 +7,7 @@ import { getDevScenario, getDevStatus, setDevClock, setDevSpeed } from '@/api/de
 
 const KEY = 'devMode'
 const DEFAULT_SPEED = 60 // 시연 시계 기본 배속: 진짜 1초에 1분 (11/08 주형: 시계가 빠르게)
-const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, command: null }
+const DEFAULT = { isOn: false, isFakeGps: false, clockOffsetMs: 0, speed: 1, syncedAt: 0, showPractice: false, isFlow: false, isAutoSpeed: true, command: null }
 
 function load() {
   try {
@@ -83,6 +83,13 @@ export function isFakeGps() {
 // 일정대로 흐르기 켜고 끄기: 켜면 여행 중 화면에서 시연 시각에 맞는 자리로 "나"가 움직여요 (11/08)
 export function setFlow(isFlow) {
   devMode.isFlow = devMode.isOn && isFlow
+  save()
+}
+
+// 자동 배속 켜고 끄기: 켜면 볼 것 없는 구간(오래 머무는 중·밤)은 빠르게, 돌발 앞에서는 천천히 (11/08 주형)
+//   설정에서 배속을 직접 고르면 꺼짐
+export function setAutoSpeed(isAuto) {
+  devMode.isAutoSpeed = isAuto
   save()
 }
 

@@ -4,7 +4,7 @@
 // 시계를 바꾸면 'clock', 가짜 GPS를 바꾸면 'gps'를 알려서 부모 화면이 상황을 다시 받게 해요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clearDevRain, forwardDevClock, getDevStatus, resetDevClock, setDevClock, setDevRain, setDevSpeed } from '@/api/dev'
-import { devMode, sendCommand, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
+import { devMode, sendCommand, setAutoSpeed, setFakeGps, setFlow, setShowPractice, syncClock, turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 
 const props = defineProps({
@@ -79,6 +79,7 @@ function forward(minutes) {
   changeClock(() => forwardDevClock(minutes), minutes + '분 빨리 감았어요')
 }
 function changeSpeed(next) {
+  if (next !== 0) setAutoSpeed(false) // 직접 고르면 자동 배속은 끔
   if (next === 0) pausedSpeed.value = speed.value || 60
   changeClock(() => setDevSpeed(next), next === 0 ? '시계를 멈췄어요' : '시계 ' + next + '배속')
 }
@@ -154,6 +155,7 @@ function turnOff() {
         <span class="t-cap">배속</span>
         <button v-for="item in SPEEDS" :key="item" type="button" class="chip chip--sm tn" :class="{ 'is-on': speed === item }" :disabled="isBusy" @click="changeSpeed(item)">{{ item }}x</button>
         <button type="button" class="chip chip--sm" :class="{ 'is-on': speed === 0 }" :disabled="isBusy" @click="togglePause">{{ speed === 0 ? '재생' : '멈춤' }}</button>
+        <button type="button" class="chip chip--sm" :class="{ 'is-on': devMode.isAutoSpeed }" @click="setAutoSpeed(!devMode.isAutoSpeed)">자동 배속 {{ devMode.isAutoSpeed ? '켜짐' : '꺼짐' }}</button>
       </div>
 
       <div class="dev-panel__row">

@@ -26,7 +26,7 @@ public class DevServiceImpl implements DevService {
 
     private static final int MAX_FORWARD_MINUTES = 720; // 한 번에 12시간까지
     private static final int SECONDS_PER_MINUTE = 60;
-    private static final int MAX_SPEED = 120; // 시계 배속 최대 (진짜 1초에 2분)
+    private static final int MAX_SPEED = 600; // 시계 배속 최대 (진짜 1초에 10분, 쓸데없는 구간 넘길 때)
 
     private final MemberService memberService;
     private final DemoScenario demoScenario; // 발표 시나리오 정의 (plan/service/DemoScenario.java)
