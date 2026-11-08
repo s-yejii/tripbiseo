@@ -209,8 +209,11 @@ async function undo() {
       </div>
 
       <div class="cta" style="display: flex; gap: 8px">
-        <!-- 카카오톡 공유 버튼: 카카오 디자인 가이드 색(#FEE500 · 검은 글씨). 공식 말풍선 심볼은 developers.kakao.com 리소스에서 받아 넣기 (아직 없음) -->
-        <button type="button" class="btn btn--lg kakao-share" style="flex: 1" @click="share">{{ isShared ? '공유했어요' : '카카오톡으로 공유' }}</button>
+        <!-- 카카오톡 공유 버튼: 카카오 디자인 가이드처럼 노란 바탕(#FEE500) + 검은 말풍선 심볼 + 검은 글씨. 말풍선은 파일을 받지 않고 SVG로 그림 (11/08) -->
+        <button type="button" class="btn btn--lg kakao-share" style="flex: 1" @click="share">
+          <svg class="kakao-share__bubble" viewBox="0 0 24 22" aria-hidden="true"><path d="M12 1C5.9 1 1 4.9 1 9.7c0 3.1 2 5.8 5.1 7.3l-1.1 4c-.1.4.3.7.6.5l4.7-3.1c.6.1 1.1.1 1.7.1 6.1 0 11-3.9 11-8.7S18.1 1 12 1z" fill="#191919"/></svg>
+          {{ isShared ? '공유했어요' : '카카오톡으로 공유' }}
+        </button>
         <RouterLink to="/live" class="btn btn--primary btn--lg" style="flex: 1"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
       </div>
       </template>
@@ -222,7 +225,8 @@ async function undo() {
 <style>
 .scr-Applied .legend{display:flex;gap:14px;align-items:center}
 .scr-Applied .thumb--station{display:grid;place-items:center;background:var(--surface-sunken);color:var(--navy, var(--ink-muted))}
-.scr-Applied .kakao-share{background:#FEE500;color:#191919;border:0;font-weight:700}
+.scr-Applied .kakao-share{background:#FEE500;color:#191919;border:0;font-weight:700;gap:8px}
+.scr-Applied .kakao-share__bubble{width:20px;height:18px;flex:none}
 .scr-Applied .legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--ink-muted)}
 .scr-Applied .legend i.sw{width:12px;height:12px;border-radius:4px;display:inline-block}
 .scr-Applied .topbar .btn{flex:none}
