@@ -1,7 +1,7 @@
 <script setup>
 // 시연 엔진 (③, 11/06 → 11/08 화면에서 띠를 뺌): 개발자 모드(시연 계정)에서만, 여행 중 화면에 보이는 것은 없어요.
 // 11/08 주형: "티 나면 안 됨" → 가짜 GPS가 시연 시계(빠르게 도는 시계)에 맞춰 일정 자리로 움직여서 여행이 저절로 흘러가요.
-//   돌발 ① 회식 5분 전 출발 알림 · ② 2일차 아침 비 · ③ 마지막 야외에서 늦게까지 → 서울역 늦음, 은 그 시각이 되면 진짜 알림으로 떠요
+//   돌발 ① 회식 5분 전 출발 알림 · ③ 서울역 앞 칸에서 늦게까지 → 서울역 늦음, 은 그 시각이 되면 진짜 알림으로 떠요 (날씨는 돌발 아님: 일정 짤 때 반영, 11/08)
 //   조작(배속·멈춤·장면 바로 가기·다음/이전 장소·처음부터)은 반투명 점(DevDot)의 설정에서 → devMode.command로 받음
 // 장면 버튼 하나로 시연 시계·가짜 위치·비 예보를 한 번에 맞춰서, 실제 사용자가 그 순간 보는 화면(알림·대안)을 바로 보여 줘요.
 //   1일차 출발 → ① 회식 출발 알림 → 숙소(밤 건너뛰기) → ② 2일차 아침 비 → ③ 한강에서 늦음 → 서울역 도착
@@ -272,7 +272,7 @@ function planOf(day) {
   for (const stop of list) plan.push({ stop, arrive: toMinutes(stop.time), leave: toMinutes(stop.time) + (stop.stay || 0) })
   if (day === lastDay()) {
     const station = list.filter((stop) => stop.fixed).pop()
-    const park = list.filter((stop) => stop !== station && isOutdoor(stop)).pop()
+    const park = list[list.indexOf(station) - 1] // ③ 서울역 바로 앞 칸에서 늦게까지 (11/08: 비 예보를 반영하면 한강이 오전으로 가서 실내 쇼핑몰)
     const parkPlan = plan.find((item) => item.stop === park)
     if (station && parkPlan && parkPlan.stop.time < station.time) {
       parkPlan.leave = Math.max(parkPlan.leave, toMinutes(station.time) - LATE_BEFORE_MIN)
@@ -296,13 +296,6 @@ async function flowTick() {
   if (!plan.length) return
   isPlacing = true
   try {
-    // ② 마지막 날이 여러 날 여행의 둘째 날이면 아침에 시연 비 예보 (13:00부터) → 진짜 "비 소식" 알림
-    if (day === lastDay() && day > 1 && rainDay !== day) {
-      rainDay = day
-      await setDevRain(RAIN_FROM)
-      await props.live.refresh()
-      await pauseFor('rain')
-    }
     await moveForTime(day, plan, nowMin)
   } catch (e) {
     // 한 번 못 하면 다음 틱에 다시

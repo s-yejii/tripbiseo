@@ -92,10 +92,10 @@ public class LiveAlertMaker {
         String what = weather.isSnow() ? "눈" : "비";
         String movable = findMovableOutdoor(context);
         if (movable != null) {
-            // 돌발 ② (11/06): 아침에 미리 알려서 야외를 비 오기 전으로 옮기게
+            // 돌발 ② (11/06 → 11/08 주형·강사님 피드백): 날씨는 수시로 바뀌니 "여행 중 돌발"이 아니라 나가기 전 아침에 일정 바꾸기를 권함
             return newAlert("rain-move-" + weather.getTime().replace(":", ""), "warn",
-                    weather.getTime() + "부터 " + what + " 소식이 있어요 (강수확률 " + weather.getPop() + "%)",
-                    movable + "을(를) " + what + " 오기 전에 먼저 가면 안 젖어요. '대안 보기'에서 순서를 바꿔 보세요");
+                    "오늘 날씨가 바뀌었어요 · " + weather.getTime() + "부터 " + what + " (강수확률 " + weather.getPop() + "%)",
+                    "나가기 전에 일정을 바꿀까요? " + movable + "을(를) " + what + " 오기 전에 먼저 가는 일정이 '대안 보기'에 있어요");
         }
         return newAlert("rain-" + weather.getTime().replace(":", ""), "warn",
                 weather.getTime() + "부터 " + what + " 소식이 있어요 (강수확률 " + weather.getPop() + "%)",

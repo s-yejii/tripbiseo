@@ -56,6 +56,17 @@ public class DemoScenario {
         { 2, "18:45", "서울역", null, "KTX정차역", 37.55406888733184, 126.97070335253385, 30, true, null },
     };
 
+    // 비 예보(시연 고정): 2일차 13:00부터 비 → 일정 짤 때 알려 주고 [반영하기]를 누르면 2일차를 이 순서로 (11/08 주형: 날씨는 돌발 아님)
+    private static final int RAIN_DAY = 2;
+    private static final String RAIN_FROM = "13:00";
+    private static final Object[][] RAIN_DAY_STOPS = {
+        { 2, "10:00", "영등포공원", "demo-yeongdeungpo-park", "관광지", 37.5150168, 126.9107969, 80, false, "숙소에서 걸어서 5분 · 아침 산책" },
+        { 2, "11:40", "여의도한강공원", "tour-1059479", "시민공원", 37.5263997727, 126.9336095794, 60, false, "비 오기 전 오전에 한강" },
+        { 2, "13:00", "이관복명장냉면 타임스퀘어점", "naver-2090669039", "냉면", 37.5169546, 126.9042079, 80, false, "리뷰에 단체석 넓다는 말이 많아요" },
+        { 2, "14:40", "영등포 타임스퀘어", "demo-times-square", "쇼핑센터,할인매장", 37.5172094, 126.9040371, 200, false, "비 오는 오후는 실내 쇼핑몰" },
+        { 2, "18:45", "서울역", null, "KTX정차역", 37.55406888733184, 126.97070335253385, 30, true, null },
+    };
+
     /** 시나리오 일정 초안: 날짜는 고른 시작일(없으면 오늘)부터 1박 2일, 인원은 고른 인원(없으면 4명) */
     public PlanGenerateResponse makeDraft(PlanConditions conditions) {
         String startDate = hasText(conditions.getStartDate()) ? conditions.getStartDate() : Geo.now().toLocalDate().toString();
@@ -92,6 +103,11 @@ public class DemoScenario {
         setup.setStayCheckInTime(STAY_CHECK_IN);
         setup.setStayCheckOutTime(STAY_CHECK_OUT);
         setup.setStartTime(START_TIME);
+        setup.setRainDay(RAIN_DAY);
+        setup.setRainFrom(RAIN_FROM);
+        for (Object[] row : RAIN_DAY_STOPS) {
+            setup.getRainDayStops().add(toStop(row));
+        }
         return setup;
     }
 

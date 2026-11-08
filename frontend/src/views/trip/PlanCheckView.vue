@@ -25,6 +25,7 @@ import { showTrashToast } from '@/utils/trash'
 import { useRouteSim } from '@/utils/useRouteSim'
 import RouteSimButton from '@/components/trip/RouteSimButton.vue'
 import TripWeather from '@/components/plan/TripWeather.vue'
+import ScenarioRainNotice from '@/components/plan/ScenarioRainNotice.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -200,6 +201,7 @@ async function save() {
           </button>
         </ChipScroller>
         <TripWeather :date="dayDate" :stops="dayStopsOf(store.draft, day)" />
+        <ScenarioRainNotice :draft="store.draft" @applied="runCheck" /><!-- 시연 계정만: 비 예보를 일정 짤 때 알려 주고 반영 (③ 11/08) -->
       </template>
       <template v-if="error" #below>
         <p class="t-cap c-danger" style="padding: 12px 16px">{{ error }}</p>
