@@ -78,7 +78,7 @@ onUnmounted(() => {
 
 <style>
 .chip-scroller { position: relative; min-width: 0; }
-.chip-scroller__row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; cursor: grab; user-select: none; -webkit-user-select: none; }
+.chip-scroller__row { display: flex; gap: 8px; padding-block: 2px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; cursor: grab; user-select: none; -webkit-user-select: none; }
 .chip-scroller__row::-webkit-scrollbar { display: none; }
 .chip-scroller__row > * { flex: none; scroll-snap-align: start; }
 .chip-scroller.is-more .chip-scroller__row { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
