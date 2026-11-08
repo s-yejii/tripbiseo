@@ -341,7 +341,8 @@ onMounted(async () => {
   }
   const setup = scenario.value
   if (!store.planOrigin) store.planOrigin = { name: setup.originName, address: setup.originAddress, category: '출발지', lat: setup.originLat, lng: setup.originLng }
-  // 예약(KTX)은 미리 넣지 않음 (11/08 주형: 발표자가 "예약한 곳" 단계에서 서울역을 직접 찾아 넣음). 시나리오 일정은 그대로 서울역 18:30 도착
+  // 1일차 회식 예약(문래 골목집 18:30)만 미리 넣음. KTX는 발표자가 "예약한 곳" 단계에서 서울역을 직접 찾아 넣음 (11/08 주형)
+  if (!fixedList.value.length) store.planConditions = { ...(store.planConditions || {}), fixed: setup.fixed.filter((item) => item.day === 1) }
 })
 // 숙소는 미리 넣지 않음 (11/08 주형: 시연에서 숙소 단계에서 직접 찾아 넣는 모습을 보여 줌)
 
@@ -350,7 +351,7 @@ function useRecommendedTime() {
   // 시연 계정: 시나리오 시각으로 (11/08 주형). 시작은 첫날(가마산로 출발 15:00), 끝은 마지막 날(KTX 15분 전 도착)
   //   값은 서버 DemoScenario.java 한 곳 (startTime, fixed KTX). 시작·끝은 PlanRuleMaker가 첫날·마지막 날에만 써요
   if (scenario.value) {
-    const train = scenario.value.fixed[0]
+    const train = scenario.value.fixed.find((item) => item.day > 1) || scenario.value.fixed[0] // 마지막 날 KTX
     const end = toTime(toMinutes(train.time) - BOARDING_EARLY_MIN)
     store.planFromTime = scenario.value.startTime
     store.planToTime = end

@@ -34,6 +34,8 @@ public class DemoScenario {
     private static final String ORIGIN_ADDRESS = "서울 구로구 가마산로 242";
     private static final double ORIGIN_LAT = 37.494361055919896; // 카카오 주소 검색 (11/08)
     private static final double ORIGIN_LNG = 126.88768106730573;
+    private static final String DINNER_NAME = "문래 골목집";
+    private static final String DINNER_TIME = "18:30"; // 회식 예약
     private static final String TRAIN_NAME = "서울역";
     private static final String TRAIN_TIME = "19:00"; // KTX 출발. 시나리오 일정엔 30분 전 18:30 도착 (DEMO.md)
     private static final String STAY_NAME = "GMS호텔";
@@ -109,6 +111,11 @@ public class DemoScenario {
         train.setTime(TRAIN_TIME);
         train.setDay(NIGHTS + 1); // 마지막 날
         setup.getFixed().add(train);
+        FixedVisit dinner = new FixedVisit(); // 1일차 회식 예약 (11/08 주형: 예약한 곳에 미리 넣어 둠, KTX는 발표자가 직접)
+        dinner.setName(DINNER_NAME);
+        dinner.setTime(DINNER_TIME);
+        dinner.setDay(1);
+        setup.getFixed().add(dinner);
         setup.setStayName(STAY_NAME);
         setup.setStayAddress(STAY_ADDRESS);
         setup.setStayLat(STAY_LAT);
