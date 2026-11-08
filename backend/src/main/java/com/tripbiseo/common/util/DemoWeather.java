@@ -9,6 +9,9 @@ public final class DemoWeather {
     // ThreadLocal: 요청 하나를 처리하는 스레드마다 따로 값을 들고 있는 칸 (다른 사람 요청과 섞이지 않음)
     private static final ThreadLocal<String> RAIN_FROM = new ThreadLocal<>();
 
+    /** 시연 중이지만 비를 안 넣었을 때: 진짜 기상청 예보 대신 "비 없음"으로 봄 (11/08) */
+    public static final String DRY = "";
+
     private DemoWeather() {}
 
     /** 이번 요청에서 쓸 비 시작 시각 "13:00" */

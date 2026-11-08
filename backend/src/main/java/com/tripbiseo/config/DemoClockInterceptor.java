@@ -35,6 +35,8 @@ public class DemoClockInterceptor implements HandlerInterceptor {
             String rainFrom = devService.getRainFrom((Long) memberId);
             if (rainFrom != null) {
                 DemoWeather.set(rainFrom);
+            } else if (offset != 0) {
+                DemoWeather.set(DemoWeather.DRY); // 시연 시계를 쓰는 중인데 시연 비를 안 넣었으면 진짜 예보 대신 "비 없음" (11/08: 1일차에 진짜 비가 섞이지 않게)
             }
         }
         return true;

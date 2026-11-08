@@ -39,6 +39,9 @@ public class LiveWeatherChecker {
      */
     public WeatherInfo check(double lat, double lng, StatusContext context) {
         String demoRain = DemoWeather.rainFrom(); // 시연 계정이 개발자 모드에서 넣은 비 (11/06)
+        if (DemoWeather.DRY.equals(demoRain)) {
+            return null; // 시연 중 비를 안 넣었으면 비 없음 (11/08)
+        }
         if (demoRain != null) {
             return makeDemoRain(demoRain, context);
         }
@@ -85,6 +88,9 @@ public class LiveWeatherChecker {
     public Integer findRainStart(double lat, double lng) {
         int now = Geo.nowMinutes();
         String demoRain = DemoWeather.rainFrom();
+        if (DemoWeather.DRY.equals(demoRain)) {
+            return null;
+        }
         if (demoRain != null) {
             int start = Geo.toMinutes(demoRain);
             return start + HOUR_END_MIN < now ? null : start;
