@@ -49,6 +49,7 @@ const dateOf = (day) => addDays(trip.value.startDate, day - 1)
 function dateText(date) {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0')
 }
+const hhmm = (date) => toTime(date.getHours() * 60 + date.getMinutes()) // 알림에 붙일 시각 "18:15"
 function minutesOf(date) {
   return date.getHours() * 60 + date.getMinutes()
 }
@@ -191,8 +192,8 @@ function stayEndOf(stop) {
 async function showNotice(next, travelMin) {
   const move = '이동 ' + travelMin + '분'
   showLiveNotice(next.fixed
-    ? { key: 'drive-' + next.id, title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true }
-    : { key: 'drive-' + next.id, title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false })
+    ? { key: 'drive-' + next.id, at: hhmm(appNow()), title: '지금 출발해야 해요', body: next.name + ' ' + next.time + ' 예약 · ' + move, warn: true }
+    : { key: 'drive-' + next.id, at: hhmm(appNow()), title: '다음 ' + next.name + '(으)로 이동해요', body: move, warn: false })
   await wait(NOTICE_MS)
 }
 
@@ -211,7 +212,7 @@ async function walkInside(current, next) {
   await setClock(date, departMin)
   const isSameBuilding = (next.memo || '').includes('같은 건물') // 일정 메모에 적힌 대로 (예: 테디뵈르 "같은 건물 지하 1층")
   const title = isSameBuilding ? next.memo.split('·')[0].trim() + '이에요' : '바로 옆이에요'
-  showLiveNotice({ key: 'drive-' + next.id, title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false })
+  showLiveNotice({ key: 'drive-' + next.id, at: hhmm(appNow()), title, body: next.name + ' · 걸어서 ' + INSIDE_WALK_MIN + '분', warn: false })
   await wait(NOTICE_MS)
   await arrive(next, date, departMin + INSIDE_WALK_MIN)
 }
