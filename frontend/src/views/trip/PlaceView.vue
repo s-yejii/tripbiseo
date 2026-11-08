@@ -5,7 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { places } from '@/data/places'
 import { concertTrip } from '@/data/trips'
-import { getPlaceDetail } from '@/api/trips'
+import { getPlaceDetail, getPlacePhotos } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { imageFor } from '@/utils/mapView'
 import { goBack } from '@/utils/back'
@@ -30,15 +30,27 @@ const inPlan = computed(() => {
 })
 const saved = ref(false)
 
+// 진짜 사진 찾기. 실패해도 상세는 보여야 해서 여기서만 잡고 빈 목록으로
+async function findPhotos(placeId) {
+  try {
+    return await getPlacePhotos([placeId])
+  } catch {
+    return []
+  }
+}
+
 onMounted(async () => {
   if (isFake) return
   try {
-    const detail = await getPlaceDetail(route.query.id)
+    // 상세와 사진을 같이 불러서 기다리는 시간을 줄임
+    const [detail, photos] = await Promise.all([getPlaceDetail(route.query.id), findPhotos(route.query.id)])
+    const photo = photos[0] // 찾은 진짜 사진 첫 장 (없으면 undefined)
     const today = detail.hours.find((hours) => hours.today)
     server.value = {
       ...detail,
       cat: detail.category || '',
-      img: detail.imageUrl || imageFor(detail.category),
+      img: (photo && photo.imageUrl) || detail.imageUrl || imageFor(detail.category), // 찾은 사진 → DB 사진 → 카테고리 기본 그림
+      photoSite: photo ? photo.siteName : null, // 사진 출처 (블로그 이름). DB 사진이면 null
       rate: detail.rating ?? '-',
       hours: today ? today.text : detail.useTime,
       dur: STAY_MIN_OF_KIND[kindOf(detail.category)] || OTHER_STAY_MIN,
@@ -87,6 +99,7 @@ function addToPlan() {
   <div class="scr scr-Place">
     <div class="app app--white">
       <img :src="place.img" :alt="place.name + ' 사진'" class="pl-photo" />
+      <span v-if="place.photoSite" class="pl-credit">사진: {{ place.photoSite }}</span>
       <header class="topbar topbar--float">
         <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/plan/check')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <span style="flex: 1"></span>
@@ -143,6 +156,7 @@ function addToPlan() {
 
 <style>
 .scr-Place .pl-photo{position:absolute;top:0;left:0;width:100%;height:300px;object-fit:cover}
+.scr-Place .pl-credit{position:absolute;right:16px;top:268px;max-width:60%;padding:2px 8px;border-radius:8px;background:rgba(24,33,58,.7);color:#fff;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scr-Place .why{display:flex;gap:10px;padding:12px;border-radius:var(--radius-md);background:var(--navy-soft)}
 .scr-Place .why>span{display:flex;flex-direction:column;gap:6px}
 .scr-Place .why__tags{display:flex;flex-wrap:wrap;gap:6px}
