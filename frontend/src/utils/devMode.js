@@ -140,6 +140,24 @@ export async function applyDemoAccount() {
 
 // "시연 준비" (11/08): 끝나지 않은 연습 여행("(연습)")을 앱 흐름대로 끝내고, 시계 = 진짜 오늘 시나리오 시작 시각(15:00)·보통 속도,
 //   시연 비 빼기, 가짜 GPS·일정대로 흐르기·자동 배속 켜기, 쌓인 알림 읽음 처리. 진짜 예정 여행(86 등)은 안 건드림
+// 시연 계정 여행 시작 (11/08 주형): 언제 눌러도(시계·날짜와 상관없이) 그 여행 1일차 출발 시각부터 시작.
+//   진행 중인 다른 시연 여행(연습·시나리오 제목)은 먼저 끝냄. 다른 팀원이 쓰는 여행 번호는 건드리지 않음
+const PROTECTED_TRIP_IDS = [51, 81, 82, 83, 84, 85, 86]
+const DEMO_TRIP_TITLE = '영등포 워크숍' // 시나리오 여행 제목 앞부분 (서버 DemoScenario의 TITLE)
+const isDemoTrip = (trip) => isPracticeTrip(trip) || (typeof trip.title === 'string' && trip.title.startsWith(DEMO_TRIP_TITLE))
+export async function prepareTripStart(tripId) {
+  const trips = await getTripList()
+  for (const other of trips) {
+    const isOtherDemo = other.status === 'ongoing' && other.id !== tripId && isDemoTrip(other)
+    if (isOtherDemo && !PROTECTED_TRIP_IDS.includes(other.id)) await finishTrip(other.id)
+  }
+  const trip = trips.find((item) => item.id === tripId)
+  if (!trip) return
+  const setup = await getDevScenario().catch(() => null)
+  await setDevClock(trip.startDate, (setup && setup.startTime) || '15:00')
+  syncClock(await setDevSpeed(1))
+}
+
 export async function prepareDemo() {
   const trips = await getTripList()
   for (const trip of trips) {
