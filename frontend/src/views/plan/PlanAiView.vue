@@ -64,12 +64,12 @@ const canNext = computed(() => !step.value.isRequired || !!store.planArea)
 
 // 1단계: 플랫폼 검색 바로가기 (새 창). 이 칸에선 아직 지역을 안 골라서 검색어는 늘 서울로 고정 (지난번 지역이 저장소에 남아 있어요)
 const YOUTUBE_WORD = '서울 핫플 브이로그'
-const INSTAGRAM_WORD = '서울 핫플'
 const NAVER_WORD = '서울 가볼만한곳'
+const INSTAGRAM_ACCOUNT_URL = 'https://www.instagram.com/yeohaenge_ottae/' // 여행어때 인스타그램 계정 (모든 계정 같음)
 const SEARCH_LINKS = [
   { key: 'mukeul', label: '먹을텐데', caption: '여행어때 파트너스', isVerified: true, img: '/img/shortcut/mukeul.jpg', text: '유튜브에서 먹을텐데 서울 찾기', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent('성시경 먹을텐데 서울') },
   { key: 'youtube', label: 'YouTube', logo: youtubeLogo, cls: 'pa-sns--yt', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(YOUTUBE_WORD) },
-  { key: 'instagram', label: 'Instagram', labelCls: 'pa-sns__script', logo: instagramLogo, cls: 'pa-sns--ig', url: () => 'https://www.instagram.com/explore/search/keyword/?q=' + encodeURIComponent(INSTAGRAM_WORD) },
+  { key: 'instagram', label: 'Instagram', labelCls: 'pa-sns__script', logo: instagramLogo, cls: 'pa-sns--ig', url: () => INSTAGRAM_ACCOUNT_URL }, // 11/08 주형: 인스타는 우리 계정 페이지로
   { key: 'naver', label: '네이버', logo: naverLogo, cls: 'pa-sns--nv', url: () => 'https://search.naver.com/search.naver?query=' + encodeURIComponent(NAVER_WORD) }, // 통합검색: 플레이스 지도·사진 목록이 나와요
   // 캐치테이블: 아이콘은 공식 사이트 favicon. 주소는 캐치테이블 웹에서 "서울"을 검색했을 때 뜨는 지도 + 가게 목록 화면
   { key: 'catchtable', label: '캐치테이블', img: '/img/shortcut/catchtable.png', text: '캐치테이블에서 서울 가게 찾기', url: () => 'https://app.catchtable.co.kr/ct/map/search-map?showTabs=true&bottomSheetHeightType=PARTIAL_MAP&serviceType=INTEGRATION&keyword=' + encodeURIComponent('서울') + '&keywordSearch=' + encodeURIComponent('서울') + '&isInitSearch=1' },
