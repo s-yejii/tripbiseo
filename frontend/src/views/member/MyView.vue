@@ -235,7 +235,7 @@ async function logout() {
 .scr-My .my-stat{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px}
 .scr-My .my-stat b{font-size:20px;line-height:26px;font-weight:800;color:var(--navy)}
 .scr-My .my-stat.is-live b{color:var(--coral)}
-.scr-My .my-style{display:flex;align-items:center;gap:12px;padding:16px;border-radius:var(--radius-lg);background:var(--lilac-soft);text-decoration:none;color:var(--ink);transition:transform .1s}
+.scr-My .my-style{margin-top:-12px;display:flex;align-items:center;gap:12px;padding:16px;border-radius:var(--radius-lg);background:var(--lilac-soft);text-decoration:none;color:var(--ink);transition:transform .1s}
 .scr-My .my-style .ico-tile{background:#fff}
 .scr-My .my-style:active{transform:scale(.98)}
 .scr-My .my-style__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
