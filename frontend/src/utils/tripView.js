@@ -139,13 +139,16 @@ function toViewStop(stop, position, memo = null) {
   }
 }
 
+const FIXED_CHECK_SLACK_MIN = 10 // 예약까지 여유가 이보다 적어야 "미리 확인할 것"에 넣음
+
 // 점검 결과의 문제 줄 → "미리 확인할 것"
 function toChecks(check) {
   const items = []
   for (const stop of check.stops) {
     if (stop.issue) items.push({ kind: 'late', icon: 'i-warning', title: stop.name, desc: stop.issue })
   }
-  if (check.fixed) {
+  // 예약(시간 고정)은 빠듯하거나(여유 10분 미만) 늦을 때만 (11/09 주형: 여유 있는데 왜 말해줌?). 여유가 넉넉하면 넣지 않음
+  if (check.fixed && check.fixed.slack < FIXED_CHECK_SLACK_MIN) {
     const slack = check.fixed.slack
     items.push({
       kind: slack < 0 ? 'late' : 'event',
