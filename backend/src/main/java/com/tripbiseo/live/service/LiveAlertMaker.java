@@ -21,6 +21,7 @@ public class LiveAlertMaker {
     private static final int LEAVE_WINDOW_MIN = 10;  // 출발 시각 앞뒤 10분 안이면 출발 알림
     private static final int TIGHT_SLACK_MIN = 10;   // 고정 일정 여유가 이 이하면 "여유가 얼마 없어요"
     private static final int NEXT_LATE_MIN = 10;     // 다음 장소에 이보다 더 늦으면 알림
+    private static final int LEAVE_NOW_SLACK_MIN = 5; // 나갈 시간이 지났는데 고정 일정 여유가 이 이하면 "지금 안 나가면 늦어요" (늦기 전에 먼저)
 
     /**
      * 출발 알림: 출발 시각 앞뒤 10분 안일 때만 (아니면 null)
@@ -58,6 +59,12 @@ public class LiveAlertMaker {
             return newAlert("late-" + fixedStop.getId() + "-" + (-slack) / 10, "danger",
                     "지금대로면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")보다 " + (-slack) + "분 늦어요",
                     "'대안 보기'로 늦지 않는 방법을 확인하세요");
+        }
+        if (isOverdue(context) && slack != null && slack <= LEAVE_NOW_SLACK_MIN) {
+            // 11/08 주형: 이미 늦은 뒤에 알리면 늦어서, 여유가 조금 남았을 때 먼저 경고 (key가 late-로 시작 → 위에 크게 다시 뜸)
+            return newAlert("late-soon-" + fixedStop.getId(), "danger",
+                    "지금 나가지 않으면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")에 늦어요 · 여유 " + slack + "분",
+                    "'대안 보기'로 더 빨리 가는 방법을 확인하세요");
         }
         if (isOverdue(context)) {
             // 11/08: 머무는 시간이 지나면 한 번만 가볍게 (5분마다 반복하지 않음). 고정 일정에 늦게 되면 위 알림이 대신 뜸

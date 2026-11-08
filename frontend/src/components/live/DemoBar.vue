@@ -399,7 +399,7 @@ async function stayUntilLate(item, next, nowMin) {
     if (!pausedAt.has('overstay')) {
       await props.live.refresh()
       const fixed = props.live.status.value && props.live.status.value.fixed
-      if (fixed && fixed.slackMin != null && fixed.slackMin < 0) await pauseFor('overstay')
+      if (fixed && fixed.slackMin != null && fixed.slackMin <= WARN_SLACK_MIN) await pauseFor('overstay')
       return 'stay'
     }
     overstayLeftAt = nowMin // 멈췄다가 재생함 → 지금 떠남
@@ -488,6 +488,7 @@ const MANUAL_SPEED = 60 // 직접 조작일 때 시계가 흐르는 배속 (화�
 const MOVE_STEPS = 8 // 이동하는 모습을 몇 번에 나눠 보여 줄지
 const MOVE_STEP_MS = 450 // 약 3.6초 동안 이동
 const ALERT_SHOW_MS = 2500 // 떠나기 직전 출발 알림이 뜰 시간
+const WARN_SLACK_MIN = 5 // 돌발 장소에서 고정 일정 여유가 이 이하가 되면 멈춤 ("지금 안 나가면 늦어요" 알림과 같은 기준)
 const LATE_TRAVEL_MIN = 20 // 돌발 뒤 대안(지하철)으로 서울역까지 걸리는 분 (대략, 실제 대안 값은 화면에)
 let overstayArmed = false // 돌발 장소에서 "다음 장소로"를 눌러 나갈 시각이 된 상태 (늦어지면 멈춤)
 
@@ -509,7 +510,7 @@ async function manualTick() {
   try {
     await props.live.refresh()
     const fixed = props.live.status.value && props.live.status.value.fixed
-    if (fixed && fixed.slackMin != null && fixed.slackMin < 0) await pauseFor('overstay') // 돌발: 도착 목표보다 늦어진 순간
+    if (fixed && fixed.slackMin != null && fixed.slackMin <= WARN_SLACK_MIN) await pauseFor('overstay') // 돌발: 늦기 전에 먼저 경고하는 순간
   } finally {
     isPlacing = false
   }
