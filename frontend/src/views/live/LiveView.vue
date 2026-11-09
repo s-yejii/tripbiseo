@@ -121,8 +121,9 @@ const lateMin = computed(() => (fixed.value && fixed.value.slackMin < 0 ? -fixed
 const isLate = computed(() => isReady.value && status.value.replan && lateMin.value > 0)
 
 // "그냥 갈게요"를 눌렀고 그때보다 10분 넘게 더 늦지 않았으면 지연 알림을 접어 둠
+// 11/09: 대안을 고른 뒤 여유가 5분 이하로 남은 것(늦기 전)도 같이 접어 둠 → 같은 카드가 다시 [다음 장소로]를 가리지 않게
 const isAlertMuted = computed(() => {
-  if (!isLate.value || !fixed.value) return false
+  if (!isReady.value || !fixed.value) return false
   return replan.isMutedFor(live.tripId.value, fixed.value.name, lateMin.value)
 })
 const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
