@@ -342,8 +342,7 @@ onMounted(async () => {
   }
   const setup = scenario.value
   if (!store.planOrigin) store.planOrigin = { name: setup.originName, address: setup.originAddress, category: '출발지', lat: setup.originLat, lng: setup.originLng }
-  // 1일차 회식 예약(문래 골목집 18:30)만 미리 넣음. KTX는 발표자가 "예약한 곳" 단계에서 서울역을 직접 찾아 넣음 (11/08 주형)
-  if (!fixedList.value.length) store.planConditions = { ...(store.planConditions || {}), fixed: setup.fixed.filter((item) => item.day === 1) }
+  // 예약(문래 골목집 회식·서울역 KTX)은 미리 넣지 않음. 발표자가 "예약한 곳" 단계에서 장소 검색으로 직접 넣어요 (11/09 상재 제보)
 })
 // 숙소는 미리 넣지 않음 (11/08 주형: 시연에서 숙소 단계에서 직접 찾아 넣는 모습을 보여 줌)
 
