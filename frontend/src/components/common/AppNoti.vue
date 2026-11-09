@@ -9,6 +9,8 @@ const props = defineProps({
   icon: { type: String, default: 'i-bell' },
   to: { type: String, default: '' },
   warn: { type: Boolean, default: false },
+  urgent: { type: Boolean, default: false }, // 급한 알림: 연한 빨강 바탕 (지금 출발·나갈 시간·늦게 도착·비)
+  timer: { type: Boolean, default: false }, // 시간 알림: 왼쪽 칸 아이콘을 핀 대신 시계로
 })
 const emit = defineEmits(['close'])
 
@@ -38,8 +40,8 @@ function onUp() {
 <template>
   <div
     class="noti"
-    :class="{ 'noti--warn': warn }"
-    :role="warn ? 'alert' : 'status'"
+    :class="{ 'noti--warn': warn, 'noti--urgent': urgent }"
+    :role="warn || urgent ? 'alert' : 'status'"
     :style="moveY ? { transform: `translateY(${moveY}px)`, transition: 'none' } : null"
     :aria-label="title + ' · 위로 밀면 사라져요'"
     @pointerdown="onDown"
@@ -47,7 +49,7 @@ function onUp() {
     @pointerup="onUp"
     @pointercancel="onUp"
   >
-    <span class="noti__app" aria-hidden="true"><i class="ic ic--s i-pin"></i></span>
+    <span class="noti__app" aria-hidden="true"><i class="ic ic--s" :class="timer ? 'i-timer' : 'i-pin'"></i></span>
     <span class="noti__body">
       <span class="noti__meta"><b>착착트립</b><span>지금</span></span>
       <span class="noti__t tn"><i class="ic ic--s" :class="icon" aria-hidden="true"></i>{{ title }}</span>

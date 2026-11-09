@@ -530,6 +530,12 @@ a.banner:hover,button.banner:hover{filter:brightness(.97)}
 .noti--warn .noti__t .ic{color:var(--warning)}
 .noti__d{font-size:13px;line-height:18px;color:var(--ink-2,#4A5468)}
 .noti__grab{position:absolute;left:50%;bottom:5px;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:rgba(24,33,58,.18)}
+/* 급한 알림 (지금 출발·나갈 시간·늦게 도착·비): 연한 빨강 바탕 + 검정 글씨. 왼쪽 칸은 남색 그대로 */
+.noti--urgent,.noti--urgent:hover{background:#F9CFCB;color:#111;box-shadow:0 10px 30px -6px rgba(194,53,43,.45),0 0 0 1px rgba(194,53,43,.35)}
+.noti--urgent .noti__t,.noti--urgent .noti__t .ic{color:#111}
+.noti--urgent .noti__d{color:#2a2f3a}
+.noti--urgent .noti__meta,.noti--urgent .noti__meta b{color:#5a3a38}
+.noti--urgent .noti__grab{background:rgba(120,30,25,.25)}
 @media (prefers-reduced-motion: reduce){.noti{animation:none}}
 .noti.noti--still{animation:none}
 
