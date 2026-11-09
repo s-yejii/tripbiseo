@@ -1,6 +1,6 @@
 <script setup>
 // 요즘 인기 장소 목록 (②): GET /api/places/popular 결과를 줄로 보여 줘요. 누르면 장소 상세
-// places: [{ place: 장소 카드, visitors, reason }]
+// places: [{ place: 장소 카드, visitors, reason }] (visitors·reason은 서버가 보내지만 화면은 안 씀)
 import { ref, watch } from 'vue'
 import { getPlacePhotos } from '@/api/trips'
 import { imageFor } from '@/utils/mapView'
@@ -29,9 +29,6 @@ function imageOf(item) {
   const photo = photos.value[item.place.id]
   return photo ? photo.imageUrl : imageFor(item.place.category)
 }
-function openSource(item) {
-  window.open(photos.value[item.place.id].linkUrl, '_blank', 'noopener')
-}
 
 function distanceText(meters) {
   if (meters == null) return ''
@@ -51,11 +48,12 @@ function distanceText(meters) {
         <span class="row__body">
           <span class="row__title">{{ item.place.name }}</span>
           <span class="row__meta">{{ item.place.category }}<template v-if="item.place.distance != null"> · {{ distanceText(item.place.distance) }}</template></span>
-          <span class="row__meta pop__reason" :class="{ 'is-hot': item.visitors }">
-            <i class="ic ic--s" :class="item.visitors ? 'i-users' : 'i-star'" aria-hidden="true"></i>{{ item.reason.replace(/^★/, '') }}
+          <!-- "최근 한 달 N명"은 PC마다 시연 데이터(db/95)에 따라 다르게 보여서 별점·리뷰만 보여 줘요 (11/09, 찬기 확인) -->
+          <span v-if="item.place.rating != null" class="row__meta pop__reason">
+            <i class="ic ic--s i-star" aria-hidden="true"></i>{{ item.place.rating }} · 리뷰 {{ (item.place.reviewCount || 0).toLocaleString() }}
           </span>
         </span>
-        <button v-if="photos[item.place.id] && photos[item.place.id].siteName" type="button" class="pop__credit" :aria-label="'사진 출처 ' + photos[item.place.id].siteName" @click.prevent.stop="openSource(item)">{{ photos[item.place.id].siteName }}</button>
+        <!-- 사진 출처(블로그 이름)는 홈 목록에서 빼요. 사진 출처는 장소 상세(S12)에서 보여 줘요 (11/09, 상재·찬기 확인) -->
         <i class="ic i-next subtle" aria-hidden="true"></i>
       </RouterLink>
     </div>
@@ -67,8 +65,5 @@ function distanceText(meters) {
 .pop__head { display: flex; flex-direction: column; gap: 2px; }
 .pop__head .t-cap { margin: 0; }
 .pop__reason { display: inline-flex; align-items: center; gap: 4px; }
-.pop__credit { position: relative; flex: none; max-width: 64px; padding: 0; border: 0; background: none; font-size: 10px; line-height: 12px; color: var(--ink-subtle); text-decoration: underline; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
-.pop__credit::before { content: ""; position: absolute; left: -8px; right: -8px; top: -16px; bottom: -16px; }
 .pop__reason .ic { width: 13px; height: 13px; }
-.pop__reason.is-hot { color: var(--coral-ink, var(--navy)); font-weight: 600; }
 </style>

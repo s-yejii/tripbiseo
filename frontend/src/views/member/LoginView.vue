@@ -30,7 +30,7 @@ async function login() {
   <div class="scr scr-Login">
     <div class="app app--white">
       <header class="topbar">
-        <RouterLink to="/onboarding" class="iconbtn" aria-label="뒤로가기"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
+        <RouterLink to="/guest" class="iconbtn" aria-label="뒤로가기"><i class="ic ic--l i-back" aria-hidden="true"></i></RouterLink>
       </header>
 
       <div class="scroll" style="padding: 8px 24px 0; gap: 24px">
