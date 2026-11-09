@@ -20,8 +20,7 @@ const isNoPlace = computed(() => code.value === 422 && !isLocation.value)
 // 고를 수 있는 것 (추천은 이유에 맞게 하나)
 const choices = computed(() => [
   { key: 'retry', icon: 'i-undo', title: '그대로 다시 만들기', desc: '같은 조건으로 한 번 더 짜 봐요', to: '/plan/generating', isBest: !isLocation.value && !isNoPlace.value },
-  { key: 'chat', icon: 'i-sparkle', title: '원하는 것 다시 말하기', desc: '가고 싶은 곳·종류를 더 자세히 말해요', to: '/plan/chat', isBest: isNoPlace.value },
-  { key: 'info', icon: 'i-edit', title: '여행 정보 고치기', desc: '지역·출발지·어디 위주로를 바꿔요', to: '/plan/info', isBest: isLocation.value },
+  { key: 'info', icon: 'i-edit', title: '여행 정보 고치기', desc: '지역·출발지·어디 위주로를 바꿔요', to: '/plan/info', isBest: isLocation.value || isNoPlace.value },
 ])
 const choice = ref(choices.value.find((item) => item.isBest).key)
 
@@ -33,7 +32,7 @@ function next() {
 <template>
   <div class="scr scr-GenFail">
     <div class="app">
-      <TopBar title="일정 만들기" back="/plan/chat"><span class="topbar__side">4 / 4</span></TopBar>
+      <TopBar title="일정 만들기" back="/plan/info"><span class="topbar__side">4 / 4</span></TopBar>
 
       <div class="scroll" style="padding-top: 8px; gap: 16px; bottom: 102px">
         <span class="ico-tile ico-tile--warn" style="width: 48px; height: 48px"><i class="ic ic--l i-warning" aria-hidden="true"></i></span>

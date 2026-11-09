@@ -8,6 +8,7 @@ import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import { getArchivedTrips, getTripList } from '@/api/trips'
 import { daysLeft, toShortDate, tripDetailLink } from '@/utils/tripView'
+import { withoutPractice } from '@/utils/practice'
 
 const serverTrips = ref(null) // null: 아직 못 읽음
 const error = ref('')
@@ -17,7 +18,7 @@ onMounted(load)
 async function load() {
   error.value = ''
   try {
-    serverTrips.value = await getTripList()
+    serverTrips.value = withoutPractice(await getTripList()) // 시연 연습 복사본은 숨김
     archivedCount.value = (await getArchivedTrips()).length
   } catch (e) {
     error.value = e.message

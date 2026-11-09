@@ -102,14 +102,47 @@
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
 | `GET /api/plans/places` | 직접 고르기 지도: 종류별 장소 (들를 곳은 카카오 보충) | trip/PlanManualView | 있음 |
 | `GET /api/plans/areas` | 추천 지역 (종류마다 리뷰가 많은 서울 구) | plan/PlanAiView | 있음 |
+| `GET·POST /api/my/places` · `DELETE /api/my/places/{placeId}` | 내 장소 (친구 소식에서 저장, 식당·카페·놀거리) | plan/MyPlacesView, member/MyView (SavePlaceButton) | 있음 (11/06) |
 | `GET /api/plans/links/recommended` | 추천 게시물 목록 (파일 기반, 지금은 비어 있음) | plan/PlanAiView | 있음 |
 | `POST /api/plans/dong-types` | 한 구의 행정동 특색 (동 지도 색칠) | plan/DongPicker | 있음 |
 | `POST /api/plans/route-options` | [동선 최적화] 이동 시간이 짧은 순서 후보 최대 5개 | trip/TripDetailView, trip/PlanEditView | 있음 |
 | `POST /api/plans/route-order` | [동선 정리] 하루 일정의 새 순서 (최근접 이웃 + 2-opt). AI 일정과 같은 함수 | trip/PlanManualView | 있음 |
 | `POST /api/plans/links` | 인스타·유튜브·네이버(블로그·지도) 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
+| `GET /api/plans/weather` | 여행 날짜 날씨(기온·습도·하늘·비 시작 시각) + 기온별 옷차림. 기상청 단기예보라 3일 뒤까지 | trip/PlanCheckView (TripWeather) | 있음 (11/06) |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
+| `GET /api/dev/status` | [개발자 모드] 시연 계정인지 + 시연 시계 상태 | member/MyView (VersionTap), live/DevDot | 있음 (11/06) |
+| `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `POST /api/dev/clock/speed` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
+| `GET /api/dev/scenario` | [개발자 모드] AI 일정 화면에 미리 채울 발표 시나리오 출발지·예약(KTX)·숙소 (시연 계정만, 값은 `plan/service/DemoScenario.java`) | plan/PlanAiView | 있음 (11/08) |
 
-### ④ 여행 중 판별 (live)
+#### 개발자 모드 · 시연 시계 (11/06, ③)
+발표 시연 계정만 쓰는 시계예요. 시연 계정은 환경변수 `DEMO_ACCOUNTS`(아이디를 쉼표로, `application-local.properties`)로 정하고 코드·DB에는 적지 않아요.
+시계를 맞추면 **그 계정의 요청을 처리하는 동안만** 서버의 `Geo.now()`가 그 시각이 돼요 (도착 판정·지연 계산·알림이 모두 따라감). 다른 계정은 진짜 시각 그대로이고, 서버를 다시 켜면 진짜 시각으로 돌아가요.
+화면: 마이 맨 아래 "버전 1.0.0"을 5번 연달아 누르면 `GET /api/dev/status`로 확인해서 켜지고, 여행 중 화면의 반투명 점(DevDot)에서 써요. 가짜 GPS는 화면 쪽 기능이라 API가 없어요.
+
+| 메서드 · 주소 | 요청 | 하는 일 |
+|---|---|---|
+| `GET /api/dev/status` | 없음 | 시연 계정인지 + 지금 시연 시계 |
+| `POST /api/dev/clock` | `{ "date": "2026-11-07", "time": "18:05" }` (date를 비우면 오늘) | 그 시각으로 맞춤 |
+| `POST /api/dev/clock/forward` | `{ "minutes": 15 }` (1~720) | 그만큼 빨리 감기 |
+| `POST /api/dev/clock/speed` | `{ "speed": 60 }` (0~600, 0이면 멈춤) | 시연 시계 배속: 진짜 1초에 speed초씩 흐름. 응답 `speed` 칸 (11/08) |
+| `DELETE /api/dev/clock` | 없음 | 진짜 시각으로 |
+| `POST /api/dev/rain` | `{ "from": "13:00" }` | 시연 비 예보 넣기: 그 계정은 기상청 대신 "오늘 13:00부터 비(강수확률 80%)"로 봄 (돌발 ②) |
+| `DELETE /api/dev/rain` | 없음 | 시연 비 예보 빼기 (진짜 예보로) |
+| `GET /api/dev/scenario` | 없음 | `{ originName, originAddress, originLat, originLng, fixed: [{ name, time, day }], stayName, stayAddress, stayLat, stayLng, stayCheckInTime, stayCheckOutTime }` (시연 계정 아니면 403). 시연 계정은 `POST /api/plans/generate`도 고른 조건과 상관없이 이 시나리오 일정(날짜만 고른 날)을 돌려줘요 |
+
+**응답** (네 개 모두 같음)
+```json
+{ "allowed": true, "now": "2026-11-07T18:05", "offsetMinutes": 1558, "rainFrom": "13:00" }
+```
+- `allowed`: 시연 계정이면 true. false면 화면은 개발자 모드를 열지 않음
+- `now`: 서버가 이 계정에 대해 지금으로 보는 시각 (분까지), `offsetMinutes`: 진짜 시각과의 차이 (0이면 진짜 시각)
+- `rainFrom`: 시연 비 시작 시각, 안 넣었으면 null
+
+**오류** 401 "로그인이 필요해요." · 403 "시연 계정만 쓸 수 있어요." · 400 "날짜는 2026-11-07, 시각은 18:05처럼 보내 주세요." · 400 "빨리 감기는 1분부터 720분까지 돼요." · 400 "비 시작 시각은 13:00처럼 보내 주세요."
+
+---
+
+## ④ 여행 중 판별 (live)
 
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
@@ -974,6 +1007,7 @@
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | conditions.keptStops | Stop[] | | 직접 고르기에서 담은 곳 (11/04). 순서·시각 그대로 두고 빈 시간만 채워요. 후보에서는 빠지고, 담은 식사가 있는 시간대엔 식사를 또 안 넣어요 |
 | conditions.startTime, endTime | string | | 하루 시작·끝 `HH:mm` (11/04). 있으면 첫 칸이 시작 시각, 마지막 칸이 끝 시각 안에 끝나고, 식사 칸은 점심 11:30~13:30·저녁 17:30~19:30에만 시작. 없으면 예전처럼 정해 둔 칸 |
+| conditions.companion | string | | 누구랑 (11/06): `혼자`·`친구`·`연인`·`가족`·`아이와`·`워크숍`. 시작·끝 시간이 있을 때 칸마다 머무는 분을 바꿈(워크숍 밥 +30·카페 +20, 친구 밥·카페 +10, 연인 카페 +20·밥 +10, 가족 밥 +10, 아이와 −10, 혼자 밥 −20·카페 −10, 40분 아래로는 안 줄임). "어디 위주로"에서 고른 맛집·카페는 +15. 워크숍은 needs에 "4명 이상 앉을 단체석", 아이와는 "아이와 가기 좋은 곳", 연인은 tags에 `mood`를 더함 |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
 **응답**
@@ -1006,6 +1040,28 @@
 
 ---
 
+### `GET /api/my/places` · `POST /api/my/places` · `DELETE /api/my/places/{placeId}` (11/06)
+내 장소: 친구 소식·장소 상세에서 "저장"한 곳 · 로그인 필요 · 화면: plan/MyPlacesView(`/my/places`), 저장 버튼 components/plan/SavePlaceButton
+
+**GET 응답** 최근 저장 순
+```json
+[
+  { "id": 1, "placeId": "naver-1866981775", "name": "로라멘", "category": "일본식라면", "group": "식당",
+    "address": "서울 영등포구 도림로131길 17", "lat": 37.514, "lng": 126.89, "rating": 4.5, "reviewCount": 1456,
+    "imageUrl": null, "fromName": "민지", "createdAt": "2026-11-06 16:12" }
+]
+```
+- `group`: 식당(음식점·술집) · 카페 · 놀거리(관광지·문화시설·쇼핑 등). 저장하지 않고 장소 분류로 정해요
+
+**POST 요청** `{ "placeId": "naver-1866981775" }` 또는 `{ "name": "로라멘", "fromName": "민지" }`
+- `placeId`가 없으면 이름이 똑같은 장소 중 리뷰가 가장 많은 곳 (친구 소식은 이름만 있어서)
+- 응답: 위 목록의 한 줄. 이미 저장한 곳이면 그대로 돌려줘요 (두 번 눌러도 하나)
+- 오류: 400 "저장할 장소를 골라 주세요." · 404 "○○을(를) 찾지 못했어요." · 400 "내 장소는 200곳까지 저장할 수 있어요."
+
+**DELETE** `{ "ok": true }` (내 것만 지워져요. 없는 곳이어도 ok)
+
+---
+
 ### `POST /api/plans/generate/stream`
 `/generate`와 같은 일을 하면서, 단계가 끝날 때마다 진행 알림을 보내요 (11/04). · 로그인 필요 · 화면: plan/GeneratingView
 
@@ -1029,6 +1085,30 @@
 | fixed | 95 | 18:30 광명역 시간에 맞추기 | (`fixed`가 없으면 이 단계 없음) |
 
 로그인 안 했으면 알림 없이 401 JSON (`/generate`와 같음).
+
+### `GET /api/plans/weather` (11/06)
+
+여행 날짜마다 날씨와 옷차림. 기상청 단기예보(`KMA_SERVICE_KEY`)를 써요. 예보는 오늘부터 3일 뒤까지라 그 뒤 날짜는 숫자 없이 안내만 해요.
+
+- 요청: `?lat=37.5264&lng=126.9336&startDate=2026-11-07&endDate=2026-11-08` (endDate 없으면 하루, 최대 7일)
+- 응답: 날짜마다 한 줄
+
+```json
+[
+  { "date": "2026-11-07", "available": true, "message": null,
+    "minTemp": 5, "maxTemp": 16, "dayTemp": 11, "humidity": 70,
+    "sky": "비", "maxPop": 70, "rainFrom": "13:00",
+    "outfit": "자켓 · 트렌치코트 · 니트 · 청바지",
+    "outfitNote": "일교차 11도라 겉옷 하나 더 · 우산 챙기기",
+    "source": "기상청 단기예보" },
+  { "date": "2026-11-12", "available": false, "message": "11/12 날씨는 3일 전부터 보여요", "source": "기상청 단기예보" }
+]
+```
+
+- `dayTemp`: 낮(9~21시) 평균 기온. 옷차림은 흔히 쓰는 기온별 옷차림 표(28° 이상 민소매 … 4° 이하 패딩)로 골라요.
+- `minTemp`·`maxTemp`: 기상청 최저·최고(TMN·TMX). 오늘이라 그 칸이 지났으면 남은 시간 기온 중 낮은·높은 값.
+- `rainFrom`: 낮에 비·눈(PTY ≠ 0)이거나 강수확률 60% 이상인 첫 시각. 없으면 null.
+- 오류: 날짜 범위가 이상하면 400, 기상청 키가 없으면 503, 기상청 오류 502.
 
 ## ④ 여행 중 판별 (live)
 

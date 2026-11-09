@@ -10,6 +10,9 @@ import { useReplanStore } from '@/stores/replan'
 import { imageFor } from '@/utils/mapView'
 import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
+import KakaoShareDemo from '@/components/live/KakaoShareDemo.vue'
+import { shareToKakao } from '@/utils/kakaoShare'
+import { devMode } from '@/utils/devMode'
 
 const UNDO_CHECK_MS = 15000 // 되돌리기 버튼을 숨길지 다시 보는 간격
 
@@ -42,6 +45,17 @@ function moveOf(row) {
   return found ? found.moveMin : null
 }
 
+// 적용 뒤 다시 계산한 이동(지금 → 그 칸): 분·수단. 대안 카드·여행 중 화면과 같은 숫자
+const MODE_ICON = { walk: 'i-walk', transit: 'i-subway', car: 'i-car' }
+function legOf(row) {
+  const now = after.value && after.value.stops ? after.value.stops.find((stop) => stop.id === row.id) : null
+  if (now && now.moveMin != null) return { min: now.moveMin, icon: MODE_ICON[now.moveMode] || 'i-walk' }
+  const min = moveOf(row)
+  return min == null ? null : { min, icon: 'i-walk' }
+}
+// 역(KTX·기차)은 음식 사진 대신 기차 아이콘
+const isStation = (category) => /역|KTX|기차/.test(category || '')
+
 // 한 줄 모양: 배지·글자·색
 function toRow(row) {
   const old = beforeOf(row.id)
@@ -51,6 +65,7 @@ function toRow(row) {
   if (old && old.fixed) {
     const fixed = after.value && after.value.fixed
     const meta = fixed ? `${fixed.eta} 도착 · ` + (fixed.slackMin < 0 ? -fixed.slackMin + '분 늦음' : fixed.slackMin + '분 여유') : '계획 시각 그대로'
+    if (row.note) return { ...row, cls: 'is-fixed is-changed', isFixed: true, badge: { text: '바뀜', cls: 'badge--danger' }, meta: row.note + ' · ' + meta } // 예: 택시로 바로 가기
     return { ...row, cls: 'is-fixed', isFixed: true, badge: { text: '예약 그대로', cls: 'badge--navy' }, meta }
   }
   if (old && old.stay !== row.stay) {
@@ -79,6 +94,36 @@ const banner = computed(() => {
     title: `${fixed.name} ${fixed.eta} · ` + (isLate ? -fixed.slackMin + '분 늦어요' : '여유 ' + fixed.slackMin + '분'),
   }
 })
+
+// 팀원 공유 (11/08 DEMO.md 8번 → 주형: 카카오톡 공유): 바뀐 일정을 카카오톡 피드 메시지로
+//   시연 계정은 발표장에서 카카오 로그인이 뜨거나 진짜 사람에게 가지 않게 앱 안의 공유 화면(KakaoShareDemo)으로
+const isShared = ref(false)
+const isDemoShareOpen = ref(false)
+const shareMessage = computed(() => {
+  const fixed = after.value && after.value.fixed
+  const method = (replan.plan && replan.plan.title) || '' // 고른 대안 이름 (예: 지하철로 바로 가기)
+  const arrive = fixed ? `${fixed.name} ${fixed.eta} 도착` : banner.value.title
+  const current = rows.value.find((row) => row.isCurrent) || rows.value[0]
+  return {
+    title: '일정이 바뀌었어요',
+    description: arrive + (method ? ' · ' + method : '') + (fixed && fixed.slackMin >= 0 ? ' · 여유 ' + fixed.slackMin + '분' : ''),
+    imageUrl: current ? location.origin + imageFor(current.category) : '',
+    link: location.origin + '/live',
+  }
+})
+async function share() {
+  if (devMode.isOn) {
+    isDemoShareOpen.value = true
+    return
+  }
+  try {
+    const result = await shareToKakao(shareMessage.value)
+    if (result === 'copied') showToast('카카오톡을 쓸 수 없어서 링크를 복사했어요')
+    isShared.value = true
+  } catch (e) {
+    showToast('공유하지 못했어요 · ' + e.message)
+  }
+}
 
 async function undo() {
   if (!replan.canUndo()) {
@@ -127,11 +172,12 @@ async function undo() {
 
         <ol class="tl" style="list-style: none; margin: 0; padding: 0">
           <template v-for="(row, i) in rows" :key="(row.id || '') + row.name">
-            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && moveOf(row) != null"><i class="ic ic--s i-walk" aria-hidden="true"></i>이동 {{ moveOf(row) }}분</span><span v-else></span></li>
+            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && legOf(row)"><i class="ic ic--s" :class="legOf(row).icon" aria-hidden="true"></i>이동 {{ legOf(row).min }}분</span><span v-else></span></li>
             <li class="stop" :class="row.cls">
               <span class="stop__time">{{ row.time }}</span>
               <span class="stop__card">
-                <img v-if="row.tag !== 'done' || row.isCurrent" class="thumb" :src="imageFor(row.category)" alt="" />
+                <span v-if="(row.tag !== 'done' || row.isCurrent) && isStation(row.category)" class="thumb thumb--station" aria-hidden="true"><i class="ic i-subway"></i></span>
+                <img v-else-if="row.tag !== 'done' || row.isCurrent" class="thumb" :src="imageFor(row.category)" alt="" />
                 <span class="stop__body">
                   <span class="stop__name">
                     <i v-if="row.tag === 'done' && !row.isCurrent" class="ic ic--s i-check c-success" aria-hidden="true"></i>
@@ -162,16 +208,25 @@ async function undo() {
         
       </div>
 
-      <div class="cta">
-        <RouterLink to="/live" class="btn btn--primary btn--lg btn--block"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
+      <div class="cta" style="display: flex; gap: 8px">
+        <!-- 카카오톡 공유 버튼: 카카오 디자인 가이드처럼 노란 바탕(#FEE500) + 검은 말풍선 심볼 + 검은 글씨. 말풍선은 파일을 받지 않고 SVG로 그림 (11/08) -->
+        <button type="button" class="btn btn--lg kakao-share" style="flex: 1" @click="share">
+          <svg class="kakao-share__bubble" viewBox="0 0 24 22" aria-hidden="true"><path d="M12 1C5.9 1 1 4.9 1 9.7c0 3.1 2 5.8 5.1 7.3l-1.1 4c-.1.4.3.7.6.5l4.7-3.1c.6.1 1.1.1 1.7.1 6.1 0 11-3.9 11-8.7S18.1 1 12 1z" fill="#191919"/></svg>
+          {{ isShared ? '공유했어요' : '카카오톡으로 공유' }}
+        </button>
+        <RouterLink to="/live" class="btn btn--primary btn--lg" style="flex: 1"><i class="ic i-trip" aria-hidden="true"></i>지도로 돌아가기</RouterLink>
       </div>
       </template>
+      <KakaoShareDemo v-if="isDemoShareOpen" :message="shareMessage" @close="isDemoShareOpen = false; isShared = true" />
     </div>
   </div>
 </template>
 
 <style>
 .scr-Applied .legend{display:flex;gap:14px;align-items:center}
+.scr-Applied .thumb--station{display:grid;place-items:center;background:var(--surface-sunken);color:var(--navy, var(--ink-muted))}
+.scr-Applied .kakao-share{background:#FEE500;color:#191919;border:0;font-weight:700;gap:8px}
+.scr-Applied .kakao-share__bubble{width:20px;height:18px;flex:none}
 .scr-Applied .legend span{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--ink-muted)}
 .scr-Applied .legend i.sw{width:12px;height:12px;border-radius:4px;display:inline-block}
 .scr-Applied .topbar .btn{flex:none}

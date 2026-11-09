@@ -41,6 +41,7 @@ public class StatusServiceImpl implements StatusService {
 
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
 
+    private final AutoAdjuster autoAdjuster; // 최근 자동 일정 조정 안내 (③ 11/08)
     private final LiveTripReader liveTripReader;         // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
     private final PlaceService placeService;             // 장소 영업 정보 (②)
     private final RouteClient routeClient;               // 이동 시간 (후보 비교는 isPrecise=false)
@@ -90,6 +91,7 @@ public class StatusServiceImpl implements StatusService {
         response.setLeave(leave);
         LiveAlert alert = liveAlertMaker.makeAlert(context, leave);
         response.setAlert(alert);
+        response.setAdjust(autoAdjuster.getRecent(tripId));
         sendAlertNotice(memberId, tripId, alert);
 
         // 7단계: 다시 짜는 게 좋은지 (알림과 같은 기준이라 LiveAlertMaker가 판단)
@@ -110,7 +112,7 @@ public class StatusServiceImpl implements StatusService {
         notice.setLevel(alert.getLevel());
         notice.setTitle(alert.getTitle());
         notice.setText(alert.getText());
-        notice.setLink("/live");
+        notice.setLink("/live?id=" + tripId); // 어느 여행 알림인지 (여행 중 화면은 id를 안 봐도 됨, 시연 연습 알림 숨기기에 씀, 11/06)
         notice.setNoticeKey("trip" + tripId + "-" + Geo.now().toLocalDate() + "-" + toNoticeKey(alert.getKey()));
         notificationService.send(notice);
     }

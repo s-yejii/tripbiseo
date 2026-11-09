@@ -11,6 +11,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 // meta.history: 여러 화면에서 들어오는 상세 화면은 들어온 곳으로 돌아감 (장소 상세·알림·일정 편집)
 const routes = [
   // ① 회원·홈 밖 화면·알림·마이·잠금화면
+  { path: '/invite', component: () => import('@/views/member/InviteView.vue'), meta: { owner: 3, title: 'S00 친구 초대 링크' } },
   { path: '/onboarding', component: () => import('@/views/member/OnboardingView.vue'), meta: { owner: 1, title: 'S01 온보딩' } },
   { path: '/login', component: () => import('@/views/member/LoginView.vue'), meta: { parent: '/onboarding', owner: 1, title: 'S02-a 로그인' } },
   { path: '/find-account', component: () => import('@/views/member/FindAccountView.vue'), meta: { parent: '/login', owner: 1, title: 'S02-c 아이디·비밀번호 찾기' } },
@@ -20,11 +21,12 @@ const routes = [
   { path: '/guest', component: () => import('@/views/member/MainGuestView.vue'), meta: { owner: 1, title: 'S04-a0 홈 · 로그인 전' } },
   { path: '/notifications', component: () => import('@/views/member/NotificationsView.vue'), meta: { parent: '/', history: true, owner: 1, title: 'S20-a 알림 센터' } },
   { path: '/my', component: () => import('@/views/member/MyView.vue'), meta: { parent: '/', owner: 1, title: 'S21 마이페이지' } },
-  { path: '/my/trash', component: () => import('@/views/member/TrashView.vue'), meta: { parent: '/my', owner: 3, title: '휴지통' } },
+  { path: '/my/trash', component: () => import('@/views/member/TrashView.vue'), meta: { parent: '/my', owner: 3, title: '여행 기록' } },
   { path: '/my/profile', component: () => import('@/views/member/ProfileEditView.vue'), meta: { parent: '/my', owner: 1, title: 'S21-b 정보 수정' } },
   { path: '/my/style', component: () => import('@/views/member/StyleEditView.vue'), meta: { parent: '/my', owner: 1, title: 'S21-f 내 여행 스타일' } },
   { path: '/my/friends', component: () => import('@/views/member/FriendInviteView.vue'), meta: { parent: '/my', owner: 1, title: 'S21-c 친구 초대' } },
-  { path: '/my/location', component: () => import('@/views/member/LocHistoryView.vue'), meta: { parent: '/my', owner: 1, title: 'S21-e 내 위치 기록', overlay: true } },
+  { path: '/my/transport', component: () => import('@/views/member/TransportView.vue'), meta: { parent: '/my', owner: 1, title: 'S21-g 이동 수단' } },
+  { path: '/my/location', component: () => import('@/views/member/LocHistoryView.vue'), meta: { parent: '/my', owner: 1, title: 'S21-e 내 위치 기록' } },
   { path: '/lock/push', component: () => import('@/views/member/LockPushView.vue'), meta: { owner: 1, title: 'S20-b 잠금화면 알림', statusbar: 'lock' } },
   { path: '/lock/live', component: () => import('@/views/member/LockLiveView.vue'), meta: { owner: 1, title: 'S20-c 잠금화면 · 여행 중 배너', statusbar: 'lock' } },
   { path: '/lock/delay', component: () => import('@/views/member/LockDelayView.vue'), meta: { owner: 1, title: 'S20-d 잠금화면 · 지연 알림', statusbar: 'lock' } },
@@ -55,10 +57,11 @@ const routes = [
   { path: '/plan/stay', component: () => import('@/views/plan/StayPinView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S06-c 숙소 위치 찍기' } },
   { path: '/plan/capture', component: () => import('@/views/plan/ReserveCaptureView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S06-d 예약 캡처로 추가' } },
   { path: '/plan/chat', component: () => import('@/views/plan/PlanChatView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S07 원하는 것 말하기' } },
-  { path: '/plan/generating', component: () => import('@/views/plan/GeneratingView.vue'), meta: { parent: '/plan/chat', owner: 3, title: 'S08 일정 만드는 중' } },
-  { path: '/plan/fail', component: () => import('@/views/plan/GenFailView.vue'), meta: { parent: '/plan/chat', owner: 3, title: 'S08-b 일정 생성 실패' } },
+  { path: '/plan/generating', component: () => import('@/views/plan/GeneratingView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S08 일정 만드는 중' } },
+  { path: '/plan/fail', component: () => import('@/views/plan/GenFailView.vue'), meta: { parent: '/plan/info', owner: 3, title: 'S08-b 일정 생성 실패' } },
   { path: '/plan/trim', component: () => import('@/views/plan/GenTrimView.vue'), meta: { parent: '/plan/fail', owner: 3, title: 'S08-c 한 곳 빼고 다시 만들기' } },
   { path: '/share', component: () => import('@/views/plan/ShareAddView.vue'), meta: { parent: '/new', owner: 3, title: 'S09-b 인스타 릴스에서 담기', overlay: true, statusbar: 'light' } },
+  { path: '/my/places', component: () => import('@/views/plan/MyPlacesView.vue'), meta: { parent: '/my', owner: 3, title: 'S21-g 내 장소' } },
 
   // ④ 여행 중 판별(지연·대안·바뀐 일정)
   { path: '/live', component: () => import('@/views/live/LiveView.vue'), meta: { parent: '/', owner: 4, title: 'S13-a 여행 중' } },
@@ -66,6 +69,7 @@ const routes = [
   { path: '/live/pin', component: () => import('@/views/live/PinEditView.vue'), meta: { parent: '/live', owner: 4, title: 'S13-b 핀 눌러 미리 바꾸기', overlay: true } },
   { path: '/live/gps', component: () => import('@/views/live/GpsLostView.vue'), meta: { parent: '/live', owner: 4, title: 'S13-d GPS 끊김' } },
   { path: '/live/delay', component: () => import('@/views/live/LiveDelayView.vue'), meta: { parent: '/live', owner: 4, title: 'S15 지연 감지', overlay: true } },
+  { path: '/live/quick', component: () => import('@/views/live/QuickAltView.vue'), meta: { parent: '/live', owner: 3, title: 'S16-q 예약 늦음 빠른 대안 (지하철·택시)' } },
   { path: '/live/alt', component: () => import('@/views/live/AlternativesView.vue'), meta: { parent: '/live/delay', owner: 4, title: 'S16-a 대안 · 시간 줄이기' } },
   { path: '/live/alt/trim', component: () => import('@/views/live/AltTrimView.vue'), meta: { parent: '/live/alt', owner: 4, title: 'S16-a2 시간 줄이기 슬라이더', overlay: true } },
   { path: '/live/alt/drop', component: () => import('@/views/live/AltDropView.vue'), meta: { parent: '/live/delay', owner: 4, title: 'S16-b 대안 · 한 곳 빼기' } },

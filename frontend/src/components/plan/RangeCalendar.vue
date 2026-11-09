@@ -4,6 +4,7 @@
 // 예) <RangeCalendar v-model:start="startDate" v-model:end="endDate" />  (당일치기면 end는 null)
 import { computed, ref } from 'vue'
 import { todayText, toDateText } from '@/utils/dates'
+import { devMode } from '@/utils/devMode'
 
 const MONTHS_AHEAD = 12 // 오늘부터 몇 달 뒤까지 넘겨 볼 수 있는지
 
@@ -13,7 +14,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:start', 'update:end'])
 
-const today = todayText()
+// 시연 계정은 시연 시계가 며칠 뒤로 가 있어도 진짜 오늘부터 고를 수 있게 (11/08 주형: 몇 번을 하든 시나리오 날짜를 고르게)
+const today = devMode.isOn ? toDateText(new Date()) : todayText()
 const firstMonth = new Date(today + 'T00:00:00')
 firstMonth.setDate(1)
 // 보고 있는 달 (고른 시작일이 있으면 그 달부터)

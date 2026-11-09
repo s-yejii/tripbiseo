@@ -70,10 +70,16 @@ const reasons = computed(() => {
   return items
 })
 
+// 아직 안 늦었지만 여유가 거의 없음 (여행 중 화면의 "지금 나가지 않으면 늦어요" 알림과 같은 기준)
+const TIGHT_SLACK_MIN = 5
+const isTight = computed(() => !replan.lateMin && replan.base && replan.base.slackMin <= TIGHT_SLACK_MIN)
+
 const optionCount = computed(() => (replan.options ? replan.options.alternatives.length : 0))
+// 예약 늦음 빠른 대안(지하철·택시로 바로 가기)이 있으면 ③ 빠른 대안 화면으로, 아니면 ④ 대안 고르기 그대로 (11/09)
+const altLink = computed(() => (replan.findOption('택시') || replan.findOption('지하철') ? '/live/quick' : '/live/alt'))
 
 function goAnyway() {
-  replan.mutedLate = replan.lateMin
+  replan.muteLate(replan.lateMin)
   router.replace('/live')
 }
 </script>
@@ -90,8 +96,9 @@ function goAnyway() {
 
         <template v-else>
         <div style="display: flex; align-items: center; gap: 12px">
-          <span class="ico-tile" :class="replan.lateMin ? 'ico-tile--warn' : ''" style="width: 48px; height: 48px"><i class="ic ic--l" :class="replan.lateMin ? 'i-warning' : 'i-success'" aria-hidden="true"></i></span>
+          <span class="ico-tile" :class="replan.lateMin || isTight ? 'ico-tile--warn' : ''" style="width: 48px; height: 48px"><i class="ic ic--l" :class="replan.lateMin || isTight ? 'i-warning' : 'i-success'" aria-hidden="true"></i></span>
           <h1 v-if="replan.lateMin" class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br /><span class="c-warning">{{ replan.lateMin }}분</span> 늦어요</h1>
+          <h1 v-else-if="isTight" class="h-title" style="font-size: 20px; line-height: 28px">지금 나가지 않으면<br />{{ basisName }}에 <span class="c-warning">늦어요</span></h1>
           <h1 v-else class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br />안 늦어요</h1>
         </div>
 
@@ -99,9 +106,13 @@ function goAnyway() {
 
         <div style="display: flex; flex-direction: column; gap: 4px">
           <div class="cta__row">
-            <template v-if="replan.lateMin">
+            <template v-if="isTight">
+              <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">조금만 더 있을게요</button>
+              <RouterLink :to="altLink" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
+            </template>
+            <template v-else-if="replan.lateMin">
               <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">그냥 갈게요</button>
-              <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
+              <RouterLink :to="altLink" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
             </template>
             <template v-else>
               <RouterLink to="/live/alt" class="btn btn--ghost btn--lg" style="padding: 0 12px; font-size: 14px; font-weight: 600">그래도 바꾸기</RouterLink>

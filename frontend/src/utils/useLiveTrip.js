@@ -170,5 +170,22 @@ export function useLiveTrip() {
     statusTimer = setInterval(refresh, STATUS_INTERVAL_MS)
   }
 
-  return { tripId, status, trip, position, error, phase, gpsError, start, stop, refresh, retryGps }
+  // 시연 장면 (개발자 모드, 11/06): 진짜 GPS를 멈추고 그 자리로 옮김. isArrive면 도착 판정에 필요한 점을 다 찍음
+  async function placeAt(lat, lng, isArrive = false) {
+    if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId)
+    watchId = null
+    clearInterval(demoTimer)
+    if (isArrive) {
+      for (let i = 0; i < DEMO_STAY_POINTS - 1; i++) await sendTrack(tripId.value, lat, lng, 10)
+    }
+    await moveTo(lat, lng, 10, true)
+  }
+
+  // 지도 위 내 위치만 옮김 (장소 사이를 걸어가는 모습, 저장 안 함)
+  function showAt(lat, lng) {
+    position.value = { lat, lng }
+    store.position = position.value
+  }
+
+  return { tripId, status, trip, position, error, phase, gpsError, start, stop, refresh, retryGps, placeAt, showAt }
 }

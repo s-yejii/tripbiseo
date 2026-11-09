@@ -42,6 +42,7 @@ public class TrackServiceImpl implements TrackService {
     private final TrackMapper trackMapper;
     private final TripService tripService;         // 도착·출발 기록은 trip_stop 주인(②)의 메서드로
     private final LiveTripReader liveTripReader;   // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
+    private final AutoAdjuster autoAdjuster;       // 늦게 떠났을 때 자동 일정 조정 (③ 11/08)
 
     /** GPS 한 점 저장 + 도착·출발 판정 */
     // 규칙: 지금 있는 칸은 하나만. 새 칸에 도착하면 전 칸은 다녀옴.
@@ -254,6 +255,7 @@ public class TrackServiceImpl implements TrackService {
     /** 칸 출발 기록 (departed_at = 지금, state = done) */
     private void leaveStop(long memberId, long tripId, Stop stop) {
         tripService.departStop(memberId, tripId, stop.getId());
+        autoAdjuster.adjustAfterLeave(memberId, tripId, stop); // 늦게 떠났으면 뒤 일정을 밀거나 느슨한 곳을 줄이고 안내 (11/08)
     }
 
     /** 여행의 GPS 점 */

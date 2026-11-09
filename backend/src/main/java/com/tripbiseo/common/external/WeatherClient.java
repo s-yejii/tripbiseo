@@ -52,7 +52,7 @@ public class WeatherClient {
         // Encoding 키(%가 들어 있음)를 넣었으면 Decoding 키로 바꿈 (주소를 만들 때 다시 인코딩하므로)
         String key = serviceKey.contains("%") ? URLDecoder.decode(serviceKey, StandardCharsets.UTF_8) : serviceKey;
         int[] grid = toGrid(lat, lng);
-        String[] base = baseTime(Geo.now());
+        String[] base = baseTime(ZonedDateTime.now(Geo.KST)); // 기상청 발표 시각은 진짜 지금 기준 (시연 시계가 미래면 기상청이 거절해서, 11/06)
         String cacheKey = "kma:" + grid[0] + "," + grid[1] + base[0] + base[1];
         return cache.get(cacheKey, CACHE_MS, () -> callForecast(key, grid, base));
     }
