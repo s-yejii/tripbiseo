@@ -31,8 +31,8 @@ public class DevServiceImpl implements DevService {
     private final MemberService memberService;
     private final DemoScenario demoScenario; // 발표 시나리오 정의 (plan/service/DemoScenario.java)
 
-    // 시연 계정 아이디 (쉼표로). 비어 있으면 아무도 개발자 모드를 못 씀
-    @Value("${DEMO_ACCOUNTS:}")
+    // 시연 계정 아이디 (쉼표로). 기본은 qwer1234 (db/96_demo_account.sql로 만드는 계정), 내 PC 값은 application-local.properties
+    @Value("${DEMO_ACCOUNTS:qwer1234}")
     private String demoAccounts;
 
     // 회원 번호 → 시연 시계 차이(초). 서버를 다시 켜면 사라져서 진짜 시각으로 돌아옴
