@@ -625,7 +625,7 @@ function restartMoving() {
         </header>
 
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
-        <CriticalAlertCard v-if="isCardOpen" :title="cardTitle" :text="status.alert.text" :to="'/live/alt'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
+        <CriticalAlertCard v-if="isCardOpen" :title="cardTitle" :text="status.alert.text" :to="'/live/quick'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
         <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
         <AppNoti
           v-else-if="liveBanner.queue.length && !adding"

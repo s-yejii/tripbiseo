@@ -69,6 +69,7 @@ const routes = [
   { path: '/live/pin', component: () => import('@/views/live/PinEditView.vue'), meta: { parent: '/live', owner: 4, title: 'S13-b 핀 눌러 미리 바꾸기', overlay: true } },
   { path: '/live/gps', component: () => import('@/views/live/GpsLostView.vue'), meta: { parent: '/live', owner: 4, title: 'S13-d GPS 끊김' } },
   { path: '/live/delay', component: () => import('@/views/live/LiveDelayView.vue'), meta: { parent: '/live', owner: 4, title: 'S15 지연 감지', overlay: true } },
+  { path: '/live/quick', component: () => import('@/views/live/QuickAltView.vue'), meta: { parent: '/live', owner: 3, title: 'S16-q 예약 늦음 빠른 대안 (지하철·택시)' } },
   { path: '/live/alt', component: () => import('@/views/live/AlternativesView.vue'), meta: { parent: '/live/delay', owner: 4, title: 'S16-a 대안 · 시간 줄이기' } },
   { path: '/live/alt/trim', component: () => import('@/views/live/AltTrimView.vue'), meta: { parent: '/live/alt', owner: 4, title: 'S16-a2 시간 줄이기 슬라이더', overlay: true } },
   { path: '/live/alt/drop', component: () => import('@/views/live/AltDropView.vue'), meta: { parent: '/live/delay', owner: 4, title: 'S16-b 대안 · 한 곳 빼기' } },

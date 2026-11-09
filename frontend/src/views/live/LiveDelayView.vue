@@ -75,6 +75,8 @@ const TIGHT_SLACK_MIN = 5
 const isTight = computed(() => !replan.lateMin && replan.base && replan.base.slackMin <= TIGHT_SLACK_MIN)
 
 const optionCount = computed(() => (replan.options ? replan.options.alternatives.length : 0))
+// 예약 늦음 빠른 대안(지하철·택시로 바로 가기)이 있으면 ③ 빠른 대안 화면으로, 아니면 ④ 대안 고르기 그대로 (11/09)
+const altLink = computed(() => (replan.findOption('택시') || replan.findOption('지하철') ? '/live/quick' : '/live/alt'))
 
 function goAnyway() {
   replan.muteLate(replan.lateMin)
@@ -106,11 +108,11 @@ function goAnyway() {
           <div class="cta__row">
             <template v-if="isTight">
               <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">조금만 더 있을게요</button>
-              <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
+              <RouterLink :to="altLink" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
             </template>
             <template v-else-if="replan.lateMin">
               <button type="button" class="btn btn--secondary btn--lg" @click="goAnyway">그냥 갈게요</button>
-              <RouterLink to="/live/alt" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
+              <RouterLink :to="altLink" class="btn btn--primary btn--lg">대안 {{ optionCount }}개 보기</RouterLink>
             </template>
             <template v-else>
               <RouterLink to="/live/alt" class="btn btn--ghost btn--lg" style="padding: 0 12px; font-size: 14px; font-weight: 600">그래도 바꾸기</RouterLink>

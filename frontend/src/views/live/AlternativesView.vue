@@ -7,7 +7,6 @@ import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import AltTabs from '@/components/live/AltTabs.vue'
-import QuickAltCard from '@/components/live/QuickAltCard.vue'
 import LateBadge from '@/components/live/LateBadge.vue'
 import { importance } from '@/data/places'
 import { useReplanStore } from '@/stores/replan'
@@ -106,10 +105,6 @@ async function apply() {
   }
   isApplying.value = false
 }
-
-// 바로 다음이 예약(회식·KTX)이면 줄이거나 뺄 곳이 없어서 직접 고르기(시간 줄이기·한 곳 빼기·장소 바꾸기)를 숨김.
-//   위 빠른 대안(지하철·택시로 바로 가기)만 보여요 (11/08 주형, 서버 대안 규칙과 같음)
-const isNextFixed = computed(() => !!(replan.stops && replan.stops.length && replan.stops[0].fixed))
 </script>
 
 <template>
@@ -124,8 +119,6 @@ const isNextFixed = computed(() => !!(replan.stops && replan.stops.length && rep
 
       <template v-else>
       <div class="scroll" style="padding-top: 4px; gap: 12px; bottom: 102px">
-        <QuickAltCard />
-        <template v-if="!isNextFixed">
         <AltTabs active="trim" />
 
         <section class="tsum" aria-label="줄인 시간 합계" aria-live="polite">
@@ -178,10 +171,9 @@ const isNextFixed = computed(() => !!(replan.stops && replan.stops.length && rep
             </RouterLink>
           </template>
         </div>
-        </template>
       </div>
 
-      <div v-if="!isNextFixed" class="cta">
+      <div class="cta">
         <button type="button" class="btn btn--primary btn--lg btn--block" :disabled="button.isOff || isApplying" @click="apply">{{ button.text }}</button>
       </div>
       </template>
