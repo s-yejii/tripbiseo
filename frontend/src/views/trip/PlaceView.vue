@@ -10,7 +10,6 @@ import { getPlaceDetail, getPlacePhotos } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { imageFor } from '@/utils/mapView'
 import { goBack } from '@/utils/back'
-import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 import { kindOf } from '@/utils/budget'
 
@@ -149,10 +148,7 @@ function onAddClick() {
             <span class="row__body"><span class="t-strong">{{ addressText }}</span><span v-if="isFake" class="row__meta">천호역 도보 8분</span></span>
             <button type="button" class="btn btn--ghost btn--sm" @click="copyText(addressText, '주소를 복사했어요')">복사</button>
           </div>
-          <div class="row">
-            <i class="ic i-timer muted" aria-hidden="true"></i>
-            <span class="row__body"><span class="t-strong tn">보통 {{ toDuration(place.dur) }} 머물러요</span></span>
-          </div>
+          <!-- "보통 N시간 머물러요"는 장소 종류별 기본값이라 근거가 약해서 화면에서 뺐어요 (11/09, 상재). place.dur는 일정에 담을 때 그대로 써요 -->
         </div>
       </div>
 
