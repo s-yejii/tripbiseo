@@ -64,7 +64,7 @@ const segCard = ref(null) // 이동 칩을 누른 카드
 watch(() => (status.value && status.value.adjust ? status.value.adjust.key : null), (key) => {
   if (!key) return
   const adjust = status.value.adjust
-  showLiveNotice({ key: adjust.key, title: adjust.title, body: adjust.text, warn: false, icon: 'i-route', at: status.value.now })
+  showLiveNotice({ key: adjust.key, title: adjust.title, body: adjust.text, warn: false, icon: 'i-route', urgent: false, timer: false, at: status.value.now })
 })
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
@@ -154,7 +154,18 @@ watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.t
 }, { immediate: true })
 // 서버 알림을 위쪽 알림 줄에 넣기 (닫을 때까지 남고, 앞 알림을 닫으면 이어서 보임)
 function queueAlert(alert) {
-  showLiveNotice({ key: alert.key || alert.title, title: alert.title, body: alert.text || '', warn: alert.level === 'danger', icon: 'i-warning', to: alertLink.value, at: status.value.now })
+  const look = bannerLookOf(alert)
+  showLiveNotice({ key: alert.key || alert.title, title: alert.title, body: alert.text || '', warn: alert.level === 'danger', icon: 'i-warning', urgent: look.urgent, timer: look.timer, to: alertLink.value, at: status.value.now })
+}
+// 서버 알림 key로 배너 모양 정하기 (LiveAlertMaker의 key 앞머리)
+//  timer: 출발(leave-)·나갈 시간(overdue-)·늦게 도착(next-) → 왼쪽 칸 시계
+//  urgent: 지금 출발·출발 지남(leave- + danger)·나갈 시간·늦게 도착·비(rain-) → 연한 빨강
+function bannerLookOf(alert) {
+  const key = alert.key || ''
+  const isLeave = key.startsWith('leave-')
+  const isTimeAlert = isLeave || key.startsWith('overdue-') || key.startsWith('next-')
+  const isUrgent = (isLeave && alert.level === 'danger') || key.startsWith('overdue-') || key.startsWith('next-') || key.startsWith('rain-')
+  return { urgent: isUrgent, timer: isTimeAlert }
 }
 
 // 첫 칸을 가운데에 고름 (지금 있는 곳 → 다음 곳)
@@ -648,11 +659,13 @@ function restartMoving() {
           :body="liveBanner.queue[0].body + (liveBanner.queue.length > 1 ? ' · 알림 ' + (liveBanner.queue.length - 1) + '개 더' : '')"
           :icon="liveBanner.queue[0].icon || 'i-route'"
           :warn="liveBanner.queue[0].warn"
+          :urgent="!!liveBanner.queue[0].urgent"
+          :timer="!!liveBanner.queue[0].timer"
           :to="liveBanner.queue[0].to || ''"
           @close="closeLiveNotice"
         />
         <!-- PC 마우스로도 한 번에 닫게 작은 닫기 버튼 (위로 밀기도 그대로) -->
-        <span v-if="!isCardOpen && liveBanner.queue.length && !adding" class="live-noti-at">{{ liveBanner.queue[0].at || '' }}</span>
+        <span v-if="!isCardOpen && liveBanner.queue.length && !adding" class="live-noti-at" :class="{ 'is-urgent': liveBanner.queue[0].urgent }">{{ liveBanner.queue[0].at || '' }}</span>
         <button v-if="!isCardOpen && liveBanner.queue.length && !adding" type="button" class="live-noti-x" aria-label="알림 닫기" @click="closeLiveNotice"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
         <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
         <template v-else-if="status.alert && !isAlertMuted && !adding">
@@ -743,6 +756,7 @@ function restartMoving() {
 .scr-Live .noti { padding-right: 46px; } /* 닫기(X) 자리를 비움 (11/09) */
 .scr-Live .noti .noti__meta > span { visibility: hidden; } /* "지금" 대신 알림이 생긴 시각을 옆에 따로 (지난 알림이 지금 일처럼 안 보이게) */
 .live-noti-at { position: absolute; top: 62px; right: 52px; z-index: 56; font-size: 12px; line-height: 16px; color: var(--ink-muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.live-noti-at.is-urgent { color: #5a3a38; } /* 급한 배너(연한 빨강) 위에서는 "착착트립" 줄과 같은 색 */
 .live-noti-x { position: absolute; top: 58px; right: 16px; z-index: 56; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: rgba(24, 33, 58, 0.08); color: var(--ink-muted); cursor: pointer; }
 .scr-Live .live-msg { padding-top: 96px; }
 .scr-Live .live-fab { position: absolute; right: 16px; top: 380px; z-index: 6; } /* + 가운데는 예전(52px, 376px)과 같은 높이 */
