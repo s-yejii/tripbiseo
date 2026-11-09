@@ -2,12 +2,13 @@
 // 여행 중 지도 아래의 일정 카드 줄 (옆으로 넘겨 보기) + 카드 사이 이동 칩
 // cards: [{ no, img, title, sub, subCls, state: 'done'|'now'|'', fixed, leg, legState }]
 //   leg: 앞 장소에서 오는 이동 { mode, min, dist } / legState: 'past'(지나감) | 'now'(지금 이동할 구간) | ''
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { modes } from '@/data/places'
 
 const props = defineProps({
   cards: { type: Array, required: true },
   selected: { type: Number, default: 0 },
+  autoFocus: { type: Boolean, default: false }, // 시연 계정(11/09): 지금 장소·다음 갈 곳이 바뀌면 그 카드로 자동으로 넘김
 })
 const emit = defineEmits(['pick', 'seg', 'scrolled'])
 
@@ -120,6 +121,28 @@ function onWheel(e) {
   box.value.scrollLeft += e.deltaY
 }
 
+// 도착해서 지금 장소가 바뀌거나, 떠나서 다음 갈 곳이 바뀌면 그 카드로 자동으로 넘겨요 (11/09 시연 피드백)
+// 지금 있는 곳(now)이 있으면 그 카드, 이동 중이면 아직 안 간 첫 카드
+const focusNo = computed(() => {
+  const nowCard = props.cards.find((card) => card.state === 'now')
+  if (nowCard) return nowCard.no
+  const nextCard = props.cards.find((card) => card.state !== 'done')
+  return nextCard ? nextCard.no : null
+})
+watch(focusNo, async (no, oldNo) => {
+  if (!props.autoFocus || no == null || no === oldNo || drag) return
+  await nextTick() // 카드 모양(지금·다녀옴)이 화면에 바뀐 뒤에 위치를 재요
+  const el = box.value && box.value.querySelector('.hcard[data-no="' + no + '"]')
+  if (!el) return
+  isReturning = true // 코드로 넘기는 동안은 사용자가 넘긴 걸로 보지 않음
+  box.value.scrollTo({ left: el.offsetLeft - (box.value.clientWidth - el.offsetWidth) / 2, behavior: 'smooth' })
+  setTimeout(() => {
+    isReturning = false
+    // 도착한 곳이면 지도 핀 강조도 그 카드로. 이동 중(다음 갈 곳)은 지도가 내 위치를 따라가니 알리지 않음
+    if (props.cards.some((card) => card.no === no && card.state === 'now')) emit('scrolled', no)
+  }, RETURN_SCROLL_MS)
+})
+
 // 처음 열 때 지금 있는 곳 카드를 가운데로
 onMounted(() => {
   const el = box.value.querySelector('.hcard.is-now') || box.value.querySelector('.hcard.is-sel')
@@ -148,6 +171,7 @@ onMounted(() => {
       <button
         type="button"
         class="hcard"
+        :data-no="card.no"
         :class="{ 'is-done': card.state === 'done', 'is-now': card.state === 'now', 'is-sel': card.no === selected }"
         @click="emit('pick', card)"
       >
