@@ -20,7 +20,7 @@ import com.tripbiseo.trip.dto.Stop;
  * 시연 계정(DEMO_ACCOUNTS)이 AI 일정을 만들면 고른 조건과 상관없이 이 일정이 나와요. 날짜만 사용자가 고른 날.
  * 장소·일차·시각은 docs/DEMO.md(11/06 팀 시나리오)와 같아요. 시나리오를 바꾸려면 아래 STOPS 표만 고치면 돼요.
  *   출발: 서울 구로구 가마산로 242 3층 → 1일차: 호텔 GMS 체크인 → 18:30 문래 골목집 회식(고정) → 하나마토 문래 → 호텔
- *   2일차: 무탄 11:00 → 한강 → 더현대 서울 → 테디뵈르하우스 → 타임스퀘어(꼭, 선물) → 서울역 18:30(KTX 19:00). 돌발: 타임스퀘어에서 나갈 시각이 지나도 그대로 → 서울역 목표보다 늦음
+ *   2일차: 무탄 11:00 → 한강 → 더현대 서울 → 테디뵈르하우스 → 타임스퀘어(꼭, 선물) → 서울역 KTX 19:00. 돌발: 타임스퀘어에서 팀장님 배탈 → 18:20에 나서면 지하철로 19:02, KTX를 놓침 (택시면 18:46)
  */
 @Component
 public class DemoScenario {
@@ -45,7 +45,7 @@ public class DemoScenario {
     private static final String DINNER_NAME = "문래 골목집";
     private static final String DINNER_TIME = "18:30"; // 회식 예약
     private static final String TRAIN_NAME = "서울역";
-    private static final String TRAIN_TIME = "19:00"; // KTX 출발. 시나리오 일정엔 30분 전 18:30 도착 (DEMO.md)
+    private static final String TRAIN_TIME = "19:00"; // KTX 출발. 시연 일정의 서울역 칸도 이 시각 (11/09 주형: 19:00을 넘겨야 진짜 놓침)
     private static final String STAY_NAME = "GMS호텔";
     private static final String STAY_ADDRESS = "서울 영등포구 경인로 867";
     private static final double STAY_LAT = 37.5174808;
@@ -69,8 +69,8 @@ public class DemoScenario {
         { 2, "12:30", "여의도한강공원", "tour-1059479", "시민공원", 37.5263997727, 126.9336095794, 60, false, "점심 뒤 해 있을 때 산책", null },
         { 2, "13:50", "더현대 서울", "demo-thehyundai-seoul", "백화점", 37.5259638, 126.9284184, 60, false, "실내 구경 · 지하 1층에 다음 카페", null },
         { 2, "14:50", "테디뵈르하우스 더현대서울점", "naver-1096877686", "카페,디저트", 37.5253257, 126.9287361, 45, false, "같은 건물 지하 1층 · 평점 4.85", null },
-        { 2, "16:00", "영등포 타임스퀘어", "demo-times-square", "쇼핑센터,할인매장", 37.5172094, 126.9040371, 98, false, "팀장님 사모님 선물 · 꼭 갈 곳 · 17:38에 나가면 서울역 여유 10분", "must" },
-        { 2, "18:30", "서울역", null, "KTX정차역", 37.55406888733184, 126.97070335253385, 30, true, "KTX 19:00 · 30분 전 도착 목표", null },
+        { 2, "16:00", "영등포 타임스퀘어", "demo-times-square", "쇼핑센터,할인매장", 37.5172094, 126.9040371, 98, false, "팀장님 사모님 선물 · 꼭 갈 곳 · 17:38에 나가면 서울역 18:20 도착", "must" },
+        { 2, "19:00", "서울역", null, "KTX정차역", 37.55406888733184, 126.97070335253385, 30, true, "KTX 19:00 출발 · 넘기면 놓침", null },
     };
 
     // 비 예보(시연 고정): 2일차 13:00부터 비 → 일정 짤 때 알려 주고 [반영하기]를 누르면 2일차를 이 순서로 (11/08 주형: 날씨는 돌발 아님)
@@ -102,7 +102,7 @@ public class DemoScenario {
         for (Object[] row : STOPS) {
             response.getStops().add(toStop(row));
         }
-        response.getNotes().add(makeNote("KTX 19:00 → 서울역에 18:30 도착으로 맞췄어요 (30분 전)"));
+        response.getNotes().add(makeNote("서울역 KTX 19:00 출발 시각을 고정했어요 (넘기면 놓쳐요)"));
         response.getNotes().add(makeNote("1일차 18:30 문래 골목집 회식은 예약 시각 그대로 고정했어요"));
         return response;
     }
