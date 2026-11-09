@@ -27,6 +27,8 @@ public class DevServiceImpl implements DevService {
     private static final int MAX_FORWARD_MINUTES = 720; // 한 번에 12시간까지
     private static final int SECONDS_PER_MINUTE = 60;
     private static final int MAX_SPEED = 600; // 시계 배속 최대 (진짜 1초에 10분, 쓸데없는 구간 넘길 때)
+    // 시연 계정 기본값. 설정이 없거나 비어 있어도 이 아이디 (11/09: 예전 예시 파일의 빈 "DEMO_ACCOUNTS=" 줄 때문에 다른 PC에서 시연 모드가 안 켜지던 문제)
+    static final String DEFAULT_DEMO_ACCOUNT = "qwer1234";
 
     private final MemberService memberService;
     private final DemoScenario demoScenario; // 발표 시나리오 정의 (plan/service/DemoScenario.java)
@@ -171,11 +173,13 @@ public class DevServiceImpl implements DevService {
     // 로그인한 회원의 아이디가 DEMO_ACCOUNTS 안에 있는지
     @Override
     public boolean isDemoAccount(long memberId) {
-        if (isBlank(demoAccounts)) {
-            return false;
-        }
-        String username = memberService.getMember(memberId).getUsername();
-        for (String account : demoAccounts.split(",")) {
+        return isInAccounts(demoAccounts, memberService.getMember(memberId).getUsername());
+    }
+
+    // 쉼표로 적은 시연 계정 목록에 이 아이디가 있는지. 목록이 비어 있으면 기본값(qwer1234)으로 봄
+    static boolean isInAccounts(String accounts, String username) {
+        String list = isBlank(accounts) ? DEFAULT_DEMO_ACCOUNT : accounts;
+        for (String account : list.split(",")) {
             if (account.trim().equals(username)) {
                 return true;
             }

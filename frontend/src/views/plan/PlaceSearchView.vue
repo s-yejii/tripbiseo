@@ -11,7 +11,7 @@
 import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
-import { getLocationHere, getLocationHubs, searchAreas, searchLocations } from '@/api/trips'
+import { getLocationHere, getLocationHubs, searchAreas, searchLocations, searchPlaces } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { goBack } from '@/utils/back'
 import { addDays, daysBetween, toMonthDay } from '@/utils/dates'
@@ -141,7 +141,7 @@ function search(value) {
 async function runSearch(word) {
   const no = ++requestNo
   try {
-    const list = mode === 'area' ? await searchAreas(word) : await searchLocations(word, position?.lat, position?.lng)
+    const list = mode === 'area' ? await searchAreas(word) : mode === 'fixed' ? await searchFixed(word) : await searchLocations(word, position?.lat, position?.lng)
     if (no !== requestNo) return
     found.value = list
   } catch (e) {
@@ -150,6 +150,36 @@ async function runSearch(word) {
     error.value = e.message
   }
   isLoading.value = false
+}
+
+// 예약한 곳 검색 (③ 11/09 상재 제보): 카카오에 없는 가게(예: 문래 골목집)도 찾게 우리 DB 장소를 먼저, 그 뒤에 카카오 결과
+//   같은 이름은 한 번만. 띄어쓰기는 무시하고 비교해요 ("문래골목집"도 "문래 골목집"과 같은 이름)
+const MAX_FIXED_RESULTS = 15
+const squash = (text) => (text || '').replace(/\s+/g, '')
+//   띄어쓰기 없이 친 말("문래골목집")은 DB 검색이 띄어 쓴 이름("문래 골목집")을 못 찾아서, 앞·뒤 3글자로도 한 번씩 더 찾고 띄어쓰기 빼고 비교
+const PIECE_LENGTH = 3
+function piecesOf(word) {
+  if (/\s/.test(word) || word.length <= PIECE_LENGTH) return []
+  return [word.slice(0, PIECE_LENGTH), word.slice(-PIECE_LENGTH)]
+}
+async function searchFixed(word) {
+  const lat = position?.lat
+  const lng = position?.lng
+  const [kakao, ...ourLists] = await Promise.all([
+    searchLocations(word, lat, lng).catch(() => []),
+    ...[word, ...piecesOf(word)].map((piece) => searchPlaces(piece, lat, lng).catch(() => [])),
+  ])
+  const ours = ourLists.flat()
+  const key = squash(word)
+  const list = []
+  const seen = new Set()
+  for (const item of [...ours.filter((place) => squash(place.name).includes(key)), ...kakao]) {
+    const name = squash(item.name)
+    if (seen.has(name) || item.lat == null || item.lng == null) continue
+    seen.add(name)
+    list.push({ name: item.name, category: item.category, address: item.address, lat: item.lat, lng: item.lng })
+  }
+  return list.slice(0, MAX_FIXED_RESULTS)
 }
 
 // 현재 위치로 출발: GPS → 주소 → 맨 위에 넣고 골라 둠

@@ -28,11 +28,10 @@ import instagramLogo from '@/assets/brand/instagram.svg'
 import naverLogo from '@/assets/brand/naver.svg'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
-import { recommendTime } from '@/utils/timeRecommend'
+import { recommendTimeFor } from '@/utils/timeRecommend'
 import { appNow, devMode } from '@/utils/devMode'
 import { getDevScenario } from '@/api/dev'
 
-const AUTO_NEXT_MS = 180 // 하나만 고르는 칸은 고른 것이 보인 뒤 넘김
 const WORKSHOP_MIN_PEOPLE = 4 // 워크숍을 고르면 인원은 적어도 이만큼
 const DEFAULT_MOVES = ['지하철', '도보', '버스']
 const STEPS = [
@@ -237,7 +236,7 @@ function pickCompanion(name) {
   store.planCompanion = name
   const fewest = name === '워크숍' ? WORKSHOP_MIN_PEOPLE : 2
   store.planPeople = name === '혼자' ? 1 : Math.max(fewest, store.planPeople)
-  setTimeout(goNext, AUTO_NEXT_MS)
+  // 11/09: 고르자마자 넘기지 않음 (같은 화면에서 인원도 맞추고 [다음]으로 넘어가요)
 }
 // 담은 숙소의 박 수 합 (체크인~체크아웃 날짜 차이). 여행 박 수만큼 다 담으면 "숙소 더 담기"를 숨김
 const stayNights = computed(() => {
@@ -343,8 +342,7 @@ onMounted(async () => {
   }
   const setup = scenario.value
   if (!store.planOrigin) store.planOrigin = { name: setup.originName, address: setup.originAddress, category: '출발지', lat: setup.originLat, lng: setup.originLng }
-  // 1일차 회식 예약(문래 골목집 18:30)만 미리 넣음. KTX는 발표자가 "예약한 곳" 단계에서 서울역을 직접 찾아 넣음 (11/08 주형)
-  if (!fixedList.value.length) store.planConditions = { ...(store.planConditions || {}), fixed: setup.fixed.filter((item) => item.day === 1) }
+  // 예약(문래 골목집 회식·서울역 KTX)은 미리 넣지 않음. 발표자가 "예약한 곳" 단계에서 장소 검색으로 직접 넣어요 (11/09 상재 제보)
 })
 // 숙소는 미리 넣지 않음 (11/08 주형: 시연에서 숙소 단계에서 직접 찾아 넣는 모습을 보여 줌)
 
@@ -360,7 +358,9 @@ function useRecommendedTime() {
     showToast('추천 시간 ' + scenario.value.startTime + '~' + end + '로 맞췄어요') // 11/09: 일반 계정과 같은 문구 (아직 안 넣은 KTX·서울역을 미리 말하지 않음)
     return
   }
-  const time = recommendTime()
+  // 오늘 여행이면 지금 이후로 맞추고 날짜는 그대로 (하루가 거의 끝났을 때만 내일로, 11/09)
+  const time = recommendTimeFor(isToday(), nowMinutes())
+  if (time.isTomorrow) moveToTomorrow()
   store.planFromTime = time.start
   store.planToTime = time.end
   showToast('추천 시간 ' + time.start + '~' + time.end + '로 맞췄어요')

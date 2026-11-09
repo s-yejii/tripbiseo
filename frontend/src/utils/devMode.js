@@ -127,6 +127,19 @@ function demoToday(setup) {
   return real.getFullYear() + '-' + String(real.getMonth() + 1).padStart(2, '0') + '-' + String(real.getDate()).padStart(2, '0')
 }
 
+// 앱을 열 때 (11/09): 이미 로그인된 시연 계정인데 시연 모드가 꺼져 있으면 로그인 때와 똑같이 켬
+//   (develop을 받기 전부터 로그인돼 있던 PC는 로그인 화면을 안 거쳐서 시연 모드가 안 켜지던 문제)
+//   이미 켜져 있으면 아무것도 안 함 → 진행 중인 시연 시계·위치는 그대로. 로그인 안 했거나 일반 계정이면 변화 없음
+export async function ensureDemoMode() {
+  if (devMode.isOn) return
+  try {
+    const status = await getDevStatus()
+    if (status && status.allowed) await applyDemoAccount()
+  } catch (e) {
+    // 로그인 안 했거나 서버가 답을 못 하면 그대로
+  }
+}
+
 export async function applyDemoAccount() {
   try {
     const status = await getDevStatus()
