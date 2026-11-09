@@ -32,7 +32,6 @@ import { recommendTime } from '@/utils/timeRecommend'
 import { appNow, devMode } from '@/utils/devMode'
 import { getDevScenario } from '@/api/dev'
 
-const AUTO_NEXT_MS = 180 // 하나만 고르는 칸은 고른 것이 보인 뒤 넘김
 const WORKSHOP_MIN_PEOPLE = 4 // 워크숍을 고르면 인원은 적어도 이만큼
 const DEFAULT_MOVES = ['지하철', '도보', '버스']
 const STEPS = [
@@ -237,7 +236,7 @@ function pickCompanion(name) {
   store.planCompanion = name
   const fewest = name === '워크숍' ? WORKSHOP_MIN_PEOPLE : 2
   store.planPeople = name === '혼자' ? 1 : Math.max(fewest, store.planPeople)
-  setTimeout(goNext, AUTO_NEXT_MS)
+  // 11/09: 고르자마자 넘기지 않음 (같은 화면에서 인원도 맞추고 [다음]으로 넘어가요)
 }
 // 담은 숙소의 박 수 합 (체크인~체크아웃 날짜 차이). 여행 박 수만큼 다 담으면 "숙소 더 담기"를 숨김
 const stayNights = computed(() => {
