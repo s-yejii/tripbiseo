@@ -355,7 +355,7 @@ function useRecommendedTime() {
     const end = toTime(toMinutes(train.time) - BOARDING_EARLY_MIN)
     store.planFromTime = scenario.value.startTime
     store.planToTime = end
-    showToast('첫날 ' + scenario.value.startTime + ' 출발 · 마지막 날 ' + end + ' 서울역 (KTX ' + train.time + ' 30분 전)')
+    showToast('추천 시간 ' + scenario.value.startTime + '~' + end + '로 맞췄어요') // 11/09: 일반 계정과 같은 문구 (아직 안 넣은 KTX·서울역을 미리 말하지 않음)
     return
   }
   const time = recommendTime()
