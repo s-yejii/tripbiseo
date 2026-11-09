@@ -156,11 +156,20 @@ async function runSearch(word) {
 //   같은 이름은 한 번만. 띄어쓰기는 무시하고 비교해요 ("문래골목집"도 "문래 골목집"과 같은 이름)
 const MAX_FIXED_RESULTS = 15
 const squash = (text) => (text || '').replace(/\s+/g, '')
+//   띄어쓰기 없이 친 말("문래골목집")은 DB 검색이 띄어 쓴 이름("문래 골목집")을 못 찾아서, 앞·뒤 3글자로도 한 번씩 더 찾고 띄어쓰기 빼고 비교
+const PIECE_LENGTH = 3
+function piecesOf(word) {
+  if (/\s/.test(word) || word.length <= PIECE_LENGTH) return []
+  return [word.slice(0, PIECE_LENGTH), word.slice(-PIECE_LENGTH)]
+}
 async function searchFixed(word) {
-  const [ours, kakao] = await Promise.all([
-    searchPlaces(word, position?.lat, position?.lng).catch(() => []),
-    searchLocations(word, position?.lat, position?.lng).catch(() => []),
+  const lat = position?.lat
+  const lng = position?.lng
+  const [kakao, ...ourLists] = await Promise.all([
+    searchLocations(word, lat, lng).catch(() => []),
+    ...[word, ...piecesOf(word)].map((piece) => searchPlaces(piece, lat, lng).catch(() => [])),
   ])
+  const ours = ourLists.flat()
   const key = squash(word)
   const list = []
   const seen = new Set()
