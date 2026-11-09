@@ -13,7 +13,8 @@ import { addDays } from '@/utils/dates'
 import { appNow, clearCommand, devMode, ensureDemoFlow, syncClock } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
-import { incidentClockMin, lateMinutesFor, planDeparture } from '@/utils/departure'
+import { demoRoute } from '@/utils/demoRoute'
+import { incidentClockMin, isBoardingPlace, lateMinutesFor, planDeparture } from '@/utils/departure'
 
 const props = defineProps({
   live: { type: Object, required: true }, // useLiveTrip() 결과
@@ -23,6 +24,7 @@ const STAY_SPEED = 1 // 머무는 동안 시계는 실제 시간대로 (11/08 �
 const ALERT_SHOW_MS = 2500 // 다음 날 아침 안내를 보여 줄 시간
 const MOVE_MS = 6000 // 이동하는 모습을 보여 주는 실제 시간 (시계는 이 동안 이동 시간만큼 흐름)
 const MOVE_STEPS = 12
+const FOLLOW_START_MS = 1000 // 출발 전 지도 전환(내 위치로 다가가며 확대)을 기다리는 시간 (11/09 ①)
 const LEFT_STEP = 5 // 경로의 4/12·5/12 자리를 서버에 보내 "떠났다"를 알림 (출발 판정은 장소에서 200m 밖 점 두 개)
 const WANDER_MS = 4000 // 머무는 동안 위치가 조금씩 흔들리는 간격 (화면만, 서버에는 안 보냄)
 const WANDER_PARK_M = 50 // 공원·한강은 넓게
@@ -149,17 +151,21 @@ async function moveToNext() {
 
   // 이동: 경로선을 따라 움직이고, 그동안 시계는 이동 시간만큼 흐름
   const path = route && route.coords && route.coords.length > 1 ? route.coords : [[from.lat, from.lng], [next.lat, next.lng]]
+  demoRoute.value = path // 이동하는 동안 지도의 남색 점선도 이 길로 고정 (11/09 ①: 중간에 다시 받은 길과 어긋나지 않게)
+  await wait(FOLLOW_START_MS) // 지도가 내 위치로 다가가며 확대하는 동안 점은 출발점에서 기다림 (11/09 ①)
   // 떠나는 그 시각에 서버에 "떠났다"를 먼저 알림 (점 두 개가 칸 밖이어야 출발로 봄) → 늦게 떠났으면 서버가 뒤 일정을 밀거나 줄임
   for (let step = 1; step <= LEFT_STEP; step++) {
     const [lat, lng] = pointAlong(path, step / MOVE_STEPS)
     if (step >= LEFT_STEP - 1) await props.live.placeAt(lat, lng, false) // 마지막 두 걸음은 서버에도 (장소에서 200m 밖)
     else props.live.showAt(lat, lng)
+    await wait(MOVE_MS / MOVE_STEPS) // 첫 걸음들도 같은 간격으로 (기다림 없이 찍혀 점이 순간이동하던 문제, 11/09 ①)
   }
   // 떠난 뒤 다시 계산해서 예약에 늦게 되면 그 자리에서 멈춤 (시계도 멈춤) → 카드에서 고른 뒤 다시 [다음 장소로] (11/09 주형: 시간도 공간도 stop)
   const after = props.live.status.value
   const isNowTight = next.fixed && after && after.fixed && after.fixed.slackMin <= TIGHT_SLACK_MIN && !replan.isMutedFor(props.live.tripId.value, after.fixed.name, Math.max(0, -after.fixed.slackMin))
   if (isIncident(after) || isNowTight) {
     blockedKey = after.alert ? after.alert.key : blockedKey
+    demoRoute.value = null // 멈추면 서버가 지금 자리에서 다시 잰 길을 보여 줌
     await setSpeed(0)
     return
   }
@@ -224,6 +230,7 @@ async function showNotice(next, travelMin) {
 
 // 도착: 시계를 정확히 도착 시각으로, 다시 실제 시간으로
 async function arrive(next, date, minutes) {
+  demoRoute.value = null // 도착하면 고정한 길을 풀어요
   await setSpeed(STAY_SPEED)
   await setClock(date, minutes)
   await props.live.placeAt(next.lat, next.lng, true)
@@ -309,9 +316,13 @@ watch(() => props.live.status.value, async (status) => {
 // 설정의 [늦게 만들기]: 지금 장소에서 다음 예약까지 원래 수단으로 가면 LATE_TARGET_MIN분 늦는 시각으로 시계를 옮김
 //   (여유 N분 = 예약 시각 − (떠나는 시각 + 이동). 떠나는 시각을 여유 + 12분만큼 늦추면 12분 늦음)
 //   11/09: KTX(타는 곳)는 출발 시각을 2분 넘기게 = 놓침, 회식 같은 예약은 12분 (utils/departure.js lateMinutesFor)
+// 2일차 KTX 돌발 시각 (11/09 ① 상재: 대본 숫자). 택시 23분이면 18:45 도착·여유 15분, 지하철 40분이면 19:02 도착·KTX 놓침
+//   이동 분은 서버 DemoRoutes(타임스퀘어 → 서울역)와 같은 값이에요
+const TRAIN_INCIDENT_CLOCK = '18:22'
 async function makeLate(status, current) {
   const base = Math.max(minutesOf(appNow()), stayEndOf(current))
-  await setClock(dateText(appNow()), incidentClockMin(base, status.fixed.slackMin, lateMinutesFor(status.fixed.name)))
+  const clock = isBoardingPlace(status.fixed.name) ? toMinutes(TRAIN_INCIDENT_CLOCK) : incidentClockMin(base, status.fixed.slackMin, lateMinutesFor(status.fixed.name))
+  await setClock(dateText(appNow()), clock)
   await props.live.refresh()
 }
 watch(() => devMode.command, async (command) => {

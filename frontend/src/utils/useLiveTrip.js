@@ -32,7 +32,8 @@ export function useLiveTrip() {
   let lastTrackAt = 0
 
   // 진행 중인 여행이 있으면 시작 (없으면 phase가 none)
-  async function start(isDemo = false) {
+  // isNoGps: 시연 계정 일정대로 흐르기 — 진짜 GPS를 켜지 않고 DemoDrive가 placeAt으로 위치를 정함 (11/09)
+  async function start(isDemo = false, isNoGps = false) {
     phase.value = 'loading'
     const id = await findOngoingTripId()
     if (!id) {
@@ -44,7 +45,7 @@ export function useLiveTrip() {
     phase.value = 'gps'
     if (isDemo) {
       await startDemo()
-    } else {
+    } else if (!isNoGps) {
       watchGps()
     }
     statusTimer = setInterval(refresh, STATUS_INTERVAL_MS)
