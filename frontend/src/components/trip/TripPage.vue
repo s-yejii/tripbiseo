@@ -250,7 +250,7 @@ function slackBadge(slack) {
     <RouterLink
       v-if="tooltip"
       ref="tipBox"
-      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '') : '/place'"
+      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '&from=plan') : '/place'"
       class="tooltip trip-tip"
       :class="{ 'is-below': tooltip.isBelow }"
       :style="{ left: tooltip.left + 'px', top: tooltip.y + 'px', '--arrow-x': tooltip.arrowX + 'px', transform: 'scale(' + tipScale + ')' }"

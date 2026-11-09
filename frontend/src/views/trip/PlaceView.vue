@@ -26,7 +26,8 @@ const id = places[route.query.id] ? route.query.id : 'daelim'
 const server = ref(null) // 서버 장소 상세 (화면이 쓰는 모양으로 바꾼 것)
 const place = computed(() => server.value || places[id])
 // 여행 상세에서 장소를 눌러 왔으면(?trip=) 이미 그 여행에 있는 실제 장소
-const isFromTrip = !isFake && !!route.query.trip
+//   저장 전 일정 점검(?from=plan)에서 온 장소도 이미 일정에 있는 곳 (11/09 ② 찬기 OK)
+const isFromTrip = !isFake && (!!route.query.trip || route.query.from === 'plan')
 // 가짜 장소는 여기서 확인. 여행 상세에서 온 실제 장소는 담겨 있는 것으로 보고, 그 밖의 실제 장소는 담을 일정을 고르는 시트 안에서 일정마다 확인
 const inPlan = (isFake && concertTrip.stops.some((stop) => stop.id === id)) || isFromTrip
 const saved = ref(false)
