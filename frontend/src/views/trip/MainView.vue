@@ -61,6 +61,7 @@ async function load() {
     const picked = pickHomeTrip(await getTripList())
     trip.value = picked ? await getTrip(picked.id) : null
   } catch (e) {
+    if (e.status === 401) return router.replace('/onboarding') // 로그인 전이면 온보딩(S01)부터 (11/09)
     error.value = e.message
   }
   isLoading.value = false
