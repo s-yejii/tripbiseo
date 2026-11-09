@@ -27,7 +27,7 @@ onMounted(async () => {
 
 <template>
   <div class="scr scr-TripDetailToday">
-    <TripPage v-if="view" :trip="view" :badge="tripBadge(saved)" back="/">
+    <TripPage v-if="view" :trip="view" :badge="tripBadge(saved)" back="/" :trip-id="saved.id">
       <template #below>
         <!-- 챙길 것: API가 아직 "확인 필요"라 이 화면에서만 적어 둬요 (새로고침하면 사라짐) -->
         <PackList :items="[]" />

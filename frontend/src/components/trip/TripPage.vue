@@ -28,6 +28,7 @@ const props = defineProps({
   showBudget: { type: Boolean, default: false }, // 1인 예상 금액 줄 (일정 점검)
   simMe: { type: Object, default: null }, // 이동 미리보기의 점 { lat, lng }
   activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
+  tripId: { type: Number, default: null }, // 저장된 여행 번호. 있으면 장소 상세에 &trip=으로 넘겨 "이 일정에 담겨 있어요"로 보이게
 })
 const emit = defineEmits(['reorder', 'change-mode'])
 const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
@@ -238,7 +239,7 @@ async function select(i) {
     <RouterLink
       v-if="tooltip"
       ref="tipBox"
-      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'"
+      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '') : '/place'"
       class="tooltip trip-tip"
       :class="{ 'is-below': tooltip.isBelow }"
       :style="{ left: tooltip.left + 'px', top: tooltip.y + 'px', '--arrow-x': tooltip.arrowX + 'px', transform: 'scale(' + tipScale + ')' }"
