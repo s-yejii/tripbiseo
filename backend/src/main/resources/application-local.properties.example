@@ -23,7 +23,7 @@ ODSAY_API_KEY=
 TOUR_API_KEY=
 KMA_SERVICE_KEY=
 
-# 개발자 모드(시연 시계)를 쓸 시연 계정 아이디. 쉼표로 여러 개 (예: qwer1234,tripuser). 이 줄이 없으면 기본값 qwer1234 (db/96_demo_account.sql)
+# 개발자 모드(시연 시계)를 쓸 시연 계정 아이디. 쉼표로 여러 개 (예: qwer1234,tripuser). 이 줄이 없거나 비어 있으면 qwer1234 (db/96_demo_account.sql)
 DEMO_ACCOUNTS=qwer1234
 # CODEF (카드 승인내역, ⑤ 11/07). 콘솔 "키 관리"의 값 3개. 샌드박스면 CODEF_SERVICE_TYPE=sandbox, 데모 승인 후 demo
 # public_key는 줄바꿈 없이 한 줄로 붙여 넣어요
