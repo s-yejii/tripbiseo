@@ -13,6 +13,7 @@ import com.tripbiseo.trip.dto.Stop;
 import com.tripbiseo.trip.dto.Trip;
 import com.tripbiseo.trip.service.PlaceService;
 import com.tripbiseo.trip.service.TripService;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -58,13 +59,99 @@ public class RetroServiceImpl implements RetroService {
            
         }
         response.setVisited(visited); // 
-        List<TrackPoint> track = trackService.getTrackList(tripId); // gps 점 기록 
+        List<TrackPoint> track = trackService.getTrackList(tripId); // gps 점 기록
+        fitTrackToStops(track, response.getStops(), countDays(trip)); // 시연 시계로 돈 여행이면 GPS 시각을 다시 매김 (11/09)
         response.setTrack(track);
         response.setMovedMeters(sumMovedMeters(track));
         List<ExtraStop> extras = findExtraStops(track, response.getStops()); // 계획 없이 머문 곳 (GPS로 찾음). 실제 도착·머문 분이 계산된 회고 칸을 넘김
         fillNames(extras);                                // 근처 장소 이름 붙이기 (② PlaceService)
         response.setExtraStops(mergeSameName(extras));    // 붙어 있는 같은 이름 조각은 하나로 (넓은 곳)
         return response;
+    }
+
+    // ---------------------------------------------------------------- 시연 시계로 돈 여행 (11/09)
+    // ④ GPS 점은 DB 진짜 시각(NOW())으로, 장소 도착·떠남은 시연 시계(Geo.now())로 저장됨
+    //   → 시연 계정은 GPS가 여행 날짜 밖(예: 11/09 − 11/10 + 1 = 0일차)으로 읽혀서 회고 지도에 선이 안 그려짐
+    //   → 그런 점이 있을 때만, 장소 도착·떠남 시각을 기준점으로 GPS 시각을 다시 매김. 진짜 기기 기록은 그대로
+
+    // 여행이 며칠인지. 예: 11/10 ~ 11/11 → 2
+    private static int countDays(Trip trip) {
+        LocalDate start = LocalDate.parse(trip.getStartDate());
+        LocalDate end = LocalDate.parse(trip.getEndDate());
+        return (int) ChronoUnit.DAYS.between(start, end) + 1;
+    }
+
+    // 여행 기간 밖 점이 있으면, 점마다 일차·시각을 기준점 사이 비율로 다시 넣음
+    private static void fitTrackToStops(List<TrackPoint> track, List<RetroStop> stops, int dayCount) {
+        if (!hasPointOutsideTrip(track, dayCount)) return; // 진짜 기기 기록이면 그대로
+        List<int[]> anchors = findAnchors(track, stops);   // 기준점 {점 번호, 여행 분}
+        if (anchors.isEmpty()) return;                     // 장소 근처 점이 하나도 없으면 고칠 수 없음
+        for (int i = 0; i < track.size(); i++) {
+            int minutes = estimateMinutes(i, anchors);
+            track.get(i).setDay(minutes / MINUTES_PER_DAY + 1); // 예: 2010분 → 2일차
+            track.get(i).setTime(Geo.toHhmm(minutes));          // 예: 2010분 → "09:30"
+        }
+    }
+
+    // 일차가 1 ~ 여행 일수 밖인 점이 하나라도 있나
+    private static boolean hasPointOutsideTrip(List<TrackPoint> track, int dayCount) {
+        for (TrackPoint point : track) {
+            if (point.getDay() < 1 || point.getDay() > dayCount) return true;
+        }
+        return false;
+    }
+
+    // 기준점 찾기: 장소를 순서대로 보며, 그 장소 150m 안에 처음 들어온 점 = 도착 시각, 계속 안에 있던 마지막 점 = 떠난 시각
+    // int[] 두 칸짜리 배열로 {점 번호, 여행 첫날 0시부터 몇 분}을 묶음
+    private static List<int[]> findAnchors(List<TrackPoint> track, List<RetroStop> stops) {
+        List<int[]> anchors = new ArrayList<>();
+        int from = 0;     // 앞 장소에서 쓴 점 다음부터 찾음 (숙소를 두 번 가도 순서대로 잡히게)
+        int lastMin = -1; // 기준점 시각은 줄어들면 안 됨 (앞 장소 떠난 시각 = 다음 장소 도착 시각은 괜찮음)
+        for (RetroStop stop : stops) {
+            if (stop.getActualArrive() == null || stop.getLat() == null) continue; // 안 갔거나 좌표 없는 칸
+            int first = findFirstNear(track, stop, from);
+            int arrive = toTripMinutes(stop.getDay(), stop.getActualArrive());
+            if (first < 0 || arrive < lastMin) continue; // 근처 점이 없거나, 앞 장소를 떠나기 전에 도착한 기록
+            int last = first;
+            while (last + 1 < track.size() && isNearStop(track.get(last + 1), stop)) {
+                last++;
+            }
+            anchors.add(new int[] { first, arrive });
+            lastMin = arrive;
+            if (stop.getActualStay() != null && last > first) {
+                anchors.add(new int[] { last, arrive + stop.getActualStay() });
+                lastMin = arrive + stop.getActualStay();
+            }
+            from = last + 1;
+        }
+        return anchors;
+    }
+
+    // from번 점부터 이 장소 150m 안에 처음 들어온 점 번호. 없으면 -1
+    private static int findFirstNear(List<TrackPoint> track, RetroStop stop, int from) {
+        for (int i = from; i < track.size(); i++) {
+            if (isNearStop(track.get(i), stop)) return i;
+        }
+        return -1;
+    }
+
+    // GPS 점이 이 장소 150m 안인가 (날짜는 안 봄: 날짜가 틀린 점을 고치는 중이라서)
+    private static boolean isNearStop(TrackPoint point, RetroStop stop) {
+        return Geo.distanceMeters(point.getLat(), point.getLng(), stop.getLat(), stop.getLng()) < PLAN_RADIUS_M;
+    }
+
+    // i번 점의 여행 분: 앞뒤 기준점 사이를 점 순서 비율로 나눔
+    // 예: 기준점 5번 = 960분(16:00), 15번 = 1107분(18:27) → 10번 = 960 + 147 × 5 / 10 = 1033분(17:13)
+    private static int estimateMinutes(int index, List<int[]> anchors) {
+        int[] before = anchors.get(0);
+        if (index <= before[0]) return before[1]; // 첫 기준점 앞 점은 첫 기준점 시각
+        for (int[] after : anchors) {
+            if (index <= after[0]) {
+                return before[1] + (after[1] - before[1]) * (index - before[0]) / (after[0] - before[0]);
+            }
+            before = after;
+        }
+        return before[1]; // 마지막 기준점 뒤 점은 마지막 기준점 시각
     }
 
     // GPS 점 사이 거리를 기록 순서대로 더함(m). 탈것으로 이동한 거리도 포함
