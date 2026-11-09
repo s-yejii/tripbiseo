@@ -13,7 +13,7 @@ import { addDays } from '@/utils/dates'
 import { appNow, clearCommand, devMode, ensureDemoFlow, syncClock } from '@/utils/devMode'
 import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
-import { planDeparture } from '@/utils/departure'
+import { incidentClockMin, lateMinutesFor, planDeparture } from '@/utils/departure'
 
 const props = defineProps({
   live: { type: Object, required: true }, // useLiveTrip() 결과
@@ -308,10 +308,10 @@ watch(() => props.live.status.value, async (status) => {
 
 // 설정의 [늦게 만들기]: 지금 장소에서 다음 예약까지 원래 수단으로 가면 LATE_TARGET_MIN분 늦는 시각으로 시계를 옮김
 //   (여유 N분 = 예약 시각 − (떠나는 시각 + 이동). 떠나는 시각을 여유 + 12분만큼 늦추면 12분 늦음)
-const LATE_TARGET_MIN = 12
+//   11/09: KTX(타는 곳)는 출발 시각을 2분 넘기게 = 놓침, 회식 같은 예약은 12분 (utils/departure.js lateMinutesFor)
 async function makeLate(status, current) {
   const base = Math.max(minutesOf(appNow()), stayEndOf(current))
-  await setClock(dateText(appNow()), base + status.fixed.slackMin + LATE_TARGET_MIN)
+  await setClock(dateText(appNow()), incidentClockMin(base, status.fixed.slackMin, lateMinutesFor(status.fixed.name)))
   await props.live.refresh()
 }
 watch(() => devMode.command, async (command) => {
