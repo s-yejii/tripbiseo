@@ -28,7 +28,7 @@ import instagramLogo from '@/assets/brand/instagram.svg'
 import naverLogo from '@/assets/brand/naver.svg'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
-import { recommendTime } from '@/utils/timeRecommend'
+import { recommendTimeFor } from '@/utils/timeRecommend'
 import { appNow, devMode } from '@/utils/devMode'
 import { getDevScenario } from '@/api/dev'
 
@@ -358,7 +358,9 @@ function useRecommendedTime() {
     showToast('추천 시간 ' + scenario.value.startTime + '~' + end + '로 맞췄어요') // 11/09: 일반 계정과 같은 문구 (아직 안 넣은 KTX·서울역을 미리 말하지 않음)
     return
   }
-  const time = recommendTime()
+  // 오늘 여행이면 지금 이후로 맞추고 날짜는 그대로 (하루가 거의 끝났을 때만 내일로, 11/09)
+  const time = recommendTimeFor(isToday(), nowMinutes())
+  if (time.isTomorrow) moveToTomorrow()
   store.planFromTime = time.start
   store.planToTime = time.end
   showToast('추천 시간 ' + time.start + '~' + time.end + '로 맞췄어요')
