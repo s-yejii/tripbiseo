@@ -72,11 +72,15 @@ function pinClass(stop, i) {
 
 // 카카오 지도 핀을 누름: 그 칸 쪽으로 옮긴 뒤, 옮긴 자리의 핀 위에 말풍선
 function pickPin(pin) {
-  select(pin.index)
-  isTipOnPin.value = selected.value !== null
+  // 이미 고른 핀(목록에서 눌러 확대한 핀)을 눌러도 전체 보기로 돌아가지 않고 말풍선만 띄워요
+  if (selected.value !== pin.index) select(pin.index)
+  isTipOnPin.value = true
   pickedPoint.value = { x: pin.x, y: pin.y }
   followPin()
 }
+
+// 지도 빈 곳을 누름: 말풍선만 닫아요 (고른 핀 강조와 확대는 그대로)
+function closeTip() { isTipOnPin.value = false; pickedPoint.value = null }
 
 // 지도가 움직일 때마다 말풍선을 고른 핀의 지금 화면 위치로 (핀을 눌러 띄운 말풍선만)
 function followPin() {
@@ -214,7 +218,7 @@ async function select(i) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @map-click="closeTip" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
