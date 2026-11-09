@@ -14,9 +14,9 @@ const course = computed(() => friendNews[fromName.value] || null)
   <div class="scr scr-Invite">
     <div class="app app--white">
       <div class="scroll iv-body">
-        <span class="iv-logo"><img src="/img/logo-mark.svg" alt="" width="28" height="28" />여행어때</span>
+        <span class="iv-logo"><img src="/img/logo-chakchak.png" alt="착착트립" height="28" /></span>
 
-        <h1 class="h-display iv-title"><span class="c-navy">{{ fromName }}</span>님이<br />여행어때에 초대했어요</h1>
+        <h1 class="h-display iv-title"><span class="c-navy">{{ fromName }}</span>님이<br />착착트립에 초대했어요</h1>
         <p class="t-body iv-sub">계획이 틀어져도 남은 일정을 다시 맞춰 주는 여행 앱이에요</p>
 
         <section v-if="course" class="card card--pad iv-course" :aria-label="fromName + '님이 다녀온 코스'">
