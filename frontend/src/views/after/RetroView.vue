@@ -864,6 +864,11 @@ function scrollToRow(no) {
 const isHybrid = ref(false)
 
 // 버튼을 누를 때마다 일반 ↔ 하이브리드 지도로 바꿈
+// 웹 회고(3D 지도·계획 vs 실제·정산)를 새 탭으로 (11/09 피드백: 사용자는 앱, 자세한 건 웹)
+function openWeb() {
+  window.open('/web/retro?id=' + route.query.id, '_blank')
+}
+
 function toggleMapType() {
   if (selectedmap === null) return // 지도가 아직 안 그려졌으면 아무것도 안 함
   isHybrid.value = !isHybrid.value  // 메모지 고쳐 적기: false → true, true → false
@@ -934,7 +939,10 @@ function toggleMapType() {
 
       <header class="topbar topbar--float">
         <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
-        <button type="button" class="iconbtn iconbtn--float" style="margin-left: auto; width: auto; padding: 0 12px" @click="toggleMapType">
+        <button type="button" class="iconbtn iconbtn--float" style="margin-left: auto; width: auto; padding: 0 12px" @click="openWeb">
+          웹으로 크게
+        </button>
+        <button type="button" class="iconbtn iconbtn--float" style="margin-left: 8px; width: auto; padding: 0 12px" @click="toggleMapType">
           {{ isHybrid ? '일반 지도' : '하이브리드 지도' }}
         </button>
       </header>
