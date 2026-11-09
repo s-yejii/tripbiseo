@@ -14,7 +14,7 @@ import TopBar from '@/components/common/TopBar.vue'
 import { generatePlanStream } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { daysBetween } from '@/utils/dates'
-import { isStayStop } from '@/utils/mapView'
+import { isSameStay, isStayStop } from '@/utils/mapView'
 import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
 
@@ -56,10 +56,13 @@ const mapBadge = computed(() => {
 const mapPins = computed(() => {
   if (draft.value) {
     const pins = []
+    const stays = [] // 이미 핀을 꽂은 숙소
     for (const stop of draft.value.stops) {
       if (stop.lat == null || stop.lng == null) continue
-      const isStay = isStayStop(stop) // 숙소는 집 모양 핀
-      const icon = isStay ? 'i-home' : stop.fixed ? 'i-lock' : ''
+      const isStay = isStayStop(stop) // 숙소는 침대 모양 핀, 같은 숙소는 하나만 (11/09)
+      if (isStay && stays.some((before) => isSameStay(before, stop))) continue
+      if (isStay) stays.push(stop)
+      const icon = isStay ? 'i-bed' : stop.fixed ? 'i-lock' : ''
       const cls = isStay ? 'pin--stay' : stop.fixed ? 'pin--fixed' : ''
       pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon, cls, label: stop.name })
     }

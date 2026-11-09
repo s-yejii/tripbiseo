@@ -11,6 +11,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
+import { isSameStay } from '@/utils/mapView'
 import TopBar from '@/components/common/TopBar.vue'
 import TripBudget from '@/components/trip/TripBudget.vue'
 import TripTimeline from '@/components/trip/TripTimeline.vue'
@@ -50,16 +51,24 @@ const isKakao = computed(() => hasCoords.value && useRealMap.value)
 
 // 지도를 다시 맞출 때를 알리는 값: 그날 장소 목록이 바뀌면(일차 바꾸기·장소 넣고 빼기) 달라짐. 정렬해서 순서만 바꿀 땐 그대로
 const mapFitKey = computed(() => props.trip.stops.map((stop) => String(stop.id)).sort().join('|'))
-const mapPins = computed(() => props.trip.stops.map((stop, i) => ({
-  key: i,
-  index: i,
-  lat: stop.lat,
-  lng: stop.lng,
-  text: i + 1,
-  icon: stop.isStay ? 'i-home' : stop.fixed ? 'i-lock' : '', // 숙소는 집 모양 핀 (11/04)
-  cls: pinClass(stop, i),
-  label: (stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name,
-})))
+const mapPins = computed(() => {
+  const pins = []
+  props.trip.stops.forEach((stop, i) => {
+    // 같은 숙소가 여러 칸이면 핀은 처음 하나만 (11/09 ② 찬기 OK)
+    if (stop.isStay && props.trip.stops.slice(0, i).some((before) => before.isStay && isSameStay(before, stop))) return
+    pins.push({
+      key: i,
+      index: i,
+      lat: stop.lat,
+      lng: stop.lng,
+      text: i + 1,
+      icon: stop.isStay ? 'i-bed' : stop.fixed ? 'i-lock' : '', // 숙소는 침대 모양 핀 (11/09)
+      cls: pinClass(stop, i),
+      label: (stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name,
+    })
+  })
+  return pins
+})
 
 function pinClass(stop, i) {
   let cls = ''
@@ -242,7 +251,7 @@ function slackBadge(slack) {
       :aria-label="(stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name"
       @click="select(i)"
     >
-      <i v-if="stop.isStay" class="ic ic--s i-home" aria-hidden="true" style="width: 13px; height: 13px"></i>
+      <i v-if="stop.isStay" class="ic ic--s i-bed" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <i v-else-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <template v-else>{{ i + 1 }}</template>
     </button>
@@ -250,7 +259,7 @@ function slackBadge(slack) {
     <RouterLink
       v-if="tooltip"
       ref="tipBox"
-      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '') : '/place'"
+      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '&from=plan') : '/place'"
       class="tooltip trip-tip"
       :class="{ 'is-below': tooltip.isBelow }"
       :style="{ left: tooltip.left + 'px', top: tooltip.y + 'px', '--arrow-x': tooltip.arrowX + 'px', transform: 'scale(' + tipScale + ')' }"

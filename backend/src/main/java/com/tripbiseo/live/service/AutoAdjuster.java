@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Component;
 
+import com.tripbiseo.common.dev.DevService;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.LiveAlert;
 import com.tripbiseo.member.dto.Notification;
@@ -31,6 +32,8 @@ public class AutoAdjuster {
 
     private static final int LATE_LEAVE_MIN = 10;    // 이만큼 이상 늦게 떠났을 때만 안내·조정
     private static final int TARGET_SLACK_MIN = 20;  // 예약까지 이만큼 여유를 남기려고 줄임
+    // 시연 계정만: 서울역 칸이 KTX 출발 19:00이라 여유가 넉넉해서, 이보다 적으면 줄임 (11/09 주형: "60분 → 50분" 알림이 시연에서 보이게)
+    static final int DEMO_TARGET_SLACK_MIN = 45;
     private static final double KEEP_RATE = 0.7;     // 머무는 시간은 원래의 70%까지만 줄임
     private static final int STEP_MIN = 5;           // 5분 단위
     private static final int SHOW_MIN = 30;          // 여행 중 화면에 안내를 보여 주는 시간(앱 시각 기준 분)
@@ -39,7 +42,13 @@ public class AutoAdjuster {
     private final LiveStopFinder liveStopFinder;
     private final AlternativeCalculator alternativeCalculator;
     private final NotificationService notificationService;
+    private final DevService devService;               // 시연 계정인지 (common/dev)
     private final Map<Long, LiveAlert> recentMap = new ConcurrentHashMap<>(); // 여행 id → 최근 안내 (key에 만든 분)
+
+    /** 예약까지 남기려는 여유(분): 시연 계정은 45분, 다른 계정은 20분 */
+    static int targetSlackFor(boolean isDemo) {
+        return isDemo ? DEMO_TARGET_SLACK_MIN : TARGET_SLACK_MIN;
+    }
 
     /** 칸에서 떠난 직후: 늦게 떠났으면 뒤 일정을 밀거나 줄이고 안내 */
     public void adjustAfterLeave(long memberId, long tripId, Stop left) {
@@ -55,12 +64,13 @@ public class AutoAdjuster {
         int fixedIndex = findFixedIndex(ahead);
         int slack = fixedIndex < 0 ? Integer.MAX_VALUE
                 : alternativeCalculator.calculate(trip, null, ahead, left.getLat(), left.getLng()).getSlackMin();
-        if (slack >= TARGET_SLACK_MIN) {
+        int target = targetSlackFor(devService.isDemoAccount(memberId));
+        if (slack >= target) {
             notice(memberId, tripId, ahead.get(0).getName() + " 도착이 " + lateMin + "분 늦어져요",
                     left.getName() + "에서 " + lateMin + "분 더 머물렀어요. 뒤 일정은 그만큼 밀려요");
             return;
         }
-        List<String> changes = trimStays(memberId, tripId, ahead.subList(0, fixedIndex), roundUp(TARGET_SLACK_MIN - slack));
+        List<String> changes = trimStays(memberId, tripId, ahead.subList(0, fixedIndex), roundUp(target - slack));
         if (changes.isEmpty()) {
             return; // 줄일 곳이 없음 → 늦음 카드가 대안을 보여 줌
         }

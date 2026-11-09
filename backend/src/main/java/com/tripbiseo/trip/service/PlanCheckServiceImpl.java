@@ -34,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 public class PlanCheckServiceImpl implements PlanCheckService {
 
     private static final List<String> DEFAULT_TRANSPORTS = List.of("subway", "bus", "walk");
+    private static final String STAY_CATEGORY = "숙소"; // 일정 만들기가 넣는 숙소 칸의 분류
     private static final int DEFAULT_START_MIN = 600;     // 첫 칸 시각이 없으면 10:00
     private static final int LATEST_START_MIN = 23 * 60 + 30;
     private static final int LATE_ALLOWANCE_MIN = 10;     // 이보다 늦게 도착하면 "늦게 도착해요"
@@ -59,6 +60,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
 
         Stop previous = null;
         int clock = 0; // 앞 칸을 떠나는 시각(분)
+        Stop start = findStartPoint(trip, day); // 첫 장소 앞 길안내: 1일차는 출발지, 그다음 날은 전날 숙소 (없으면 null)
         for (Stop stop : trip.getStops()) {
             boolean isSkipped = "skipped".equals(stop.getState()); // 여행 중 뺀 칸은 점검에서 빼요 (11/04)
             if (stop.getDay() == null || stop.getDay() != day || isSkipped) {
@@ -66,13 +68,17 @@ public class PlanCheckServiceImpl implements PlanCheckService {
             }
             Leg leg = previous == null ? null : findLeg(previous, stop, transports);
             int arrive = getArrive(stop, leg, clock);
+            if (previous == null && start != null) {
+                leg = findLeg(start, stop, transports); // 첫 장소는 계획 시각 그대로, 길안내만 붙임 (지도 경로선 legs[]에는 안 넣음)
+                leg.setFromName(start.getName());
+            }
             if (stop.getTime() == null) {
                 stop.setTime(Geo.toHhmm(Math.min(arrive, LATEST_START_MIN))); // 비어 있으면 앞 일정에 이어서
             }
             CheckedStop checked = toCheckedStop(stop, arrive, leg);
             checked.setIssue(findIssue(stop, date, arrive, checks));
             response.getStops().add(checked);
-            if (leg != null) {
+            if (leg != null && previous != null) {
                 response.getLegs().add(leg);
             }
             setFixedIfFirst(response, stop, arrive);
@@ -84,6 +90,28 @@ public class PlanCheckServiceImpl implements PlanCheckService {
     }
 
     // ---------------------------------------------------------------- 도우미
+
+    /** 그날 첫 장소 앞에서 출발하는 곳: 1일차는 고른 출발지, 2일차부터는 전날 마지막 칸이 숙소면 그 숙소 (11/09 ② 찬기 OK) */
+    private Stop findStartPoint(Trip trip, int day) {
+        if (day == 1) {
+            if (trip.getOriginLat() == null || trip.getOriginLng() == null) {
+                return null;
+            }
+            Stop origin = new Stop();
+            origin.setName(trip.getOriginName() == null ? "출발지" : trip.getOriginName());
+            origin.setLat(trip.getOriginLat());
+            origin.setLng(trip.getOriginLng());
+            return origin;
+        }
+        Stop last = null;
+        for (Stop stop : trip.getStops()) {
+            boolean isSkipped = "skipped".equals(stop.getState());
+            if (stop.getDay() != null && stop.getDay() == day - 1 && !isSkipped) {
+                last = stop;
+            }
+        }
+        return last != null && STAY_CATEGORY.equals(last.getCategory()) ? last : null;
+    }
 
     /** 앞 칸 → 이 칸 실제 길찾기 (taxi는 Leg에서 car) */
     private Leg findLeg(Stop from, Stop to, List<String> transports) {

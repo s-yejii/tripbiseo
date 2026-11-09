@@ -27,6 +27,12 @@ export function toMapPositions(points, box) {
   })
 }
 
+// 같은 숙소 핀인지 (같은 장소 번호이거나 같은 좌표): 1일차 체크인·밤 입실처럼 숙소 칸이 여러 개여도 핀은 하나만 (11/09 ② 찬기 OK)
+export function isSameStay(a, b) {
+  if (a.placeId && b.placeId) return a.placeId === b.placeId
+  return a.lat === b.lat && a.lng === b.lng
+}
+
 // 숙소 칸인지 (일정 만들기가 넣는 숙소 칸은 category가 '숙소', 11/04)
 export function isStayStop(stop) {
   return stop.category === '숙소'
