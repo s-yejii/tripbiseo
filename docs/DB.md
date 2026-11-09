@@ -27,6 +27,7 @@
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
+| `db/96_demo_account.sql` | 발표 시연 계정 `qwer1234` 한 명 (이미 있으면 아무것도 안 함, 비밀번호는 팀 카톡). 01·11 다음에 실행 (11/09) | ③ |
 | `db/95_demo_seed.sql` | 시연용 가상 사용자 데이터 (회원 `demo_001`~`demo_300` · 여행 · 일정 칸, 비밀번호 demo1234!). `db/demo/make_demo_seed.py`로 만듦. 지우기: `DELETE FROM member WHERE username LIKE 'demo\_%';` | DB 총괄 |
 
 파일 번호 순서대로(01 → 02 → 03~06 → 11~15 → 90 → 95) 실행하면 내 PC DB에 모든 테이블이 생겨요. 모든 SQL은 다시 실행해도 오류가 나지 않게 써요 (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
@@ -58,6 +59,7 @@
 | ② | `pack_item` | 챙길 것 | | 만들 예정 (여유) |
 | ③ | `theme`, `theme_stop` | 테마 코스 | ② 읽기 | 만들 예정 |
 | ③ | `vector_store` | RAG 임베딩 (768차원) | | 만들 예정 (여유) |
+| ③ | `my_place` | 내 장소 (친구 소식·장소 상세에서 저장한 곳) | ① 마이 화면에서 읽기 | 만들 예정 (11/06, 확인 필요) |
 | ④ | `trip_track` | GPS 기록 | ⑤① 읽기 | 있음 |
 | ⑤ | `payment` | 결제 내역 (직접 입력·카드 내역) | | 있음 (11/07) |
 | ⑤ | `card` | 카드사 연결 (CODEF connected_id) | | 있음 (11/07, 쓰는 건 다음) |
@@ -277,6 +279,21 @@
 
 ### ③ AI 일정 (김주형)
 (theme, theme_stop, vector_store)
+
+### my_place · 내 장소 (③, `13_plan.sql`, 11/06)
+친구 소식에서 "저장"을 누른 곳. 마이 > 내 장소에서 식당 · 카페 · 놀거리로 나눠 보여요. 나누기는 **저장하지 않고** 읽을 때 `retrip_place` 분류(② `PlaceMapper`의 종류 코드)로 정해요.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| my_place_id | BIGSERIAL PK | |
+| member_id | BIGINT NOT NULL → member (ON DELETE CASCADE) | 저장한 사람 |
+| place_id | TEXT NOT NULL → retrip_place (ON DELETE CASCADE) | 장소 |
+| from_name | VARCHAR(50) | 누구 소식에서 저장했는지 (예: 민지). 직접 저장이면 NULL |
+| created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
+
+- UNIQUE (member_id, place_id): 같은 곳은 한 번만
+- 인덱스: (member_id, created_at DESC)
+- 비슷한 테이블 확인: `friend`(① 여유)와 겹치지 않아요. 친구가 생기면 `from_name` 대신 친구 번호를 넣을지 정해요
 
 ### ④ 여행 중 (신예지)
 (trip_track은 위에 있음. 더 필요하면 여기에)

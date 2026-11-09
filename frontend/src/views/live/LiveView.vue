@@ -1,6 +1,6 @@
 <script setup>
 // S13-a 여행 중 (④) — 프로토타입 S13-a·S13-a2를 진짜 데이터로
-//   진행 중(ongoing)인 여행 + 지금 GPS(또는 ?demo=1 시연 이동)로 POST /live/track·/live/status를 불러 그려요.
+//   진행 중(ongoing)인 여행 + 지금 GPS(또는 개발자 모드의 가짜 GPS)로 POST /live/track·/live/status를 불러 그려요.
 //   지도: 카카오 지도에 다녀온 곳(체크)·지금 있는 곳·남은 곳·고정 일정(자물쇠) 핀, 근처 찾기 결과 핀
 //   시트: 지금 있는 곳을 떠날 시각(도착 기록 + 머무는 시간) 또는 다음 장소까지 남은 시간, 고정 일정 여유
 //   늦으면: 위 알림(접으면 +N분 알약) → 지연 화면, 아래 버튼 "대안 보기"
@@ -24,6 +24,14 @@ import PageMessage from '@/components/common/PageMessage.vue'
 import NotiBell from '@/components/member/NotiBell.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import LiveCards from '@/components/live/LiveCards.vue'
+import DevDot from '@/components/live/DevDot.vue'
+import DemoDrive from '@/components/live/DemoDrive.vue'
+import TripEndSheet from '@/components/live/TripEndSheet.vue'
+import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
+import { closeLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
+import { daysBetween, todayText } from '@/utils/dates'
+import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
+import { isBoardingPlace, missTrainTitle } from '@/utils/departure'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
@@ -34,11 +42,10 @@ const MUTE_AGAIN_MIN = 10 // "그냥 갈게요" 뒤 이만큼 더 늦어지면 �
 const LEG_MODE = { walk: 'walk', transit: 'subway', car: 'taxi' } // 서버 이동 수단 → 카드 칩 아이콘
 const MODE_LABEL = { walk: '도보', transit: '대중교통', car: '택시' }
 
-const route = useRoute()
 const router = useRouter()
 const replan = useReplanStore()
 const live = useLiveTrip()
-const isDemo = ref(route.query.demo === '1') // 시연용 이동 (진짜 GPS 대신 일정 장소를 차례로 지나감)
+const isDemo = ref(isFakeGps() && !devMode.isFlow) // 11/08: 시연 계정은 DemoDrive가 위치를 옮기니 예전 가짜 GPS 걷기는 안 씀 · 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
 
 onMounted(() => live.start(isDemo.value))
 onUnmounted(() => live.stop())
@@ -51,7 +58,14 @@ const selected = ref(null) // 고른 카드·핀 (칸 id)
 const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
-const notiOpen = ref(false) // 위 알림을 펼쳤는지 (알림이 오면 아래 watch가 정함)
+// 위쪽 배너는 한 장만 (11/08 주형: 알림이 겹쳐서 뭐가 뭔지 모르겠음). 저절로 사라지지 않고, 발표자가 위로 밀거나 눌러야 닫힘
+//   (11/08 주형: "알림은 내가 눌러서 끄기 전에는 없애지 마") · 새 알림이 오면 이전 것과 바꿔치기
+// 자동 일정 조정 안내 (서버가 늦게 떠난 걸 보고 뒤 일정을 밀거나 줄였을 때): 위쪽 배너 한 장 (닫을 때까지)
+watch(() => (status.value && status.value.adjust ? status.value.adjust.key : null), (key) => {
+  if (!key) return
+  const adjust = status.value.adjust
+  showLiveNotice({ key: adjust.key, title: adjust.title, body: adjust.text, warn: false, icon: 'i-route', at: status.value.now })
+})
 const asking = ref(false) // AI 채팅
 const adding = ref(false) // 근처 찾기
 const nearPlaces = ref([]) // 근처 찾기 결과
@@ -96,25 +110,52 @@ const remainingStops = computed(() => stops.value.filter((stop) => stop.reach !=
 const nextStop = computed(() => remainingStops.value[0] || null)
 const doneCount = computed(() => stops.value.filter((stop) => stop.reach === 'done').length)
 const isAllDone = computed(() => isReady.value && !currentStop.value && remainingStops.value.length === 0)
+// 여러 날 여행에서 오늘이 마지막 날이 아니면, 그날 마지막 장소(숙소)에 오면 "여행 마치기" 대신 다음 날 일정 보기 (11/08 주형: 1일차 숙소에서 여행이 끝나 버리던 문제)
+const nextDayNo = computed(() => {
+  const trip = live.trip.value
+  const today = todayText()
+  if (!trip || !trip.endDate || today >= trip.endDate) return null
+  return daysBetween(trip.startDate, today) + 2
+})
 const fixed = computed(() => (isReady.value ? status.value.fixed : null))
 const lateMin = computed(() => (fixed.value && fixed.value.slackMin < 0 ? -fixed.value.slackMin : 0))
 const isLate = computed(() => isReady.value && status.value.replan && lateMin.value > 0)
 
 // "그냥 갈게요"를 눌렀고 그때보다 10분 넘게 더 늦지 않았으면 지연 알림을 접어 둠
+// 11/09: 대안을 고른 뒤 여유가 5분 이하로 남은 것(늦기 전)도 같이 접어 둠 → 같은 카드가 다시 [다음 장소로]를 가리지 않게
 const isAlertMuted = computed(() => {
-  if (!isLate.value || replan.mutedLate === null) return false
-  return lateMin.value < replan.mutedLate + MUTE_AGAIN_MIN
+  if (!isReady.value || !fixed.value) return false
+  return replan.isMutedFor(live.tripId.value, fixed.value.name, lateMin.value)
 })
 const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
 const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
+// 중요한 알림(예약에 늦음 = 대안이 필요한 돌발)은 배너 대신 가운데 카드로. [나중에]를 누르면 그 알림은 알약으로만
+const laterKey = ref('')
+const isCriticalAlert = computed(() => !!currentAlert.value && /^late-/.test(currentAlert.value.key || ''))
+const pageRoute = useRoute()
+// 여행 중 화면 자체일 때만 (지연·대안 화면이 위에 열려 있으면 카드를 안 띄움: 11/08 카드가 지연 화면을 가리던 문제)
+const isCardOpen = computed(() => isCriticalAlert.value && pageRoute.path === '/live' && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
+// 시연 계정(11/09 주형): KTX는 "몇 분 늦어요" 대신 놓치는지로 말함. 다른 계정은 서버 문구 그대로
+const cardTitle = computed(() => {
+  const fixed = status.value && status.value.fixed
+  if (devMode.isOn && fixed && fixed.slackMin < 0 && isBoardingPlace(fixed.name)) return missTrainTitle(fixed.name, fixed.eta, fixed.time)
+  return status.value.alert.title
+})
+watch(isCardOpen, (isOpen) => (liveBanner.isCardOpen = isOpen), { immediate: true }) // 카드가 떠 있는 동안 시연 [+분] 버튼을 막음
+onUnmounted(() => (liveBanner.isCardOpen = false))
 
 // 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
   const alert = currentAlert.value
   if (!alert) return
-  notiOpen.value = shouldOpenAlert(alert)
-  if (notiOpen.value) rememberAlert(alert)
+  if (!shouldOpenAlert(alert) || /^late-/.test(alert.key || '')) return // 늦음(돌발)은 가운데 카드로
+  rememberAlert(alert)
+  queueAlert(alert)
 }, { immediate: true })
+// 서버 알림을 위쪽 알림 줄에 넣기 (닫을 때까지 남고, 앞 알림을 닫으면 이어서 보임)
+function queueAlert(alert) {
+  showLiveNotice({ key: alert.key || alert.title, title: alert.title, body: alert.text || '', warn: alert.level === 'danger', icon: 'i-warning', to: alertLink.value, at: status.value.now })
+}
 
 // 첫 칸을 가운데에 고름 (지금 있는 곳 → 다음 곳)
 watch(stops, (list) => {
@@ -261,11 +302,17 @@ const head = computed(() => {
   const now = toMinutes(status.value.now)
   const current = currentStop.value
   if (current) {
-    const start = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
+    const arrived = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
+    const isFromPlan = current.fixed || /숙소|호텔|숙박|모텔|게스트하우스/.test(current.category || '') // 예약·숙소는 일찍 와도 계획 시각부터 (서버 LiveStopFinder와 같음)
+    const start = isFromPlan ? Math.max(arrived, toMinutes(current.time)) : arrived
     const leaveAt = start + (current.stay || 0)
     const left = leaveAt - now
     if (left >= 0) {
       return { cap: current.name + ' 출발', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
+    }
+    const next = nextStop.value
+    if (!next || !next.fixed) { // 다음이 예약이 아니면 더 있어도 경고하지 않음 (뒤 일정이 밀릴 뿐, 11/08 주형)
+      return { cap: current.name + '에서', big: '+' + -left + '분', small: '계획보다 더 머무는 중', cls: '' }
     }
     return { cap: '출발 시간 지남', big: '+' + -left + '분', small: toTime(leaveAt) + ' 출발', cls: 'c-warning' }
   }
@@ -385,6 +432,12 @@ function locate() {
   showToast('아직 지금 위치를 받지 못했어요')
 }
 
+// 오늘 일정 전체가 한 화면에 보이게 지도를 맞춤 (다녀온 곳 + 남은 곳 + 내 위치)
+function showAllRoute() {
+  previewId.value = null
+  if (mapRef.value) mapRef.value.fitAll()
+}
+
 // 같이 간 사람에게 남은 일정 보내기 (휴대폰 공유 창, 없으면 글자 복사)
 async function share() {
   const lines = [(live.trip.value ? live.trip.value.title : '여행') + ' · 지금 ' + status.value.now]
@@ -410,7 +463,7 @@ function runFab(action) {
   action()
 }
 function openToday() {
-  router.push('/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent(isDemo.value ? '/live?demo=1' : '/live'))
+  router.push('/trips/today?id=' + live.tripId.value + '&back=' + encodeURIComponent('/live'))
 }
 function openLink() {
   linkOpen.value = true
@@ -477,17 +530,48 @@ async function finish() {
   }
 }
 
+// ------------------------------------------------------------ 여행 끝 (11/06)
+// 마지막 날의 마지막 칸이 고정 일정(KTX 같은)이고 거기 도착하면 → 끝 시트(총 지출) → "회고 보기"로 여행 끝내기
+const endStop = ref(null) // 끝 시트를 띄운 칸 { name, eta }
+let isEndShown = false // 닫아도 다시 안 띄움
+
+watch(status, () => {
+  if (isEndShown || !status.value || !live.trip.value) return
+  const last = status.value.stops[status.value.stops.length - 1]
+  if (!last || !last.fixed || (last.reach !== 'here' && last.reach !== 'done')) return
+  if (!isLastDayStop(last.id)) return
+  isEndShown = true
+  endStop.value = { name: last.name, eta: status.value.now, time: last.time }
+})
+
+// 이 칸이 여행 마지막 날의 칸인지
+function isLastDayStop(stopId) {
+  const stops = live.trip.value.stops
+  let lastDay = 0
+  for (const stop of stops) lastDay = Math.max(lastDay, stop.day || 0)
+  const stop = stops.find((item) => item.id === stopId)
+  return !!stop && stop.day === lastDay
+}
+
 function showDemo() {
+  setFakeGps(true)
+  restartMoving()
+}
+
+// 개발자 모드에서 가짜 GPS를 켜고 끄면 처음부터 다시 받아요
+function restartMoving() {
   live.stop()
-  isDemo.value = true
-  router.replace('/live?demo=1')
-  live.start(true)
+  isDemo.value = isFakeGps() && !devMode.isFlow
+  live.start(isDemo.value)
 }
 </script>
 
 <template>
   <div class="scr scr-Live">
     <div class="app">
+      <DevDot @clock="live.refresh()" @gps="restartMoving" />
+      <DemoDrive :live="live" /><!-- 시연 계정만: 작은 "다음 장소로" 버튼 (GPS 이동 + 시계 배속만 자동, 11/08) -->
+      <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :planned-at="endStop.time" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
         <header class="topbar">
@@ -503,7 +587,7 @@ function showDemo() {
           <h2 class="h-title">지금 위치를 받을 수 없어요</h2>
           <p class="t-cap">{{ live.gpsError.value }}</p>
           <button type="button" class="btn btn--primary btn--lg" @click="live.retryGps()">다시 시도</button>
-          <button type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
+          <button v-if="devMode.isOn" type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
         </section>
         <PageMessage v-else is-loading title="지금 위치를 찾는 중이에요" text="위치를 받으면 남은 일정과 도착 예상 시간을 계산해요" />
         </div>
@@ -537,21 +621,28 @@ function showDemo() {
         <header class="topbar topbar--float">
           <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
           <span style="flex: 1"></span>
-          <span v-if="isDemo" class="badge badge--neutral" style="align-self: center">시연용 이동</span>
           <NotiBell float />
         </header>
 
-        <!-- 위쪽 알림: 늦으면 접어서 +N분 알약으로 -->
-        <template v-if="status.alert && !isAlertMuted && !adding">
-          <AppNoti
-            v-if="notiOpen"
-            :warn="status.alert.level === 'danger' || isLate"
-            icon="i-warning"
-            :title="status.alert.title"
-            :to="alertLink"
-            @close="notiOpen = false"
-          />
-          <button v-else type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="notiOpen = true">
+        <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
+        <CriticalAlertCard v-if="isCardOpen" :title="cardTitle" :text="status.alert.text" :to="'/live/quick'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
+        <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
+        <AppNoti
+          v-else-if="liveBanner.queue.length && !adding"
+          :key="liveBanner.queue[0].title + liveBanner.queue[0].body"
+          :title="liveBanner.queue[0].title"
+          :body="liveBanner.queue[0].body + (liveBanner.queue.length > 1 ? ' · 알림 ' + (liveBanner.queue.length - 1) + '개 더' : '')"
+          :icon="liveBanner.queue[0].icon || 'i-route'"
+          :warn="liveBanner.queue[0].warn"
+          :to="liveBanner.queue[0].to || ''"
+          @close="closeLiveNotice"
+        />
+        <!-- PC 마우스로도 한 번에 닫게 작은 닫기 버튼 (위로 밀기도 그대로) -->
+        <span v-if="!isCardOpen && liveBanner.queue.length && !adding" class="live-noti-at">{{ liveBanner.queue[0].at || '' }}</span>
+        <button v-if="!isCardOpen && liveBanner.queue.length && !adding" type="button" class="live-noti-x" aria-label="알림 닫기" @click="closeLiveNotice"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
+        <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
+        <template v-else-if="status.alert && !isAlertMuted && !adding">
+          <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="queueAlert(status.alert)">
             <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + lateMin + '분' : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
         </template>
@@ -563,6 +654,7 @@ function showDemo() {
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openLink)"><span class="live-fab__text">링크 추가</span><span class="live-fab__ic live-fab__ic--link"><i class="ic i-link" aria-hidden="true"></i></span></button>
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openToday)"><span class="live-fab__text">내 일정 {{ doneCount }}/{{ stops.length }}</span><span class="live-fab__ic live-fab__ic--plan"><i class="ic i-calendar" aria-hidden="true"></i></span></button>
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(share)"><span class="live-fab__text">일정 공유</span><span class="live-fab__ic live-fab__ic--share"><i class="ic i-share" aria-hidden="true"></i></span></button>
+            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(showAllRoute)"><span class="live-fab__text">전체 경로</span><span class="live-fab__ic live-fab__ic--plan"><i class="ic i-route" aria-hidden="true"></i></span></button>
           </div>
           <!-- 내 위치: + 위에 떠 있다가 메뉴를 열면 아래로 내려가며 사라짐 (메뉴가 + 바로 위에 뜨게) -->
           <button type="button" class="live-fab__me" :class="{ 'is-hidden': fabOpen }" aria-label="내 위치로" :aria-hidden="fabOpen" :tabindex="fabOpen ? -1 : 0" @click="locate"><i class="ic i-locate" aria-hidden="true"></i></button>
@@ -611,14 +703,18 @@ function showDemo() {
           </BottomSheet>
 
           <div v-if="!asking" class="cta cta--white" style="box-shadow: none">
-            <div v-if="isAllDone" class="cta__row">
+            <div v-if="nextDayNo && remainingStops.length === 0" class="cta__row">
+              <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=/live'" class="btn btn--secondary btn--lg">일정 보기</RouterLink>
+              <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&day=' + nextDayNo + '&back=/live'" class="btn btn--primary btn--lg"><i class="ic i-calendar" aria-hidden="true"></i>{{ nextDayNo }}일차 일정 보기</RouterLink>
+            </div>
+            <div v-else-if="isAllDone" class="cta__row">
               <RouterLink :to="'/trips/today?id=' + live.tripId.value + '&back=/live'" class="btn btn--secondary btn--lg">일정 보기</RouterLink>
               <button type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="finish"><i class="ic i-flag" aria-hidden="true"></i>여행 마치기</button>
             </div>
             <div v-else class="cta__row">
               <RouterLink v-if="isLate" to="/live/delay" class="btn btn--secondary btn--lg">대안 보기</RouterLink>
               <RouterLink v-else :to="'/plan/edit?id=' + live.tripId.value" class="btn btn--secondary btn--lg"><i class="ic i-edit" aria-hidden="true"></i>일정 변경</RouterLink>
-              <RouterLink :to="'/live/route' + (isDemo ? '?demo=1' : '')" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
+              <RouterLink to="/live/route" class="btn btn--primary btn--lg"><i class="ic i-route" aria-hidden="true"></i>길 안내</RouterLink>
             </div>
           </div>
 
@@ -630,6 +726,10 @@ function showDemo() {
 </template>
 
 <style>
+.scr-Live .noti { padding-right: 46px; } /* 닫기(X) 자리를 비움 (11/09) */
+.scr-Live .noti .noti__meta > span { visibility: hidden; } /* "지금" 대신 알림이 생긴 시각을 옆에 따로 (지난 알림이 지금 일처럼 안 보이게) */
+.live-noti-at { position: absolute; top: 62px; right: 52px; z-index: 56; font-size: 12px; line-height: 16px; color: var(--ink-muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.live-noti-x { position: absolute; top: 58px; right: 16px; z-index: 56; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: rgba(24, 33, 58, 0.08); color: var(--ink-muted); cursor: pointer; }
 .scr-Live .live-msg { padding-top: 96px; }
 .scr-Live .live-fab { position: absolute; right: 16px; top: 380px; z-index: 6; } /* + 가운데는 예전(52px, 376px)과 같은 높이 */
 .scr-Live .live-fab__me { position: absolute; left: 0; bottom: calc(100% + 10px); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #2F7BEA; background: #fff; box-shadow: 0 2px 8px rgba(24, 33, 58, .25); cursor: pointer; transition: opacity .18s, transform .18s; }

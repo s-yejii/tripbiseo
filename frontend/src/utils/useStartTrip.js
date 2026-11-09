@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getTripList, startTrip } from '@/api/trips'
 import { showToast } from '@/utils/toast'
+import { devMode, prepareTripStart } from '@/utils/devMode'
 
 const CONFLICT_STATUS = 409
 
@@ -15,6 +16,7 @@ export function useStartTrip() {
   async function start(tripId) {
     waitingTripId = tripId
     try {
+      if (devMode.isOn) await prepareTripStart(tripId) // 시연 계정: 시계를 그 여행 1일차 출발 시각으로 → 언제 눌러도 바로 시작
       await startTrip(tripId)
       conflict.value = null
       router.replace('/live')

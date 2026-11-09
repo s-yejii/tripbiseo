@@ -28,6 +28,7 @@ const props = defineProps({
   showBudget: { type: Boolean, default: false }, // 1인 예상 금액 줄 (일정 점검)
   simMe: { type: Object, default: null }, // 이동 미리보기의 점 { lat, lng }
   activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
+  tripId: { type: Number, default: null }, // 저장된 여행 번호. 있으면 장소 상세에 &trip=으로 넘겨 "이 일정에 담겨 있어요"로 보이게
 })
 const emit = defineEmits(['reorder', 'change-mode'])
 const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
@@ -71,11 +72,15 @@ function pinClass(stop, i) {
 
 // 카카오 지도 핀을 누름: 그 칸 쪽으로 옮긴 뒤, 옮긴 자리의 핀 위에 말풍선
 function pickPin(pin) {
-  select(pin.index)
-  isTipOnPin.value = selected.value !== null
+  // 이미 고른 핀(목록에서 눌러 확대한 핀)을 눌러도 전체 보기로 돌아가지 않고 말풍선만 띄워요
+  if (selected.value !== pin.index) select(pin.index)
+  isTipOnPin.value = true
   pickedPoint.value = { x: pin.x, y: pin.y }
   followPin()
 }
+
+// 지도 빈 곳을 누름: 말풍선만 닫아요 (고른 핀 강조와 확대는 그대로)
+function closeTip() { isTipOnPin.value = false; pickedPoint.value = null }
 
 // 지도가 움직일 때마다 말풍선을 고른 핀의 지금 화면 위치로 (핀을 눌러 띄운 말풍선만)
 function followPin() {
@@ -209,11 +214,18 @@ async function select(i) {
   const el = scrollBox.value.querySelector(`[data-stop="${i}"]`)
   if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
+// 예약 여유 표시 색: 늦으면 빨강, 10분 이하면 노랑, 넉넉하면 초록 (11/06: 여유가 마이너스인데 초록 체크로 뜨던 문제)
+const SLACK_TIGHT_MIN = 10 // 여행 중 알림(LiveAlertMaker)의 "여유가 얼마 없어요"와 같은 기준
+function slackBadge(slack) {
+  if (slack < 0) return { cls: 'badge--danger', icon: 'i-warning' }
+  if (slack <= SLACK_TIGHT_MIN) return { cls: 'badge--warning', icon: 'i-warning' }
+  return { cls: 'badge--success', icon: 'i-check' }
+}
 </script>
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @map-click="closeTip" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -238,7 +250,7 @@ async function select(i) {
     <RouterLink
       v-if="tooltip"
       ref="tipBox"
-      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'"
+      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '') : '/place'"
       class="tooltip trip-tip"
       :class="{ 'is-below': tooltip.isBelow }"
       :style="{ left: tooltip.left + 'px', top: tooltip.y + 'px', '--arrow-x': tooltip.arrowX + 'px', transform: 'scale(' + tipScale + ')' }"
@@ -258,7 +270,7 @@ async function select(i) {
             <span v-if="badge" class="badge" :class="badge.cls" style="height: 20px; margin-right: 6px">{{ badge.text }}</span>{{ subText }}
           </p>
         </div>
-        <span v-if="trip.slack !== undefined" class="badge badge--success tn"><i class="ic ic--s i-check" aria-hidden="true"></i>예약 여유 {{ trip.slack }}분</span>
+        <span v-if="trip.slack !== undefined" class="badge tn" :class="slackBadge(trip.slack).cls"><i class="ic ic--s" :class="slackBadge(trip.slack).icon" aria-hidden="true"></i>{{ trip.slack < 0 ? '예약에 ' + -trip.slack + '분 늦어요' : '예약 여유 ' + trip.slack + '분' }}</span>
       </div>
       <TripBudget v-if="showBudget && trip.stops.length" :stops="trip.stops" />
       <slot name="head"></slot>

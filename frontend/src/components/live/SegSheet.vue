@@ -11,11 +11,13 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
-// 네이버 지도 길찾기 주소: /p/directions/{경도},{위도},{이름},,/{경도},{위도},{이름},,/{walk|transit|car}
+// 네이버 지도 길찾기 주소: /p/directions/{출발}/{도착}/{경유지}/{walk|transit|car}
+//   출발·도착 = {경도},{위도},{이름},, (11/06: 경유지 자리 "-"가 빠져 있으면 네이버가 출발·도착 칸을 비워 둬서 넣음)
+//   이름이 비면 네이버가 좌표로만 보여 줘서, 이름이 없을 땐 "출발지"·"도착지"를 넣어요
 function toNaverUrl() {
   const mode = props.leg.mode === 'walk' ? 'walk' : props.leg.mode === 'taxi' ? 'car' : 'transit'
-  const point = (place) => place.lng + ',' + place.lat + ',' + encodeURIComponent(place.name) + ',,'
-  return 'https://map.naver.com/p/directions/' + point(props.from) + '/' + point(props.to) + '/' + mode
+  const point = (place, fallback) => place.lng + ',' + place.lat + ',' + encodeURIComponent(place.name || fallback) + ',,'
+  return 'https://map.naver.com/p/directions/' + point(props.from, '출발지') + '/' + point(props.to, '도착지') + '/-/' + mode
 }
 
 function openNaverMap() {

@@ -124,6 +124,19 @@ function memoText(memo) {
   }
   return kept.join(' · ')
 }
+
+// 앞 장소와 같은 건물인지 (메모에 "같은 건물" + 200m 안, 예: 더현대 서울 → 지하 1층 테디뵈르하우스). 이동 줄을 "같은 건물 · 걸어서 2분"으로 (11/08 주형)
+const SAME_BUILDING_M = 200
+const SAME_BUILDING_WALK_MIN = 2
+const METERS_PER_DEGREE = 111000
+function isSameBuilding(i) {
+  const before = props.stops[i - 1]
+  const stop = props.stops[i]
+  if (!before || !stop || before.lat == null || stop.lat == null) return false
+  if (!(stop.memo || '').includes('같은 건물')) return false // 일정 메모에 "같은 건물"이라고 적힌 곳만
+  const meters = Math.hypot(before.lat - stop.lat, (before.lng - stop.lng) * Math.cos((stop.lat * Math.PI) / 180)) * METERS_PER_DEGREE
+  return meters < SAME_BUILDING_M
+}
 </script>
 
 <template>
@@ -132,7 +145,8 @@ function memoText(memo) {
       <!-- 앞 장소에서 오는 이동 -->
       <li v-if="stop.leg" class="leg">
         <span></span>
-        <span>
+        <span v-if="isSameBuilding(i)"><span class="legbtn legbtn--text"><i class="ic ic--s i-walk" aria-hidden="true"></i>같은 건물 · 걸어서 {{ SAME_BUILDING_WALK_MIN }}분</span></span>
+        <span v-else>
           <button v-if="modeEditable" type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
             <i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ rideMinutes(stop.leg) }}분<b v-if="hasWalkPart(stop.leg)" class="legwalk">+도보 {{ stop.leg.walkMin }}분</b><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>

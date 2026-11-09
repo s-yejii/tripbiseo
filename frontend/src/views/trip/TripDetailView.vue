@@ -1,6 +1,6 @@
 <script setup>
 // S11 여행 상세 · 여행 전 (②): 다가오는 여행(?id=)의 일정과 챙길 것
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouteSim } from '@/utils/useRouteSim'
 import RouteSimButton from '@/components/trip/RouteSimButton.vue'
 import { useRoute } from 'vue-router'
@@ -15,27 +15,50 @@ import { useRouteOptimize } from '@/utils/useRouteOptimize'
 import { dayStopsOf, setDayStops } from '@/utils/draftEdit'
 import { updateStops } from '@/api/trips'
 import { showToast } from '@/utils/toast'
+import ChipScroller from '@/components/common/ChipScroller.vue'
+import TripWeather from '@/components/plan/TripWeather.vue'
+import { addDays } from '@/utils/dates'
+import { toShortDate } from '@/utils/tripView'
 
 const route = useRoute()
-const { saved, view, isLoading, error, load } = useTripDetail()
+const { saved, view, isLoading, error, load, loadDay } = useTripDetail()
 onMounted(() => load(route.query.id))
+// 여러 날 여행이면 1일차·2일차 고르기 (11/06: 예전엔 1일차만 보였음)
+const day = ref(1)
+const dayList = computed(() => {
+  if (!saved.value) return []
+  let last = 1
+  for (const stop of saved.value.stops) last = Math.max(last, stop.day || 1)
+  const list = []
+  for (let d = 1; d <= last; d++) list.push({ day: d, label: toShortDate(addDays(saved.value.startDate, d - 1)) })
+  return list
+})
+const dayDate = computed(() => (saved.value ? addDays(saved.value.startDate, day.value - 1) : ''))
+const dayStops = computed(() => (saved.value ? saved.value.stops.filter((stop) => (stop.day || 1) === day.value) : []))
+async function pickDay(d) {
+  if (d === day.value) return
+  day.value = d
+  optimize.reset()
+  await loadDay(d)
+}
 // 칸 사진 (홈 카드와 같은 함수)
-const stopPhotos = useStopPhotos(() => (saved.value ? saved.value.stops.filter((stop) => (stop.day || 1) === 1) : []))
+const stopPhotos = useStopPhotos(() => dayStops.value)
 // 동선 최적화: 누를 때마다 다음 후보로 바꿔 서버에 저장 (PUT /api/trips/{id}/stops) → 다시 읽어 이동 시간 비교
 const optimize = useRouteOptimize({
-  stopsOf: () => dayStopsOf(saved.value, 1),
-  dateOf: () => saved.value.startDate,
+  stopsOf: () => dayStopsOf(saved.value, day.value),
+  dateOf: () => dayDate.value,
   transportsOf: () => saved.value.transports,
   apply: applyOrder,
 })
 async function saveStops(stops) {
   await updateStops(saved.value.id, stops)
   await load(route.query.id)
+  if (day.value !== 1) await loadDay(day.value) // 보던 날 그대로
 }
 async function applyOrder(list) {
   const before = view.value.move
   const backup = JSON.parse(JSON.stringify(saved.value.stops))
-  setDayStops(saved.value, 1, list)
+  setDayStops(saved.value, day.value, list)
   await saveStops(saved.value.stops)
   showToast(`이동 ${before}분 → ${view.value.move}분`, {
     isTop: true,
@@ -57,9 +80,17 @@ watch(view, sim.reset)
 
 <template>
   <div class="scr scr-TripDetail">
-    <TripPage v-if="view" :trip="shownTrip" :badge="tripBadge(saved)" back="/trips" :sim-me="sim.me.value" :active-stop="sim.activeStop.value">
+    <TripPage v-if="view" :trip="shownTrip" :badge="tripBadge(saved)" back="/trips" :trip-id="saved.id" :sim-me="sim.me.value" :active-stop="sim.activeStop.value">
       <template #right>
         <RouteSimButton :sim="sim" />
+      </template>
+      <template #head>
+        <ChipScroller v-if="dayList.length > 1" class="td-days" role="tablist" aria-label="일차">
+          <button v-for="d in dayList" :key="d.day" type="button" role="tab" class="chip chip--sm" :class="{ 'is-on': day === d.day }" :aria-selected="day === d.day" @click="pickDay(d.day)">
+            {{ d.day }}일차<span class="t-cap tn" style="margin-left: 4px">{{ d.label }}</span>
+          </button>
+        </ChipScroller>
+        <TripWeather :date="dayDate" :stops="dayStops" />
       </template>
       <template #below>
         <!-- 챙길 것: API가 아직 "확인 필요"라 이 화면에서만 적어 둬요 (새로고침하면 사라짐) -->

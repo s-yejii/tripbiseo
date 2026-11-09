@@ -105,6 +105,10 @@ public class LiveStopFinder {
             // "2026-11-01T13:30:00"에서 "13:30" 부분만
             arrived = Geo.toMinutes(current.getArrivedAt().substring(11, 16));
         }
+        // 예약(고정)·숙소는 일찍 도착해도 계획 시각부터 머묾 (11/08: 회식 18:30에 17:33 도착하면 19:13에 나가라고 하던 문제)
+        if (Boolean.TRUE.equals(current.getFixed()) || isStay(current)) {
+            arrived = Math.max(arrived, Geo.toMinutes(current.getTime()));
+        }
         return arrived + getStay(current);
     }
 
@@ -117,6 +121,13 @@ public class LiveStopFinder {
     }
 
     /** 머무는 시간(분). 없으면 0 */
+    /** 숙소 칸인지 (종류가 숙소·호텔·숙박이거나 메모가 "숙소"로 시작). 숙소 도착 시각은 마감이 아니라서 늦음·빼기 대상이 아님 (11/08) */
+    public static boolean isStay(Stop stop) {
+        String category = stop.getCategory() == null ? "" : stop.getCategory();
+        String memo = stop.getMemo() == null ? "" : stop.getMemo();
+        return category.matches(".*(숙소|호텔|숙박|모텔|게스트하우스).*") || memo.startsWith("숙소") || memo.startsWith("예약해 둔 숙소");
+    }
+
     public int getStay(Stop stop) {
         return stop.getStay() == null ? 0 : stop.getStay();
     }

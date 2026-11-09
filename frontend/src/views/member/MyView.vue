@@ -1,15 +1,22 @@
 <script setup>
 // S19 마이 (①): 내 정보 · 여행 스타일 · 친구 · 결제 카드 · 알림 설정 · 권한
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { get, post } from '@/api/http'
 import { getTripList } from '@/api/trips'
 import TabBar from '@/components/common/TabBar.vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import TopBar from '@/components/common/TopBar.vue'
+import VersionTap from '@/components/member/VersionTap.vue'
+import { readAlarms, readStyle, saveAlarms } from '@/utils/mySettings'
+import SavePlaceButton from '@/components/plan/SavePlaceButton.vue'
+import DevDot from '@/components/live/DevDot.vue'
+import { turnOffDevMode } from '@/utils/devMode'
 import { showToast } from '@/utils/toast'
 import { friendNews } from '@/data/friendNews'
 import { useTripStore } from '@/stores/trip'
+import { readTransports } from '@/utils/transports'
+import { withoutPractice } from '@/utils/practice'
 
 // 가짜 데이터: 내 정보 (백엔드가 붙으면 member · member_style · friend · card 테이블)
 const router = useRouter()
@@ -32,7 +39,7 @@ onMounted(async () => {
     return
   }
   try {
-    const trips = await getTripList()
+    const trips = withoutPractice(await getTripList()) // 시연 연습 복사본은 숨김
     tripStats.value = {
       done: trips.filter((trip) => trip.status === 'done').length,
       planned: trips.filter((trip) => trip.status === 'planned').length,
@@ -42,7 +49,11 @@ onMounted(async () => {
     // 여행 수를 못 받아도 마이 화면은 보여 줌 (0으로)
   }
 })
-const styleChips = ['보통 여행', '카페', '맛집', '쇼핑']
+// 내 여행 스타일 줄: 스타일 화면에서 저장한 값 (11/06, 이 브라우저에 저장)
+const savedStyle = readStyle()
+const PACE_NAMES = { slow: '느긋한 여행', mid: '보통 여행', fast: '빡빡한 여행' }
+const styleChips = [PACE_NAMES[savedStyle.pace] || '보통 여행', ...savedStyle.likes]
+const transports = readTransports() // 설정 > 이동 수단 줄에 보여 줄 값 (11/06)
 const friends = ['엄마', '민지', '준호']
 
 // 친구 소식 (시연용 데이터, data/friendNews.js). 안 본 소식은 하늘색 테두리, 본 소식은 회색
@@ -83,12 +94,19 @@ const cards = ref([
 ])
 
 // 알림 켜기/끄기
+// 켜고 끈 값은 이 브라우저에 저장해서 다시 들어와도 그대로 (11/06, 서버 알림 설정 API가 생기면 utils/mySettings.js만 바꿈)
+const savedAlarms = readAlarms()
 const alarms = ref([
-  { key: 'depart', icon: 'i-walk', tile: 'sky', title: '출발 알림', on: true },
-  { key: 'delay', icon: 'i-warning', tile: 'warn', title: '지연·대안 알림', on: true },
-  { key: 'weather', icon: 'i-cloud', tile: 'lilac', title: '날씨 알림', on: true },
+  { key: 'depart', icon: 'i-walk', tile: 'sky', title: '출발 알림', on: savedAlarms.depart },
+  { key: 'delay', icon: 'i-warning', tile: 'warn', title: '지연·대안 알림', on: savedAlarms.delay },
+  { key: 'weather', icon: 'i-cloud', tile: 'lilac', title: '날씨 알림', on: savedAlarms.weather },
 ])
-const departBefore = ref(10) // 출발 몇 분 전에 알릴지
+const departBefore = ref(savedAlarms.departBefore) // 출발 몇 분 전에 알릴지
+watch([alarms, departBefore], () => {
+  const values = { departBefore: departBefore.value }
+  for (const alarm of alarms.value) values[alarm.key] = alarm.on
+  saveAlarms(values)
+}, { deep: true })
 
 function setMainCard(index) {
   cards.value.forEach((card, i) => (card.main = i === index))
@@ -98,6 +116,7 @@ function setMainCard(index) {
 // 로그아웃: 서버 세션을 지우고 첫 화면으로
 async function logout() {
   await post('/auth/logout')
+  turnOffDevMode() // 다른 사람이 이 브라우저로 로그인해도 개발자 모드가 남지 않게
   router.replace('/login')
 }
 
@@ -106,11 +125,8 @@ async function logout() {
 <template>
   <div class="scr scr-My">
     <div class="app">
-      <TopBar title="마이" icon="none">
-        <button type="button" class="my-lang" aria-label="언어 바꾸기, 지금 한국어" @click="showToast('English 화면은 준비 중이에요')">
-          <i class="ic ic--s i-chat" aria-hidden="true"></i><b>한</b><span aria-hidden="true">/</span><span>EN</span>
-        </button>
-      </TopBar>
+      <DevDot /><!-- 개발자 모드(시연 계정)일 때만 보이는 점: 여행 시작 전에도 시연 시계를 맞출 수 있게 (11/06) -->
+      <TopBar title="마이" icon="none" />
 
       <div class="scroll" style="padding-top: 8px; gap: 24px; bottom: 96px">
         <section class="my-hero" aria-label="내 정보">
@@ -140,6 +156,17 @@ async function logout() {
           <i class="ic i-next subtle" aria-hidden="true"></i>
         </RouterLink>
 
+        <!-- 11/06: 큰 앱 마이 화면처럼 자주 쓰는 순서로 — 내 여행 → 친구 → 알림 → 결제 → 설정 → 언어 -->
+        <section class="my-sec" aria-labelledby="tr-h">
+          <h2 id="tr-h" class="t-sub">내 여행</h2>
+          <div class="group">
+            <RouterLink to="/trips" class="row"><span class="ico-tile ico-tile--sky"><i class="ic i-calendar" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 여행 일정</span><span class="row__meta tn">예정 {{ tripStats.planned }} · 다녀온 {{ tripStats.done }}</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+            <RouterLink to="/my/places" class="row"><span class="ico-tile ico-tile--sky"><i class="ic i-bookmark" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 장소</span><span class="row__meta">친구 코스·링크에서 저장한 곳</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+            <RouterLink to="/my/trash" class="row"><span class="ico-tile ico-tile--neutral"><i class="ic i-route" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">여행 기록</span><span class="row__meta">지운 여행 다시 살리기</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+            <RouterLink to="/my/location" class="row"><span class="ico-tile ico-tile--lilac"><i class="ic i-pin" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 위치 기록</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+          </div>
+        </section>
+
         <section class="my-sec" aria-labelledby="fr-h">
           <h2 id="fr-h" class="t-sub">친구 <span class="my-count tn">{{ friends.length }}</span><span class="fr-count tn">소식 {{ newsCount }}</span></h2>
           <div class="friends">
@@ -148,23 +175,6 @@ async function logout() {
               <button v-if="friendNews[friend]" type="button" class="fr-btn" :aria-label="friend + ' 소식 보기'" @click="showNews(friend)"><span class="ava fr-ring" :class="['ava--c' + (i % 3), { 'is-seen': seenNews.includes(friendNews[friend].id) }]">{{ friend[0] }}</span>{{ friend }}</button>
               <span v-else><span class="ava" :class="'ava--c' + (i % 3)">{{ friend[0] }}</span>{{ friend }}</span>
             </template>
-          </div>
-        </section>
-
-        <section class="my-sec" aria-labelledby="cd-h">
-          <h2 id="cd-h" class="t-sub">결제 카드</h2>
-          <div class="group">
-            <div v-for="(card, i) in cards" :key="card.last" class="row">
-              <span class="ico-tile ico-tile--coral"><i class="ic i-won" aria-hidden="true"></i></span>
-              <span class="row__body"><span class="row__title">{{ card.name }} <span class="tn muted" style="font-weight: 500">{{ card.last }}</span></span></span>
-              <span v-if="card.main" class="badge badge--navy">기본</span>
-              <button v-else type="button" class="btn btn--secondary btn--sm" @click="setMainCard(i)">기본으로</button>
-            </div>
-            <RouterLink to="/my/card" class="row">
-              <span class="ico-tile ico-tile--add"><i class="ic i-plus" aria-hidden="true"></i></span>
-              <span class="row__body"><span class="row__title c-navy">카드 등록</span></span>
-              <i class="ic i-next subtle" aria-hidden="true"></i>
-            </RouterLink>
           </div>
         </section>
 
@@ -187,20 +197,38 @@ async function logout() {
           </div>
         </section>
 
-        <section class="my-sec" aria-labelledby="st-h">
-          <h2 id="st-h" class="t-sub">설정</h2>
+        <section class="my-sec" aria-labelledby="cd-h">
+          <h2 id="cd-h" class="t-sub">결제 카드</h2>
           <div class="group">
-            <RouterLink to="/my/style" class="row"><span class="ico-tile ico-tile--sky"><i class="ic i-subway" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">이동 수단</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
-            <RouterLink to="/permission" class="row"><span class="ico-tile ico-tile--ok"><i class="ic i-pin" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">위치 권한</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
-            <RouterLink to="/my/location" class="row"><span class="ico-tile ico-tile--lilac"><i class="ic i-route" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">내 위치 기록</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
-            <RouterLink to="/my/trash" class="row"><span class="ico-tile ico-tile--neutral"><i class="ic i-trash" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">휴지통</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
-            <a href="tel:15880000" class="row"><span class="ico-tile ico-tile--neutral"><i class="ic i-help" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">고객센터</span></span><i class="ic i-next subtle" aria-hidden="true"></i></a>
+            <div v-for="(card, i) in cards" :key="card.last" class="row">
+              <span class="ico-tile ico-tile--coral"><i class="ic i-won" aria-hidden="true"></i></span>
+              <span class="row__body"><span class="row__title">{{ card.name }} <span class="tn muted" style="font-weight: 500">{{ card.last }}</span></span></span>
+              <span v-if="card.main" class="badge badge--navy">기본</span>
+              <button v-else type="button" class="btn btn--secondary btn--sm" @click="setMainCard(i)">기본으로</button>
+            </div>
+            <RouterLink to="/my/card" class="row">
+              <span class="ico-tile ico-tile--add"><i class="ic i-plus" aria-hidden="true"></i></span>
+              <span class="row__body"><span class="row__title c-navy">카드 등록</span></span>
+              <i class="ic i-next subtle" aria-hidden="true"></i>
+            </RouterLink>
           </div>
         </section>
 
+        <section class="my-sec" aria-labelledby="st-h">
+          <h2 id="st-h" class="t-sub">설정</h2>
+          <div class="group">
+            <RouterLink to="/my/transport" class="row"><span class="ico-tile ico-tile--sky"><i class="ic i-subway" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">이동 수단</span><span class="row__meta">{{ transports.join(' · ') }}</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+            <RouterLink to="/permission" class="row"><span class="ico-tile ico-tile--ok"><i class="ic i-locate" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">위치 권한</span></span><i class="ic i-next subtle" aria-hidden="true"></i></RouterLink>
+            <a href="tel:15880000" class="row"><span class="ico-tile ico-tile--neutral"><i class="ic i-help" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">고객센터</span></span><i class="ic i-next subtle" aria-hidden="true"></i></a>
+            <!-- 11/06: 언어는 위 오른쪽 버튼 대신 맨 아래 한 줄. 한국어 화면에서는 영어로 바꾸는 줄이라 영어로 써요 -->
+            <button type="button" class="row my-lang-row" lang="en" @click="showToast('English 화면은 준비 중이에요')"><span class="ico-tile ico-tile--neutral"><i class="ic i-chat" aria-hidden="true"></i></span><span class="row__body"><span class="row__title">Language</span></span><span class="my-lang-now">English</span><i class="ic i-next subtle" aria-hidden="true"></i></button>
+          </div>
+        </section>
+
+        <DevDot inline /><!-- 개발자 설정: 시연 계정(개발자 모드)만 보임 · 배속·멈춤·장면·다음 장소 (③ 11/08) -->
         <div class="my-foot">
           <button type="button" class="btn btn--ghost btn--sm" @click="logout"><i class="ic ic--s i-logout" aria-hidden="true"></i>로그아웃</button>
-          <span class="t-cap subtle tn">버전 1.0.0</span>
+          <VersionTap />
         </div>
       </div>
 
@@ -210,7 +238,7 @@ async function logout() {
           <h2 class="h-title">{{ openFriend }}의 코스</h2>
           <p class="t-cap tn">{{ openNews.date }} · {{ openNews.area.name }} · {{ openNews.places.length }}곳</p>
           <ol class="fr-places">
-            <li v-for="(place, i) in openNews.places" :key="place"><span class="fr-no tn">{{ i + 1 }}</span>{{ place }}</li>
+            <li v-for="(place, i) in openNews.places" :key="place"><span class="fr-no tn">{{ i + 1 }}</span><span class="fr-name">{{ place }}</span><SavePlaceButton :name="place" :from-name="openFriend" /></li>
           </ol>
           <button type="button" class="btn btn--primary btn--lg btn--block" @click="followCourse">이 코스 따라하기</button>
           <button type="button" class="btn btn--ghost btn--md btn--block" @click="openFriend = null">닫기</button>
@@ -256,13 +284,13 @@ async function logout() {
 .scr-My .fr-ring.is-seen{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--line-strong)}
 .scr-My .fr-sheet{z-index:21;gap:8px;padding:8px 16px 24px}
 .scr-My .fr-sheet .h-title{margin:0}
+.scr-My .fr-name{flex:1;min-width:0}
 .scr-My .fr-places{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:12px}
 .scr-My .fr-places li{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;color:var(--ink)}
 .scr-My .fr-no{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--navy);color:#fff;font-size:12px;font-weight:700}
 .scr-My .friends span,.scr-My .friends a{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--ink-muted);text-decoration:none}
 .scr-My .my-before{padding:0 16px 12px 68px}
 .scr-My .my-foot{display:flex;justify-content:space-between;align-items:center;padding-bottom:16px}
-.scr-My .my-lang{flex:none;margin-right:8px;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface-raised);font:inherit;font-size:13px;color:var(--ink-muted);cursor:pointer}
-.scr-My .my-lang b{color:var(--navy)}
-.scr-My .my-lang:hover{border-color:var(--navy)}
+.scr-My .my-lang-row{width:100%;border:0;background:none;font:inherit;text-align:left;cursor:pointer}
+.scr-My .my-lang-now{flex:none;font-size:14px;color:var(--ink-muted)}
 </style>

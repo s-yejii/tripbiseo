@@ -24,8 +24,10 @@ const isFake = !!places[route.query.id] || !route.query.id
 const id = places[route.query.id] ? route.query.id : 'daelim'
 const server = ref(null) // 서버 장소 상세 (화면이 쓰는 모양으로 바꾼 것)
 const place = computed(() => server.value || places[id])
-// 가짜 장소만 여기서 확인. 실제 장소는 담을 일정을 고르는 시트 안에서 일정마다 확인
-const inPlan = isFake && concertTrip.stops.some((stop) => stop.id === id)
+// 여행 상세에서 장소를 눌러 왔으면(?trip=) 이미 그 여행에 있는 실제 장소
+const isFromTrip = !isFake && !!route.query.trip
+// 가짜 장소는 여기서 확인. 여행 상세에서 온 실제 장소는 담겨 있는 것으로 보고, 그 밖의 실제 장소는 담을 일정을 고르는 시트 안에서 일정마다 확인
+const inPlan = (isFake && concertTrip.stops.some((stop) => stop.id === id)) || isFromTrip
 const saved = ref(false)
 const isSheetOpen = ref(false) // "어디에 담을까요?" 시트
 
@@ -154,7 +156,7 @@ function onAddClick() {
 
       <div class="cta cta--white">
         <button type="button" class="btn btn--lg btn--block" :class="inPlan ? 'btn--secondary' : 'btn--primary'" :disabled="inPlan" @click="onAddClick">
-          <i class="ic" :class="inPlan ? 'i-check' : 'i-plus'" aria-hidden="true"></i>{{ inPlan ? '일정에 담겨 있어요' : '일정에 담기' }}
+          <i class="ic" :class="inPlan ? 'i-check' : 'i-plus'" aria-hidden="true"></i>{{ isFromTrip ? '이 일정에 담겨 있어요' : inPlan ? '일정에 담겨 있어요' : '일정에 담기' }}
         </button>
       </div>
 

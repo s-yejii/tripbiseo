@@ -21,6 +21,7 @@ public class PlanConditions {
     private String endTime;             // 하루 끝 'HH:mm'. 마지막 장소가 이 시각 안에 끝나요
     private List<com.tripbiseo.trip.dto.Stop> keptStops; // 직접 고르기에서 담은 곳 (순서·시각 그대로 두고 빈 시간만 채워요)
     private Integer people;             // 없으면 1
+    private String companion;           // 누구랑: 혼자·친구·연인·가족·아이와·워크숍 (11/06). 머무는 시간·리뷰 확인에 씀
     private List<String> transports;    // 없으면 ["subway","bus","walk"]
     private List<String> mustVisit;     // 꼭 갈 곳 이름
     private List<FixedVisit> fixed;     // 시간이 정해진 일정
@@ -45,7 +46,7 @@ public class PlanConditions {
     private List<String> mustKinds;     // 꼭 넣을 종류 코드 ("선물 사기는 꼭" → shop). kinds에도 같이 들어감
     private List<String> avoidKinds;    // 빼 달라는 종류 코드 ("카페는 별로 안 가고 싶어" → cafe). 후보에서 뺌
     private List<String> avoidVisit;    // 피하고 싶은 곳 이름 ("롯데월드는 가 봐서 빼 줘"). 후보에서 뺌
-    private FixedVisit finish;          // 여행이 끝나는 곳·도착 시각 {name, time} ("KTX 19시 광명역" → 광명역 18:30)
+    private FixedVisit finish;          // 여행이 끝나는 곳·도착 시각 {name, time} ("KTX 19시 광명역" → 광명역 18:45, 출발 15분 전)
     private Integer maxWalkMin;         // 한 번에 걷는 시간 상한(분) ("오래 걷기 싫어" → 15)
     private List<String> asked;         // 대화에서 이미 물어본 질문 (visit · avoid · time). 서버가 다음 질문을 고를 때 씀
 }

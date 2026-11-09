@@ -8,6 +8,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { deleteTrashTrip, emptyTrash, getTrashTrips, restoreTrip } from '@/api/trips'
 import { toShortDate } from '@/utils/tripView'
 import { showToast } from '@/utils/toast'
+import { withoutPractice } from '@/utils/practice'
 
 const trips = ref(null) // null: 아직 못 읽음
 const error = ref('')
@@ -15,7 +16,7 @@ const isBusy = ref(false)
 const purging = ref(null) // 영구 삭제 확인 중인 여행
 const isEmptying = ref(false) // 전체 비우기 확인 중
 
-const confirmTitle = computed(() => (isEmptying.value ? '휴지통을 비울까요?' : '영구 삭제할까요?'))
+const confirmTitle = computed(() => (isEmptying.value ? '여행 기록을 비울까요?' : '영구 삭제할까요?'))
 const confirmText = computed(() => (isEmptying.value ? trips.value.length + '개 · 되돌릴 수 없어요' : purging.value.title + ' · 되돌릴 수 없어요'))
 
 onMounted(load)
@@ -23,7 +24,7 @@ onMounted(load)
 async function load() {
   error.value = ''
   try {
-    trips.value = await getTrashTrips()
+    trips.value = withoutPractice(await getTrashTrips()) // 시연 연습 복사본은 숨김
   } catch (e) {
     error.value = e.message
   }
@@ -49,7 +50,7 @@ async function confirmOk() {
   const isAll = isEmptying.value
   purging.value = null
   isEmptying.value = false
-  if (isAll) await run(emptyTrash, '휴지통을 비웠어요')
+  if (isAll) await run(emptyTrash, '여행 기록을 비웠어요')
   else await run(() => deleteTrashTrip(target.id), '영구 삭제했어요')
 }
 function confirmCancel() {
@@ -64,11 +65,11 @@ function dateOf(trip) {
 <template>
   <div class="scr scr-Trash">
     <div class="app">
-      <TopBar title="휴지통" back="/my" />
+      <TopBar title="여행 기록" back="/my" />
       <div class="scroll" style="padding-top: 8px">
-        <PageMessage v-if="error" icon="i-warning" title="휴지통을 불러오지 못했어요" :text="error" button="다시 시도" @retry="load" />
+        <PageMessage v-if="error" icon="i-warning" title="여행 기록을 불러오지 못했어요" :text="error" button="다시 시도" @retry="load" />
         <PageMessage v-else-if="!trips" is-loading title="불러오는 중이에요" />
-        <PageMessage v-else-if="!trips.length" icon="i-trash" title="휴지통이 비어 있어요" />
+        <PageMessage v-else-if="!trips.length" icon="i-trash" title="여행 기록이 비어 있어요" />
         <template v-else>
           <div class="sec-h">
             <span class="t-cap tn">{{ trips.length }} / 20개</span>

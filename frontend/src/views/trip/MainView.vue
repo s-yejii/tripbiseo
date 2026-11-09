@@ -25,7 +25,9 @@ import { showTrashToast } from '@/utils/trash'
 import StopThumb from '@/components/trip/StopThumb.vue'
 import { MOVE_CODES } from '@/utils/styleCodes'
 import { showToast } from '@/utils/toast'
+import { appNow } from '@/utils/devMode'
 import { daysLeft, isTodayTrip, pickHomeTrip, toShortDate, toTransportText, tripBadge, tripDetailLink } from '@/utils/tripView'
+import { withoutPractice } from '@/utils/practice'
 
 const LIVE_RADIUS_M = 1500 // 여행 중: 지금 위치에서 걸어서·한두 정거장 (20분 안)
 const TRIP_AREA_RADIUS_M = 2000 // 여행 전: 여행지(일정 장소 가운데) 둘레
@@ -58,7 +60,7 @@ async function load() {
   isLoading.value = true
   error.value = ''
   try {
-    const picked = pickHomeTrip(await getTripList())
+    const picked = pickHomeTrip(withoutPractice(await getTripList())) // 시연 연습 복사본은 숨김 (진행 중이면 보임)
     trip.value = picked ? await getTrip(picked.id) : null
   } catch (e) {
     if (e.status === 401) return router.replace('/onboarding') // 로그인 전이면 온보딩(S01)부터 (11/09)
@@ -178,7 +180,7 @@ const countdown = computed(() => {
   if (!isNow.value) return { cap: '여행까지', big: daysLeft(trip.value.startDate) + '일' }
   const next = dayStops.value.find((stop) => stop.state === 'todo')
   if (!next) return { cap: '오늘 일정', big: '모두 다녀왔어요' }
-  const now = new Date()
+  const now = appNow() // 개발자 모드면 시연 시계 (11/06)
   const left = toMinutes(next.time) - (now.getHours() * 60 + now.getMinutes())
   return { cap: next.name + ' (' + next.time + ')까지', big: left > 0 ? toDuration(left) : '지금 출발' }
 })
@@ -421,7 +423,7 @@ async function loadSeoulPopular() {
         <div class="dim" style="z-index: 20" @click="isConfirmOpen = false"></div>
         <section class="home-confirm" role="alertdialog" aria-modal="true" aria-label="여행 삭제 확인">
           <h2 class="h-title" style="margin: 0">이 여행을 삭제할까요?</h2>
-          <p class="t-cap home-confirm__name">{{ trip.title }} · 휴지통으로 옮겨요</p>
+          <p class="t-cap home-confirm__name">{{ trip.title }} · 여행 기록으로 옮겨요</p>
           <div class="cta__row">
             <button type="button" class="btn btn--secondary btn--lg" @click="isConfirmOpen = false">취소</button>
             <button type="button" class="btn btn--danger btn--lg" :disabled="isDeleting" @click="removeTrip">{{ isDeleting ? '삭제 중' : '삭제' }}</button>

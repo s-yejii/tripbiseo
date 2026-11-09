@@ -162,12 +162,12 @@
   </update>
 
   <update id="updateStopArrived">
-    UPDATE trip_stop SET arrived_at = NOW()
+    UPDATE trip_stop SET arrived_at = #{now}
     WHERE trip_id = #{tripId} AND stop_id = #{stopId} AND arrived_at IS NULL
   </update>
 
   <update id="updateStopDeparted">
-    UPDATE trip_stop SET departed_at = NOW(), state = 'done'
+    UPDATE trip_stop SET departed_at = #{now}, state = 'done'
     WHERE trip_id = #{tripId} AND stop_id = #{stopId} AND departed_at IS NULL
   </update>
 

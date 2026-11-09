@@ -9,6 +9,8 @@ import TopBar from '@/components/common/TopBar.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import { getNotificationList, readAllNotifications, readNotification } from '@/api/notifications'
 import { showToast } from '@/utils/toast'
+import { isPracticeTrip, withoutPracticeNotices } from '@/utils/practice'
+import { getTrashTrips, getTripList } from '@/api/trips'
 
 const FILTERS = [
   { key: 'all', label: '전체' },
@@ -37,7 +39,9 @@ async function load() {
   isLoading.value = true
   error.value = ''
   try {
-    notifications.value = (await getNotificationList()).notifications
+    const [list, trash] = await Promise.all([getNotificationList(), getTrashTrips().catch(() => [])]) // Promise.all: 두 요청을 같이
+    const practiceIds = [...(await getTripList()), ...trash].filter(isPracticeTrip).map((trip) => trip.id)
+    notifications.value = withoutPracticeNotices(list.notifications, practiceIds) // 시연 연습 알림은 숨김
   } catch (e) {
     if (e.status === 401) {
       router.replace('/login')

@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
+import { readStyle, saveStyle } from '@/utils/mySettings'
 
 const router = useRouter()
 
@@ -26,12 +27,13 @@ const moveOptions = [
   { name: '자동차', icon: 'i-car' },
 ]
 
-// 가짜 데이터: 지금 내 스타일 (백엔드가 붙으면 member_style 테이블)
-const pace = ref('mid')
-const likes = ref(['카페', '맛집', '쇼핑'])
-const walk = ref(20)
-const moves = ref(['지하철'])
-const rainIndoor = ref(true)
+// 지금 내 스타일: 이 브라우저에 저장한 값 (11/06, 서버 member_style이 생기면 utils/mySettings.js만 바꿈)
+const savedStyle = readStyle()
+const pace = ref(savedStyle.pace)
+const likes = ref([...savedStyle.likes])
+const walk = ref(savedStyle.walk)
+const moves = ref([...savedStyle.moves])
+const rainIndoor = ref(savedStyle.rainIndoor)
 
 // 목록에 있으면 빼고, 없으면 넣어요 (여러 개 고르는 칩)
 function toggleIn(list, item) {
@@ -58,6 +60,7 @@ const summary = computed(() => {
 })
 
 function save() {
+  saveStyle({ pace: pace.value, likes: likes.value, walk: walk.value, moves: moves.value, rainIndoor: rainIndoor.value })
   router.push('/my')
   showToast('여행 스타일을 저장했어요')
 }
