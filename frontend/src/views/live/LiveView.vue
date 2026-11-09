@@ -17,7 +17,7 @@ import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 import { goBack } from '@/utils/back'
 import { rememberAlert, shouldOpenAlert } from '@/utils/alertMemory'
-import { finishTrip } from '@/api/trips'
+import { finishTrip, getTripPhotos } from '@/api/trips'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
@@ -331,9 +331,23 @@ const fixedBadge = computed(() => {
   return { cls: slack < 0 ? 'badge--warning' : 'badge--success', text: fixed.value.name + (slack < 0 ? ' ' + -slack + '분 늦음' : ' 여유 ' + slack + '분') }
 })
 
+// ------------------------------------------------------------ 장소 사진 (11/09 상재 요청)
+// 여행 상세·장소 상세와 같은 사진 (POST /places/photos/trip, 칸 이름 → 사진 주소). 여행마다 한 번만 받아 두고 다시 씀
+const photos = ref({})
+let photosTripId = null
+watch(() => live.trip.value, async (trip) => {
+  if (!trip || !trip.stops || trip.id === photosTripId) return
+  photosTripId = trip.id
+  photos.value = await getTripPhotos(trip.stops).catch(() => ({}))
+}, { immediate: true })
+// 그 장소 사진, 없으면 분류 기본 그림
+function photoOf(stop) {
+  return photos.value[stop.name] || imageFor(stop.category)
+}
+
 // ------------------------------------------------------------ 카드
 const cards = computed(() => stops.value.map((stop) => {
-  const card = { no: stop.id, stopId: stop.id, img: imageFor(stop.category), title: stop.fixed ? stop.name : stop.no + ' ' + stop.name, fixed: stop.fixed, leg: null, legState: '', state: '', sub: '', subCls: '' }
+  const card = { no: stop.id, stopId: stop.id, img: photoOf(stop), title: stop.fixed ? stop.name : stop.no + ' ' + stop.name, fixed: stop.fixed, leg: null, legState: '', state: '', sub: '', subCls: '' }
   if (stop.moveMin != null) {
     card.leg = { mode: LEG_MODE[stop.moveMode] || 'walk', min: stop.moveMin, dist: distText(stop.moveMeters) }
     card.legState = stop.id === (nextStop.value && nextStop.value.id) ? 'now' : ''
@@ -418,12 +432,12 @@ const segFrom = computed(() => {
   const before = stops.value[index - 1]
   const isFromMe = !before || before.reach === 'done'
   if (isFromMe && live.position.value) return { name: '지금 위치', img: '/img/mapB.svg', lat: live.position.value.lat, lng: live.position.value.lng }
-  return { name: before.name, img: imageFor(before.category), lat: before.lat, lng: before.lng }
+  return { name: before.name, img: photoOf(before), lat: before.lat, lng: before.lng }
 })
 const segTo = computed(() => {
   if (!segCard.value) return null
   const stop = stops.value.find((item) => item.id === segCard.value.stopId)
-  return { name: stop.name, img: imageFor(stop.category), lat: stop.lat, lng: stop.lng }
+  return { name: stop.name, img: photoOf(stop), lat: stop.lat, lng: stop.lng }
 })
 
 // ------------------------------------------------------------ 오른쪽 버튼·칩
