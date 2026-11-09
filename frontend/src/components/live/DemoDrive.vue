@@ -4,6 +4,7 @@
 //   머무는 동안 시계는 실제 시간대로 흘러요. 발표자가 설정의 [+10분]으로 감으면 늦음 알림·대안이 다른 계정과 똑같이 떠요.
 //   개발자 모드(시연 계정)이고 가짜 GPS가 켜져 있을 때만 보여요. 다른 계정은 이 컴포넌트가 아무것도 안 해요.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { showLiveNotice } from '@/utils/liveBanner'
 import { getDevScenario, setDevClock, setDevSpeed } from '@/api/dev'
 import { getTrip } from '@/api/trips'
@@ -36,6 +37,7 @@ const INSIDE_WALK_MIN = 2 // 다음 날 아침: 첫 장소로 떠날 시각 몇 
 
 const isBusy = ref(false)
 const replan = useReplanStore()
+const router = useRouter()
 const MUTE_AGAIN_MIN = 10 // 여행 중 화면 MUTE_AGAIN_MIN과 같음
 const TIGHT_SLACK_MIN = 5 // 예약까지 여유가 이 이하면 돌발 (서버 "지금 나가지 않으면 늦어요"와 같은 기준)
 const origin = ref(null) // 시나리오 출발지 (가마산로 242)
@@ -180,6 +182,14 @@ function isIncident(status) {
 }
 // 출발 안내와 같은 계산(planDeparture)으로 여유 5분 이하면 막음. 대안을 골랐거나 그냥 가기로 한 늦음(10분 더 늦기 전), 카드에서 [나중에] 뒤 다시 누름은 통과
 async function isBlocked(plan, status) {
+  // 늦음(가운데 카드)인데 아직 대안도 "그냥 갈게요"도 안 골랐으면 [나중에] 뒤라도 떠나지 않음 → 늦음 화면으로
+  //   (11/09 주형: 고르기 전에 떠나면 대안이 호텔이 아니라 가는 길 중간에서 시작했음. 시간도 공간도 멈춤)
+  if (isIncident(status)) {
+    await setSpeed(0)
+    showToast('대안을 고르거나 [그냥 갈게요]를 눌러 주세요')
+    router.push('/live/delay')
+    return true
+  }
   if (!plan.isTight) return false
   const fixedName = status && status.fixed ? status.fixed.name : ''
   if (replan.isMutedFor(props.live.tripId.value, fixedName, Math.max(0, -plan.slack))) return false
