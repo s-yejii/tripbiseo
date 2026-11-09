@@ -80,7 +80,7 @@ watch(view, sim.reset)
 
 <template>
   <div class="scr scr-TripDetail">
-    <TripPage v-if="view" :trip="shownTrip" :badge="tripBadge(saved)" back="/trips" :sim-me="sim.me.value" :active-stop="sim.activeStop.value">
+    <TripPage v-if="view" :trip="shownTrip" :badge="tripBadge(saved)" back="/trips" :trip-id="saved.id" :sim-me="sim.me.value" :active-stop="sim.activeStop.value">
       <template #right>
         <RouteSimButton :sim="sim" />
       </template>
