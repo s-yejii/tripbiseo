@@ -534,7 +534,7 @@ watch(status, () => {
   if (!last || !last.fixed || (last.reach !== 'here' && last.reach !== 'done')) return
   if (!isLastDayStop(last.id)) return
   isEndShown = true
-  endStop.value = { name: last.name, eta: status.value.now }
+  endStop.value = { name: last.name, eta: status.value.now, time: last.time }
 })
 
 // 이 칸이 여행 마지막 날의 칸인지
@@ -564,7 +564,7 @@ function restartMoving() {
     <div class="app">
       <DevDot @clock="live.refresh()" @gps="restartMoving" />
       <DemoDrive :live="live" /><!-- 시연 계정만: 작은 "다음 장소로" 버튼 (GPS 이동 + 시계 배속만 자동, 11/08) -->
-      <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
+      <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :planned-at="endStop.time" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
         <header class="topbar">

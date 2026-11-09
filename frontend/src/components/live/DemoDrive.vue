@@ -126,6 +126,9 @@ async function moveToNext() {
   const etaTravel = nextStatus && nextStatus.eta && !isNextDay ? toMinutes(nextStatus.eta) - Math.max(minutesOf(appNow()), current ? stayEndOf(current) : 0) : 0
   const travelMin = Math.max(1, etaTravel > 0 ? etaTravel : route ? route.minutes : guessMinutes(from, next))
 
+  // 시나리오 돌발: 예약 바로 앞 장소에서 처음 누르면 더 머문 걸로(호텔에서 쉬다가 · 팀장님 배탈) 시계를 옮기고 카드부터
+  if (await startIncident(current, next, status)) return
+
   // 떠나는 시각: 예약(고정)이면 그 시각에 맞춰, 느슨한 곳이면 지금 장소에서 머무는 시간이 끝나면 (계획보다 밀려도 괜찮음)
   const departDate = isNextDay ? dateOf(next.day) : dateText(appNow())
   const plan = planDeparture({
@@ -296,6 +299,11 @@ watch(() => props.live.status.value, async (status) => {
 // 설정의 [늦게 만들기]: 지금 장소에서 다음 예약까지 원래 수단으로 가면 LATE_TARGET_MIN분 늦는 시각으로 시계를 옮김
 //   (여유 N분 = 예약 시각 − (떠나는 시각 + 이동). 떠나는 시각을 여유 + 12분만큼 늦추면 12분 늦음)
 const LATE_TARGET_MIN = 12
+async function makeLate(status, current) {
+  const base = Math.max(minutesOf(appNow()), stayEndOf(current))
+  await setClock(dateText(appNow()), base + status.fixed.slackMin + LATE_TARGET_MIN)
+  await props.live.refresh()
+}
 watch(() => devMode.command, async (command) => {
   if (!command || command.type !== 'late' || !props.live.tripId.value) return
   clearCommand()
@@ -303,10 +311,33 @@ watch(() => devMode.command, async (command) => {
   const status = props.live.status.value
   const current = currentStop()
   if (!status || !status.fixed || !current) return showToast('예약 전 장소에서 눌러 주세요')
-  const base = Math.max(minutesOf(appNow()), stayEndOf(current))
-  await setClock(dateText(appNow()), base + status.fixed.slackMin + LATE_TARGET_MIN)
-  await props.live.refresh()
+  if (status.fixed.id) markIncidentDone(status.fixed.id)
+  await makeLate(status, current)
 })
+
+// 시나리오 돌발 (11/09 주형: 대안을 안 고르고 그대로 가면 확실히 늦어야 함)
+//   예약(회식·서울역) 바로 앞 장소에서 [다음 장소로]를 처음 누르면, 그 자리에서 더 머문 걸로 LATE_TARGET_MIN분 늦는 시각까지 시계를 옮김
+//   → 가운데 늦음 카드가 뜨고 시계가 멈춤. 대안을 고르면 그 수단으로, "그냥 갈게요"면 원래 수단으로 늦게 도착
+//   예약마다 한 번만 (이미 [늦게 만들기]를 눌렀거나 이미 늦었으면 그대로)
+const INCIDENT_STORE_KEY = 'demo-incident-done'
+function readIncidents() {
+  try { return JSON.parse(sessionStorage.getItem(INCIDENT_STORE_KEY) || '[]') } catch (e) { return [] }
+}
+function isIncidentDone(stopId) {
+  return readIncidents().includes(stopId)
+}
+function markIncidentDone(stopId) {
+  const list = readIncidents()
+  if (!list.includes(stopId)) list.push(stopId)
+  try { sessionStorage.setItem(INCIDENT_STORE_KEY, JSON.stringify(list)) } catch (e) { /* 저장 못 해도 진행 */ }
+}
+async function startIncident(current, next, status) {
+  if (!current || !next.fixed || next.day !== current.day || isIncidentDone(next.id)) return false
+  markIncidentDone(next.id)
+  if (!status || !status.fixed || status.fixed.id !== next.id || status.fixed.slackMin <= 0) return false // 이미 늦었으면 카드가 이미 떠 있음
+  await makeLate(status, current)
+  return true
+}
 
 onMounted(() => {
   setUp()
