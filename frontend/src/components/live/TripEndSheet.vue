@@ -7,6 +7,8 @@ import { computed } from 'vue'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import { SHOW_PRICE_ESTIMATE, toWonText, tripBudget } from '@/utils/budget'
 import { toMinutes } from '@/utils/time'
+import { arrivalGapText } from '@/utils/departure'
+import { devMode } from '@/utils/devMode'
 
 const props = defineProps({
   trip: { type: Object, required: true }, // { title, people, stops: [{ category, mode, state }] }
@@ -32,10 +34,9 @@ const rows = computed(() => [
 // 목표 시각과 비교한 한 줄 (11/09 주형: 그대로 가서 늦었으면 늦었다고 사실대로)
 const gapText = computed(() => {
   if (!props.arrivedAt || !props.plannedAt) return ''
-  const gap = toMinutes(props.arrivedAt) - toMinutes(props.plannedAt)
-  if (gap > 0) return '목표 ' + props.plannedAt + '보다 ' + gap + '분 늦게 도착'
-  if (gap < 0) return '목표 ' + props.plannedAt + '보다 ' + -gap + '분 일찍 도착'
-  return '목표 ' + props.plannedAt + ' 딱 맞게 도착'
+  // KTX 출발 기준 문구는 시연 계정만 (시연 일정의 서울역 칸 = 출발 19:00). 다른 계정의 역 칸은 "15분 전 도착" 시각이라 목표 기준 그대로
+  const name = devMode.isOn ? props.placeName : ''
+  return arrivalGapText(name, toMinutes(props.arrivedAt), toMinutes(props.plannedAt), props.plannedAt)
 })
 const paymentCount = 0 // 결제 메모 (서버 저장이 생기면 여기서 더함)
 </script>
@@ -46,7 +47,7 @@ const paymentCount = 0 // 결제 메모 (서버 저장이 생기면 여기서 �
     <span class="ico-tile ico-tile--success" style="align-self: center"><i class="ic ic--l i-flag" aria-hidden="true"></i></span>
     <h2 class="h-title" style="text-align: center">{{ placeName }} 도착, 여행을 마쳤어요</h2>
     <p v-if="arrivedAt" class="t-cap tn" style="text-align: center; margin: 0">{{ arrivedAt }} 도착 · {{ trip.title }}</p>
-    <p v-if="gapText" class="t-cap tn" :class="{ 'c-coral': gapText.includes('늦게') }" style="text-align: center; margin: 0">{{ gapText }}</p>
+    <p v-if="gapText" class="t-cap tn" :class="{ 'c-coral': (gapText.includes('늦게') || gapText.includes('놓침')) }" style="text-align: center; margin: 0">{{ gapText }}</p>
 
     <section v-if="SHOW_PRICE_ESTIMATE" class="trip-end__sum" aria-label="총 지출"><!-- 추정 금액이라 중간발표에서는 숨김 (11/08) -->
       <div class="trip-end__row">

@@ -31,6 +31,7 @@ import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
 import { closeLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
+import { isBoardingPlace, missTrainTitle } from '@/utils/departure'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
@@ -134,6 +135,12 @@ const isCriticalAlert = computed(() => !!currentAlert.value && /^late-/.test(cur
 const pageRoute = useRoute()
 // 여행 중 화면 자체일 때만 (지연·대안 화면이 위에 열려 있으면 카드를 안 띄움: 11/08 카드가 지연 화면을 가리던 문제)
 const isCardOpen = computed(() => isCriticalAlert.value && pageRoute.path === '/live' && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
+// 시연 계정(11/09 주형): KTX는 "몇 분 늦어요" 대신 놓치는지로 말함. 다른 계정은 서버 문구 그대로
+const cardTitle = computed(() => {
+  const fixed = status.value && status.value.fixed
+  if (devMode.isOn && fixed && fixed.slackMin < 0 && isBoardingPlace(fixed.name)) return missTrainTitle(fixed.name, fixed.eta, fixed.time)
+  return status.value.alert.title
+})
 watch(isCardOpen, (isOpen) => (liveBanner.isCardOpen = isOpen), { immediate: true }) // 카드가 떠 있는 동안 시연 [+분] 버튼을 막음
 onUnmounted(() => (liveBanner.isCardOpen = false))
 
@@ -618,7 +625,7 @@ function restartMoving() {
         </header>
 
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
-        <CriticalAlertCard v-if="isCardOpen" :title="status.alert.title" :text="status.alert.text" :to="'/live/alt'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
+        <CriticalAlertCard v-if="isCardOpen" :title="cardTitle" :text="status.alert.text" :to="'/live/alt'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
         <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
         <AppNoti
           v-else-if="liveBanner.queue.length && !adding"
