@@ -221,7 +221,9 @@ watch(() => store.planStartDate, () => {
   setDefaultTimes()
 })
 // 오늘인데 이미 지난 시작 시각을 고르면 내일로
+//   시연 계정은 빼요: 시나리오 출발 15:00을 [시간 추천]으로 넣을 때 시연 시계가 15:07이면 첫날이 11/11로 밀리던 문제 (11/09)
 watch(() => store.planFromTime, (time) => {
+  if (scenario.value) return
   if (time && isToday() && toMinutes(time) < nowMinutes()) moveToTomorrow()
 })
 if (!store.planFromTime) setDefaultTimes()
@@ -355,7 +357,7 @@ function useRecommendedTime() {
     const end = toTime(toMinutes(train.time) - BOARDING_EARLY_MIN)
     store.planFromTime = scenario.value.startTime
     store.planToTime = end
-    showToast('첫날 ' + scenario.value.startTime + ' 출발 · 마지막 날 ' + end + ' 서울역 (KTX ' + train.time + ' 30분 전)')
+    showToast('추천 시간 ' + scenario.value.startTime + '~' + end + '로 맞췄어요') // 11/09: 일반 계정과 같은 문구 (아직 안 넣은 KTX·서울역을 미리 말하지 않음)
     return
   }
   const time = recommendTime()
