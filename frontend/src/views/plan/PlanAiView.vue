@@ -67,7 +67,7 @@ const YOUTUBE_WORD = '서울 핫플 브이로그'
 const NAVER_WORD = '서울 가볼만한곳'
 const INSTAGRAM_ACCOUNT_URL = 'https://www.instagram.com/yeohaenge_ottae/' // 여행어때 인스타그램 계정 (모든 계정 같음)
 const SEARCH_LINKS = [
-  { key: 'mukeul', label: '먹을텐데', caption: '여행어때 파트너스', isVerified: true, img: '/img/shortcut/mukeul.jpg', text: '유튜브에서 먹을텐데 서울 찾기', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent('성시경 먹을텐데 서울') },
+  { key: 'mukeul', label: '먹을텐데', caption: '착착트립 파트너스', isVerified: true, img: '/img/shortcut/mukeul.jpg', text: '유튜브에서 먹을텐데 서울 찾기', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent('성시경 먹을텐데 서울') },
   { key: 'youtube', label: 'YouTube', logo: youtubeLogo, cls: 'pa-sns--yt', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(YOUTUBE_WORD) },
   { key: 'instagram', label: 'Instagram', labelCls: 'pa-sns__script', logo: instagramLogo, cls: 'pa-sns--ig', url: () => INSTAGRAM_ACCOUNT_URL }, // 11/08 주형: 인스타는 우리 계정 페이지로
   { key: 'naver', label: '네이버', logo: naverLogo, cls: 'pa-sns--nv', url: () => 'https://search.naver.com/search.naver?query=' + encodeURIComponent(NAVER_WORD) }, // 통합검색: 플레이스 지도·사진 목록이 나와요

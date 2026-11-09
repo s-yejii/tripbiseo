@@ -1,4 +1,4 @@
-/* 여행어때 공통 컴포넌트 — 여행어때 디자인 시스템(tokens.json) 값 그대로. 같은 역할 = 같은 클래스 */
+/* 착착트립 공통 컴포넌트 — 착착트립 디자인 시스템(tokens.json) 값 그대로. 같은 역할 = 같은 클래스 */
 :root{
   --surface:#F5F7FB;--surface-raised:#FFFFFF;--surface-sunken:#EDF0F5;--line:#DFE4EC;--line-strong:#838C9F;
   --ink:#18213A;--ink-muted:#535D73;--ink-subtle:#646D81;--ink-disabled:#A3ABBA;

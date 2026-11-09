@@ -23,7 +23,7 @@ function toNaverUrl() {
 function openNaverMap() {
   window.open(toNaverUrl(), '_blank', 'noopener')
   emit('close')
-  showToast('네이버 지도가 열려요 · 여행어때는 도착만 확인해요')
+  showToast('네이버 지도가 열려요 · 착착트립는 도착만 확인해요')
 }
 </script>
 
@@ -47,7 +47,7 @@ function openNaverMap() {
       <li><span class="seg-dot seg-dot--to"></span><img class="thumb" :src="to.img" alt="" /><span><span class="t-cap">도착</span><b class="t-strong">{{ to.name }}</b></span></li>
     </ol>
     <p class="t-cap" style="display: flex; gap: 6px; align-items: flex-start; margin: 0">
-      <i class="ic ic--s i-info c-navy" aria-hidden="true" style="margin-top: 2px"></i>길 안내는 네이버 지도가 하고, 여행어때는 도착만 확인해서 다음 일정 시간을 맞춰요
+      <i class="ic ic--s i-info c-navy" aria-hidden="true" style="margin-top: 2px"></i>길 안내는 네이버 지도가 하고, 착착트립는 도착만 확인해서 다음 일정 시간을 맞춰요
     </p>
     <div class="seg-cta">
       <button type="button" class="btn btn--primary btn--lg btn--block" @click="openNaverMap"><i class="ic i-route" aria-hidden="true"></i>네이버 지도로 길찾기</button>

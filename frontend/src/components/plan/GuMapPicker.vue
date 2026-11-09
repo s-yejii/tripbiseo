@@ -251,7 +251,7 @@ function finishSpin(target) {
       />
       <path v-for="gu in lifted" :key="'up-' + gu.name" class="gu-map__lift" :class="{ 'is-on': isHighlighted(gu.name) }" :d="gu.d" fill-rule="evenodd" />
       <text v-for="gu in gus" :key="'t-' + gu.name" class="gu-map__name" :class="{ 'is-on': isHighlighted(gu.name), 'is-up': isHighlighted(gu.name) || gu.name === hover, 'is-top': tops.includes(gu.name) }" :x="gu.x" :y="gu.y" text-anchor="middle" dominant-baseline="middle">{{ shortName(gu.name) }}</text>
-      <!-- 여행어때 추천 지역: 구 이름 위에 깃발 -->
+      <!-- 착착트립 추천 지역: 구 이름 위에 깃발 -->
       <template v-for="gu in gus" :key="'f-' + gu.name">
         <g v-if="tops.includes(gu.name)" class="gu-map__flag" :class="{ 'is-on': isHighlighted(gu.name) }" :transform="`translate(${gu.x} ${gu.y - 6})`">
           <path class="gu-map__pole" d="M0 0V-12" />
@@ -259,8 +259,8 @@ function finishSpin(target) {
         </g>
       </template>
     </svg>
-    <p v-if="randomName" class="gu-map__random" role="status">{{ randomName }} 어때요?<button type="button" class="gu-map__again" @click="spin">다시</button></p>
-    <p v-if="tops.length" class="gu-map__legend"><svg class="gu-map__legend-flag" viewBox="0 0 10 14" aria-hidden="true"><path d="M1 1V13" stroke="#1F3A68" stroke-width="1.5" /><path d="M1 1L9 4L1 7Z" fill="#E8603F" /></svg>여행어때 추천 지역<i class="is-on" aria-hidden="true"></i>선택</p>
+    <p v-if="randomName" class="gu-map__random t-cap" role="status">{{ randomName }} 어때요?<button type="button" class="gu-map__again" @click="spin">다시</button></p>
+    <p v-if="tops.length" class="gu-map__legend t-cap"><svg class="gu-map__legend-flag" viewBox="0 0 10 14" aria-hidden="true"><path d="M1 1V13" stroke="#1F3A68" stroke-width="1.5" /><path d="M1 1L9 4L1 7Z" fill="#E8603F" /></svg>착착트립 추천 지역<i class="is-on" aria-hidden="true"></i>선택</p>
     <button v-if="hover && !isOn(hover) && pointerType !== 'mouse'" type="button" class="btn btn--secondary btn--md btn--block" @click="toggle(gus.find((gu) => gu.name === hover)); hover = null">{{ hover }} 선택</button>
     <details class="gu-map__list">
       <summary class="t-cap">목록으로 고르기</summary>

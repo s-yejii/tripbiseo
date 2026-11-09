@@ -3,7 +3,7 @@
 // 예) <LockNoti to="/live" icon="i-walk" title="10분 뒤 출발할 시간이에요" desc="..." is-new />
 defineProps({
   to: { type: String, default: '' }, // 누르면 갈 화면 (없으면 눌러도 안 움직여요)
-  app: { type: String, default: '여행어때' }, // '문자'면 초록 문자 아이콘
+  app: { type: String, default: '착착트립' }, // '문자'면 초록 문자 아이콘
   when: { type: String, default: '지금' },
   icon: { type: String, default: '' }, // 제목 앞 작은 아이콘
   title: { type: String, required: true },
