@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import com.tripbiseo.after.dto.ExtraStop;
 import com.tripbiseo.after.dto.RetroResponse;
 import com.tripbiseo.after.dto.RetroStop;
+import com.tripbiseo.common.dev.DevService;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.TrackPoint;
 import com.tripbiseo.live.service.TrackService;
@@ -36,6 +37,7 @@ public class RetroServiceImpl implements RetroService {
     private final TripService tripService;
     private final TrackService trackService;
     private final PlaceService placeService; // ② 장소: 머문 곳 근처 장소 이름 찾기 (getNearbyPlaceList, 11/07)
+    private final DevService devService;     // 시연 계정인지 (시연 시계 GPS 고치기는 시연 계정만, 11/09)
 
     /** 회고: 계획 vs 실제 + GPS 선 */
 
@@ -60,7 +62,9 @@ public class RetroServiceImpl implements RetroService {
         }
         response.setVisited(visited); // 
         List<TrackPoint> track = trackService.getTrackList(tripId); // gps 점 기록
-        fitTrackToStops(track, response.getStops(), countDays(trip)); // 시연 시계로 돈 여행이면 GPS 시각을 다시 매김 (11/09)
+        if (devService.isDemoAccount(memberId)) { // 시연 계정만: 시연 시계로 돈 여행이면 GPS 시각을 다시 매김 (11/09). 실제 사용자는 그대로
+            fitTrackToStops(track, response.getStops(), countDays(trip));
+        }
         response.setTrack(track);
         response.setMovedMeters(sumMovedMeters(track));
         List<ExtraStop> extras = findExtraStops(track, response.getStops()); // 계획 없이 머문 곳 (GPS로 찾음). 실제 도착·머문 분이 계산된 회고 칸을 넘김
@@ -72,7 +76,8 @@ public class RetroServiceImpl implements RetroService {
     // ---------------------------------------------------------------- 시연 시계로 돈 여행 (11/09)
     // ④ GPS 점은 DB 진짜 시각(NOW())으로, 장소 도착·떠남은 시연 시계(Geo.now())로 저장됨
     //   → 시연 계정은 GPS가 여행 날짜 밖(예: 11/09 − 11/10 + 1 = 0일차)으로 읽혀서 회고 지도에 선이 안 그려짐
-    //   → 그런 점이 있을 때만, 장소 도착·떠남 시각을 기준점으로 GPS 시각을 다시 매김. 진짜 기기 기록은 그대로
+    //   → 시연 계정이고 그런 점이 있을 때만, 장소 도착·떠남 시각을 기준점으로 GPS 시각을 다시 매김
+    //   실제 사용자는 안 함: 여행을 하루 일찍 시작하거나 늦게 끝내서 기간 밖 점이 생겨도 진짜 시각이라 그대로 보여 줘야 함
 
     // 여행이 며칠인지. 예: 11/10 ~ 11/11 → 2
     private static int countDays(Trip trip) {
