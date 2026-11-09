@@ -147,6 +147,7 @@ function isSameBuilding(i) {
         <span></span>
         <span v-if="isSameBuilding(i)"><span class="legbtn legbtn--text"><i class="ic ic--s i-walk" aria-hidden="true"></i>같은 건물 · 걸어서 {{ SAME_BUILDING_WALK_MIN }}분</span></span>
         <span v-else>
+          <span v-if="stop.leg.from" class="legfrom">{{ stop.leg.from }}에서</span>
           <button v-if="modeEditable" type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
             <i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ rideMinutes(stop.leg) }}분<b v-if="hasWalkPart(stop.leg)" class="legwalk">+도보 {{ stop.leg.walkMin }}분</b><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
@@ -225,6 +226,7 @@ function isSameBuilding(i) {
 .tl .tl-row.is-before .stop__card{background:var(--navy-soft);box-shadow:inset 0 4px 0 var(--navy)}
 .tl .tl-row.is-after .stop__card{background:var(--navy-soft);box-shadow:inset 0 -4px 0 var(--navy)}
 .tl .legwalk{color:var(--success);font-weight:700}
+.tl .legfrom{font-size:12px;color:var(--ink-muted);margin-right:6px}
 .tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>

@@ -15,6 +15,7 @@ public class Leg {
     private String mode;        // walk / transit / car (Stop.mode의 taxi는 car)
     private String source;      // tmap / odsay / estimate
     private String detail;      // 탈 노선 설명 (대중교통만, null 가능)
+    private String fromName;    // 첫 장소 앞 길안내만: 어디서 오는지 (출발지·숙소 이름, 11/09)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<double[]> coords; // 경로선 [[위도, 경도], ...]
 }

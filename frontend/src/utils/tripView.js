@@ -133,7 +133,7 @@ function toViewStop(stop, position, memo = null) {
     lng: stop.lng,
     warn: !!stop.issue,
     // walkMin: 그중 걷는 시간 (대중교통이면 역·정류장까지·갈아탈 때, 11/04)
-    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walkMin: stop.leg.walkMinutes || 0 } : null,
+    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walkMin: stop.leg.walkMinutes || 0, from: stop.leg.fromName || '' } : null,
     x: position.x,
     y: position.y,
   }

@@ -88,7 +88,10 @@ function addMissed() {
 async function runCheck() {
   if (!hasDraft.value) return
   try {
-    check.value = await checkPlan(store.draft, day.value)
+    // 출발지(AI 일정의 "어디서 출발해요?")도 같이 보내서 1일차 첫 장소 앞에 길안내 (11/09, 저장은 안 함)
+    const origin = store.planOrigin
+    const draft = origin ? { ...store.draft, originName: origin.name, originLat: origin.lat, originLng: origin.lng } : store.draft
+    check.value = await checkPlan(draft, day.value)
     for (let i = 0; i < check.value.stops.length; i++) {
       const checked = check.value.stops[i]
       const stop = store.draft.stops.find((s) => s.name === checked.name && (s.day || 1) === checked.day)
