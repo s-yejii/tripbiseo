@@ -37,6 +37,7 @@ import AskPanel from '@/components/live/AskPanel.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
 import LinkAddSheet from '@/components/live/LinkAddSheet.vue'
 import { useReplanStore } from '@/stores/replan'
+import { demoRoute } from '@/utils/demoRoute'
 
 const MUTE_AGAIN_MIN = 10 // "그냥 갈게요" 뒤 이만큼 더 늦어지면 다시 알림
 const LEG_MODE = { walk: 'walk', transit: 'subway', car: 'taxi' } // 서버 이동 수단 → 카드 칩 아이콘
@@ -47,7 +48,10 @@ const replan = useReplanStore()
 const live = useLiveTrip()
 const isDemo = ref(isFakeGps() && !devMode.isFlow) // 11/08: 시연 계정은 DemoDrive가 위치를 옮기니 예전 가짜 GPS 걷기는 안 씀 · 가짜 GPS: 개발자 모드(시연 계정)에서만 켤 수 있음 (11/06: 주소의 ?demo=1은 없앰)
 
-onMounted(() => live.start(isDemo.value))
+// 시연 계정 "일정대로 흐르기"(DemoDrive가 위치를 옮김)면 진짜 GPS를 켜지 않아요
+//   (11/09: 이 PC의 진짜 위치 = 학원(라크라센터)이 먼저 잡혀서, 대안 적용 뒤 돌아오면 점이 학원으로 갔다가 순간이동하던 문제)
+const isNoRealGps = () => isFakeGps() && devMode.isFlow
+onMounted(() => live.start(isDemo.value, isNoRealGps()))
 onUnmounted(() => live.stop())
 
 const mapRef = ref(null)
@@ -108,6 +112,29 @@ const stops = computed(() => {
 const currentStop = computed(() => stops.value.find((stop) => stop.reach === 'here') || null)
 const remainingStops = computed(() => stops.value.filter((stop) => stop.reach !== 'done' && stop.reach !== 'here'))
 const nextStop = computed(() => remainingStops.value[0] || null)
+
+// 이동 중(장소를 떠나 다음 장소로 가는 길): 지도가 내 위치를 크게 확대해 따라가고, 내 위치 점에 진행 방향 화살표 (11/09 시연 피드백)
+// 시연 가짜 GPS가 움직이는 중(demoRoute)이면 서버가 '떠났다'고 답하기 전이라도 바로 따라가요 (출발 직후 시점이 안 따라가던 문제)
+const isMoving = computed(() => !!live.position.value && (!!demoRoute.value || (!currentStop.value && !!nextStop.value)) && !adding.value && !asking.value)
+// 지도 시점: 내 위치가 있으면 머무는 중에도 늘 내 위치를 가운데에 고정 (11/09 상재). 근처 찾기·AI 묻기 중에만 풀어요
+// 시연 계정(개발자 모드)에서만 (11/09 상재: 중간발표 시연용). 일반 계정은 원래 지도 동작 그대로
+const isFollowing = computed(() => devMode.isOn && !!live.position.value && !adding.value && !asking.value)
+const heading = ref(null) // 진행 방향(도, 북=0)
+const HEADING_MIN_MOVE = 0.00004 // 이만큼(약 4m)보다 적게 움직이면 방향을 안 바꿔요 (GPS 떨림에 화살표가 흔들리지 않게)
+let lastPoint = null
+watch(() => live.position.value, (point) => {
+  if (!point) return
+  if (lastPoint && Math.abs(point.lat - lastPoint.lat) + Math.abs(point.lng - lastPoint.lng) < HEADING_MIN_MOVE) return
+  if (lastPoint) heading.value = toBearing(lastPoint, point)
+  lastPoint = { lat: point.lat, lng: point.lng }
+})
+// 두 점 사이 방향(도). 북쪽이 0, 동쪽이 90
+function toBearing(from, to) {
+  const rad = Math.PI / 180
+  const y = Math.sin((to.lng - from.lng) * rad) * Math.cos(to.lat * rad)
+  const x = Math.cos(from.lat * rad) * Math.sin(to.lat * rad) - Math.sin(from.lat * rad) * Math.cos(to.lat * rad) * Math.cos((to.lng - from.lng) * rad)
+  return (Math.atan2(y, x) / rad + 360) % 360
+}
 const doneCount = computed(() => stops.value.filter((stop) => stop.reach === 'done').length)
 const isAllDone = computed(() => isReady.value && !currentStop.value && remainingStops.value.length === 0)
 // 여러 날 여행에서 오늘이 마지막 날이 아니면, 그날 마지막 장소(숙소)에 오면 "여행 마치기" 대신 다음 날 일정 보기 (11/08 주형: 1일차 숙소에서 여행이 끝나 버리던 문제)
@@ -253,7 +280,7 @@ const nextPath = computed(() => {
   const stop = stops.value.find((item) => item.id === next.id)
   if (!stop) return []
   return [{
-    coords: next.coords,
+    coords: demoRoute.value || next.coords, // 시연 가짜 GPS가 움직이는 중이면 그 길 그대로 (점과 선이 같은 길, 11/09 ①)
     mode: stop.moveMode || 'walk',
     isGuess: next.source === 'estimate',
     from: statusFrom.value,
@@ -305,7 +332,9 @@ const head = computed(() => {
     const arrived = current.arrivedAt ? toMinutes(toClock(current.arrivedAt)) : toMinutes(current.time)
     const isFromPlan = current.fixed || /숙소|호텔|숙박|모텔|게스트하우스/.test(current.category || '') // 예약·숙소는 일찍 와도 계획 시각부터 (서버 LiveStopFinder와 같음)
     const start = isFromPlan ? Math.max(arrived, toMinutes(current.time)) : arrived
-    const leaveAt = start + (current.stay || 0)
+    // 시연 계정 서울역(KTX) 칸은 열차 출발 시각을 출발로 보여 줌 (11/09 상재: 19:30 → 19:00)
+    const isTrain = devMode.isOn && current.fixed && isBoardingPlace(current.name)
+    const leaveAt = isTrain ? toMinutes(current.time) : start + (current.stay || 0)
     const left = leaveAt - now
     if (left >= 0) {
       return { cap: current.name + ' 출발', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
@@ -341,7 +370,9 @@ watch(() => live.trip.value, async (trip) => {
   photos.value = await getTripPhotos(trip.stops).catch(() => ({}))
 }, { immediate: true })
 // 그 장소 사진, 없으면 분류 기본 그림
+const DEMO_STATION_PHOTO = '/img/demo/seoul-station.webp' // 시연 계정 서울역 카드 사진 (11/09 상재: 국밥 기본 그림 대신)
 function photoOf(stop) {
+  if (devMode.isOn && stop.name === '서울역' && !photos.value[stop.name]) return DEMO_STATION_PHOTO
   return photos.value[stop.name] || imageFor(stop.category)
 }
 
@@ -576,7 +607,7 @@ function showDemo() {
 function restartMoving() {
   live.stop()
   isDemo.value = isFakeGps() && !devMode.isFlow
-  live.start(isDemo.value)
+  live.start(isDemo.value, isNoRealGps())
 }
 </script>
 
@@ -613,6 +644,9 @@ function restartMoving() {
           ref="mapRef"
           :pins="mapPins"
           :me="live.position.value"
+          :follow="isFollowing"
+          :smooth="devMode.isOn"
+          :heading="devMode.isOn && isMoving ? heading : null"
           :paths="nextPath"
           :ring="nearRing"
           :band="askBand"
@@ -711,7 +745,7 @@ function restartMoving() {
               <span v-if="fixedBadge" class="badge" :class="fixedBadge.cls"><i class="ic ic--s i-lock" aria-hidden="true"></i>{{ fixedBadge.text }}</span>
             </div>
 
-            <LiveCards :cards="cards" :selected="selected" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
+            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
 
             <p v-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비</p>
           </BottomSheet>

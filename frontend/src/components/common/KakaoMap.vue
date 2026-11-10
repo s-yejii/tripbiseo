@@ -26,6 +26,8 @@ const props = defineProps({
   band: { type: Array, default: () => [] }, // 반투명 띠 테두리들 [[[위도, 경도], ...], ...] (AI에게 묻기: 가는 길 양옆, 11/08)
   links: { type: Array, default: () => [] }, // 얇은 점선들 [{ from: [위도, 경도], to: [위도, 경도] }] (AI에게 묻기: 가는 길 → 가게, 11/08)
   follow: { type: Boolean, default: false }, // 길 안내: 처음부터 내 위치를 크게 확대해서 가운데에 두고, 내 위치가 바뀌면 지도가 따라감
+  smooth: { type: Boolean, default: false }, // 시연 계정 여행 중 (11/09): 미끄러지는 이동·점선 따라가기·부드러운 따라가기 시작·따라가는 동안 다른 이동·끌기 막기. false면 원래 동작
+  heading: { type: Number, default: null }, // 진행 방향(도, 북=0·시계 방향). 있으면 내 위치 점에 화살표를 그 방향으로 (11/09). null이면 점만
   fitKey: { type: [String, Number], default: '' }, // 이 값이 바뀌면 모든 점이 보이게 다시 맞춤 (근처 찾기 결과가 바뀔 때)
   pickCenter: { type: Boolean, default: false }, // 배민 주소 등록처럼: 지도를 움직이면 멈춘 자리의 가운데 좌표를 center로 알려 줌
   // 처음 화면을 맞출 때 비워 둘 여백(px): 위 알림, 아래 일정 시트에 핀이 가리지 않게
@@ -45,6 +47,17 @@ let overlays = [] // 지금 지도에 올린 핀·선 (다시 그릴 때 지움)
 let hasFitted = false // 처음 한 번만 모든 핀이 보이게 맞춤 (그 뒤엔 사용자가 옮긴 화면을 유지)
 let isMovingByCode = false // moveTo로 옮기는 중
 let hasFocusedMe = false // 길 안내(follow): 내 위치로 처음 확대했는지 (위치가 늦게 와도 한 번은 확대)
+const GLIDE_MIN_MS = 200 // 내 위치가 미끄러지는 시간: 위치가 오는 간격만큼, 이 범위 안에서 (11/09)
+const GLIDE_MAX_MS = 1200
+const GLIDE_MAX_JUMP = 0.005 // 약 500m보다 멀리 뛰면 미끄러지지 않고 바로 옮김 (순간 이동)
+let glideFrame = 0 // 지금 돌고 있는 미끄러짐 (cancelAnimationFrame으로 멈출 때 씀)
+const FOLLOW_PAN_MS = 450 // 이동 시작: 내 위치로 다가가는 시간
+const FOLLOW_ZOOM_MS = 500 // 따라가기 시작: 확대 시간
+let isStartingFollow = false // 이동 시작 전환 중
+let followFrame = 0
+let followTimer = null
+let lastMeAt = 0 // 지난번 위치가 온 시각
+let shownAngle = null // 화살표가 지금 가리키는 각도 (350° → 10°처럼 넘어갈 때 한 바퀴 돌지 않게 이어 셈)
 let meOverlay = null // 지금 위치 점 (위치만 바뀌면 이것만 옮기고 나머지는 다시 안 그려요, 11/04)
 const FLY_PAN_MS = 450 // flyTo 옮기는 시간
 const FLY_ZOOM_MS = 300 // flyTo 확대·축소 시간
@@ -79,7 +92,12 @@ onMounted(async () => {
   emit('ready') // 지도가 다 만들어졌어요 (부모가 moveTo 같은 걸 이때 부를 수 있음)
 })
 
-onUnmounted(clear)
+onUnmounted(() => {
+  cancelAnimationFrame(glideFrame) // 화면을 떠나면 미끄러짐도 멈춤
+  cancelAnimationFrame(followFrame)
+  clearTimeout(followTimer)
+  clear()
+})
 
 // 핀(상태·선택)·선·원이 바뀌면 전부 다시 그림
 watch(() => [props.pins, props.path, props.paths, props.ring, props.band, props.links], draw, { deep: true })
@@ -89,6 +107,50 @@ watch(() => props.fitKey, () => {
 })
 // 내 위치만 바뀌면 (GPS는 휴대폰에서 거의 1초마다) 내 위치 점만 옮김 → 핀·선을 매번 지웠다 그리지 않아서 버벅이지 않아요
 watch(() => props.me, moveMe, { deep: true })
+watch(() => props.heading, () => meOverlay && turnMe(meOverlay.getContent()))
+// follow가 중간에 켜지면(첫 위치가 오거나 근처 찾기·AI 묻기를 닫으면): 내 위치로 부드럽게 다가가며 크게 확대 (11/09)
+// 그 뒤로는 머무는 중에도 확대 단계 그대로 내 위치를 가운데에 고정해요 (상재: 여행 중엔 늘 고정)
+// 따라가는 동안은 지도를 끌 수 없게 해서 화면이 내 위치에서 벗어나지 않아요. 끝나면 다시 끌 수 있어요
+watch(() => props.follow, (isOn) => {
+  if (!map || !props.smooth) return
+  map.setDraggable(!isOn)
+  clearTimeout(followTimer)
+  if (!isOn) return
+  hasFocusedMe = true
+  hasFitted = true // 핀 다시 그리기가 화면을 덮어쓰지 않게
+  if (props.me) startFollowSmoothly()
+})
+// 아래 시트를 올리거나 내려 보이는 칸이 바뀌면 그 칸의 가운데로 다시 맞춤
+watch(() => props.padding, () => {
+  if (map && props.smooth && props.follow && props.me && !isStartingFollow) map.setCenter(centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng)))
+}, { deep: true })
+
+// 이동 시작 전환: 지금 화면 → 내 위치를 가운데로 부드럽게 옮기고(FOLLOW_PAN_MS) → 그 자리를 기준으로 확대(FOLLOW_ZOOM_MS)
+// 전환하는 동안은 미끄러지는 이동(glideMe)이 지도 가운데를 건드리지 않아요 (두 움직임이 겹쳐 튀지 않게)
+function startFollowSmoothly() {
+  isStartingFollow = true
+  const from = map.getCenter()
+  const to = centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng))
+  const startedAt = performance.now()
+  const pan = (time) => {
+    if (!map) return
+    const ratio = Math.min(1, (time - startedAt) / FOLLOW_PAN_MS)
+    const eased = ratio * (2 - ratio) // 처음엔 빠르게, 끝에서 천천히
+    map.setCenter(new kakao.maps.LatLng(from.getLat() + (to.getLat() - from.getLat()) * eased, from.getLng() + (to.getLng() - from.getLng()) * eased))
+    if (ratio < 1) {
+      followFrame = requestAnimationFrame(pan)
+      return
+    }
+    const me = new kakao.maps.LatLng(props.me.lat, props.me.lng)
+    if (map.getLevel() !== FOLLOW_LEVEL) map.setLevel(FOLLOW_LEVEL, { anchor: me, animate: { duration: FOLLOW_ZOOM_MS } }) // anchor: 내 위치는 화면에서 안 움직임
+    followTimer = setTimeout(() => {
+      isStartingFollow = false
+      if (map && props.me) map.setCenter(centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng)))
+    }, FOLLOW_ZOOM_MS + 50)
+  }
+  cancelAnimationFrame(followFrame)
+  followFrame = requestAnimationFrame(pan)
+}
 
 // 핀·동선·내 위치를 지우고 새로 그림
 function draw() {
@@ -179,17 +241,119 @@ function addOverlay(position, element, zIndex) {
   return overlay
 }
 
-// 내 위치가 바뀜: 점이 이미 있으면 그 점만 옮기고(setPosition), 처음 생기거나 사라질 때만 전부 다시 그림
+// 내 위치가 바뀜: 점이 이미 있으면 그 점만 옮기고, 처음 생기거나 사라질 때만 전부 다시 그림
 // 길 안내(follow)면 지도도 내 위치로 따라감
+// 11/09: 한 번에 점프하지 않고 다음 위치가 올 때까지 조금씩 미끄러지듯 옮겨요 (glideMe)
 function moveMe() {
   if (!map) return
   if (!props.me || !meOverlay) {
     draw()
-  } else {
-    meOverlay.setPosition(new kakao.maps.LatLng(props.me.lat, props.me.lng))
-    sendMePoint()
+    if (props.follow) focusMe()
+    return
   }
+  turnMe(meOverlay.getContent())
+  if (props.smooth) {
+    glideMe(props.me)
+    return
+  }
+  meOverlay.setPosition(new kakao.maps.LatLng(props.me.lat, props.me.lng)) // 원래 동작: 한 번에 옮기고, 길 안내면 따라감
+  sendMePoint()
   if (props.follow) focusMe()
+}
+
+// 앞 위치 → 새 위치를 "지난번 위치가 온 뒤 걸린 시간"만큼 나눠 매 화면마다 조금씩 옮겨요 (선형 보간)
+// 따라가기면 매 화면마다 지도 가운데도 같이 맞춰서 화면이 내 위치에 딱 붙어 있어요 (panTo는 애니메이션이 겹쳐 끊겨 보여서 안 씀)
+function glideMe(target) {
+  cancelAnimationFrame(glideFrame)
+  const start = meOverlay.getPosition()
+  const from = { lat: start.getLat(), lng: start.getLng() }
+  const startedAt = performance.now()
+  const duration = Math.min(GLIDE_MAX_MS, Math.max(GLIDE_MIN_MS, startedAt - lastMeAt))
+  lastMeAt = startedAt
+  const along = findAlongPath(from, target) // 두 점이 다 그려진 경로 위면 직선 대신 경로(점선)를 따라가요
+  // 경로 위 이동은 아무리 멀어도 미끄러지게 (택시처럼 긴 구간은 한 칸이 500m를 넘어 순간이동하던 문제, 11/09)
+  const isFar = !along && Math.abs(target.lat - from.lat) + Math.abs(target.lng - from.lng) > GLIDE_MAX_JUMP
+  const step = (time) => {
+    if (!map || !meOverlay) return
+    const ratio = isFar ? 1 : Math.min(1, (time - startedAt) / duration)
+    const point = along ? pointOnLine(along.line, along.from + (along.to - along.from) * ratio) : [from.lat + (target.lat - from.lat) * ratio, from.lng + (target.lng - from.lng) * ratio]
+    const position = new kakao.maps.LatLng(point[0], point[1])
+    if (along) turnAlong(meOverlay.getPosition(), position) // 경로를 따라갈 때는 화살표도 지금 지나는 길 방향으로
+    meOverlay.setPosition(position)
+    if (props.follow && !isStartingFollow) map.setCenter(centerFor(position))
+    if (ratio < 1) {
+      // requestAnimationFrame: 브라우저가 다음 화면을 그리기 직전에 이 함수를 다시 불러 줌 (1초에 약 60번, 부드러운 움직임용)
+      glideFrame = requestAnimationFrame(step)
+    } else {
+      sendMePoint()
+    }
+  }
+  glideFrame = requestAnimationFrame(step)
+}
+
+// ---------------------------------------------------------------- 경로 따라 미끄러지기 (11/09)
+// 지도에 그린 구간 길(paths)을 한 줄로 이어, 앞 위치·새 위치가 길에서 몇 m째인지 찾아요.
+// 둘 다 길 가까이(PATH_SNAP_M 안)이고 앞으로 가는 중이면 { line, from, to } (from·to는 길 시작에서 센 거리), 아니면 null
+const PATH_SNAP_M = 25
+const METERS_PER_DEGREE = 111320
+function findAlongPath(from, to) {
+  const line = []
+  for (const leg of props.paths) {
+    if (leg.coords) line.push(...leg.coords)
+  }
+  if (line.length < 2) return null
+  const start = locateOnLine(line, from)
+  const end = locateOnLine(line, to)
+  if (start.gap > PATH_SNAP_M || end.gap > PATH_SNAP_M || end.distance < start.distance) return null
+  return { line, from: start.distance, to: end.distance }
+}
+
+// 점에서 가장 가까운 길 위 자리: { distance: 길 시작에서 그 자리까지 m, gap: 점과 길 사이 m }
+function locateOnLine(line, point) {
+  const scale = Math.cos((point.lat * Math.PI) / 180) // 경도 1도는 위도 1도보다 짧아서 맞춰 줌
+  let best = { distance: 0, gap: Infinity }
+  let walked = 0
+  for (let i = 1; i < line.length; i++) {
+    const ay = line[i - 1][0], ax = line[i - 1][1] * scale
+    const by = line[i][0], bx = line[i][1] * scale
+    const py = point.lat, px = point.lng * scale
+    const segment = Math.hypot(by - ay, bx - ax)
+    const t = segment === 0 ? 0 : Math.max(0, Math.min(1, ((py - ay) * (by - ay) + (px - ax) * (bx - ax)) / (segment * segment)))
+    const gap = Math.hypot(py - (ay + (by - ay) * t), px - (ax + (bx - ax) * t)) * METERS_PER_DEGREE
+    if (gap < best.gap) best = { distance: (walked + segment * t) * METERS_PER_DEGREE, gap }
+    walked += segment
+  }
+  return best
+}
+
+// 화살표를 앞 자리 → 새 자리 방향으로 (화살표를 보여 주는 중이고 1m 넘게 움직였을 때만, 흔들림 방지)
+const TURN_MIN_M = 1
+function turnAlong(before, after) {
+  if (props.heading == null || !meOverlay) return
+  const dy = after.getLat() - before.getLat()
+  const dx = (after.getLng() - before.getLng()) * Math.cos((after.getLat() * Math.PI) / 180)
+  if (Math.hypot(dy, dx) * METERS_PER_DEGREE < TURN_MIN_M) return
+  const angle = (Math.atan2(dx, dy) * 180) / Math.PI // 북=0, 동=90
+  const turn = shownAngle == null ? 0 : ((angle - shownAngle) % 360 + 540) % 360 - 180
+  shownAngle = shownAngle == null ? angle : shownAngle + turn
+  meOverlay.getContent().style.transform = 'rotate(' + Math.round(shownAngle) + 'deg)'
+}
+
+// 길 시작에서 meters만큼 간 자리 [위도, 경도]
+function pointOnLine(line, meters) {
+  const scale = Math.cos((line[0][0] * Math.PI) / 180)
+  let left = meters / METERS_PER_DEGREE
+  for (let i = 1; i < line.length; i++) {
+    const dy = line[i][0] - line[i - 1][0]
+    const dx = (line[i][1] - line[i - 1][1]) * scale
+    const segment = Math.hypot(dy, dx)
+    if (left <= segment || i === line.length - 1) {
+      const t = segment === 0 ? 0 : Math.min(1, left / segment)
+      return [line[i - 1][0] + dy * t, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t]
+    }
+    left -= segment
+  }
+  return line[line.length - 1]
 }
 
 function addRoute(points) {
@@ -323,7 +487,27 @@ function makeMe() {
   const dot = document.createElement('span')
   dot.className = 'me'
   dot.setAttribute('aria-label', '지금 위치')
+  const arrow = document.createElement('i')
+  arrow.className = 'me__arrow'
+  dot.appendChild(arrow)
+  turnMe(dot)
   return dot
+}
+
+// 진행 방향 화살표: heading이 있으면 보이고 점째로 그 방향으로 돌려요 (카카오 지도는 지도 자체를 못 돌려서, 11/09)
+function turnMe(dot) {
+  const arrow = dot.querySelector('.me__arrow')
+  if (!arrow) return
+  arrow.hidden = props.heading == null
+  if (props.heading == null) {
+    shownAngle = null
+    dot.style.transform = ''
+    return
+  }
+  // 지금 각도에서 가까운 쪽으로 돌게 (-180 ~ 180도만큼). 실제 회전은 CSS transition이 부드럽게 해요
+  const turn = shownAngle == null ? 0 : ((props.heading - shownAngle) % 360 + 540) % 360 - 180
+  shownAngle = shownAngle == null ? props.heading : shownAngle + turn
+  dot.style.transform = 'rotate(' + Math.round(shownAngle) + 'deg)'
 }
 
 // 처음 한 번: 모든 점이 여백 안에 보이게 지도 범위를 맞춤
@@ -345,6 +529,7 @@ function fitOnce(points) {
 // 내 위치로 지도를 옮김 (부모의 "내 위치로" 버튼)
 function focusMe() {
   if (!map || !props.me) return false
+  if (props.smooth && props.follow) return true // 시연 따라가는 중에는 이미 내 위치가 가운데
   map.panTo(centerFor(new kakao.maps.LatLng(props.me.lat, props.me.lng)))
   return true
 }
@@ -360,13 +545,14 @@ function focusMeFirst() {
 
 // 모든 핀·경로·내 위치가 보이게 다시 맞춤
 function fitAll() {
+  if (props.smooth && props.follow) return // 시연 따라가는 동안은 따라가기만 지도를 옮겨요 (11/09)
   hasFitted = false
   draw()
 }
 
 // 지도 가운데를 이 좌표로 옮김 (level: 확대 단계, 작을수록 가까이. 없으면 그대로)
 function moveTo(lat, lng, level = null) {
-  if (!map) return
+  if (!map || (props.smooth && props.follow)) return
   hasFitted = true // 옮긴 화면을 핀 다시 그리기가 덮어쓰지 않게
   isMovingByCode = true // 코드로 옮기는 동안의 zoom_changed는 사용자가 옮긴 게 아니라서 center를 보내지 않음
   map.setCenter(new kakao.maps.LatLng(lat, lng))
@@ -388,7 +574,7 @@ function pointOf(lat, lng) {
 // center([위도, 경도])를 가운데에 두고 points([[위도, 경도], ...])가 다 보이게 화면을 맞춤
 // 가운데를 지키려고 각 점을 center 반대쪽으로 뒤집은 점도 같이 넣어요 (영역이 center를 중심으로 대칭)
 function focusAround(center, points) {
-  if (!map) return
+  if (!map || (props.smooth && props.follow)) return
   hasFitted = true // 맞춘 화면을 핀 다시 그리기가 덮어쓰지 않게
   isMovingByCode = true
   const bounds = new kakao.maps.LatLngBounds()
@@ -417,7 +603,7 @@ function centerFor(position) {
 
 // 부드럽게 이 좌표로 옮기고(가려지지 않는 칸의 가운데), 그다음 그 자리를 기준으로 확대·축소
 function flyTo(lat, lng, level = null) {
-  if (!map) return
+  if (!map || (props.smooth && props.follow)) return
   hasFitted = true
   const position = new kakao.maps.LatLng(lat, lng)
   map.panTo(centerFor(position))
@@ -458,4 +644,8 @@ function toScreenPoint(lat, lng) {
 .kmap{z-index:0}
 /* 걷는 길 동그라미 점 (남색 + 흰 테두리, 11/04) */
 .walk-dot{display:block;width:7px;height:7px;border-radius:50%;background:#1F3A68;box-shadow:0 0 0 2px #fff}
+/* 내 위치 점 위쪽의 진행 방향 화살표 (점째로 돌아가요, 11/09) */
+.me__arrow{position:absolute;left:50%;top:-15px;margin-left:-7px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:10px solid var(--coral)}
+.me__arrow[hidden]{display:none}
+.kmap .me{transition:transform .4s ease}
 </style>
