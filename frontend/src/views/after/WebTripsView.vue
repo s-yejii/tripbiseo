@@ -1,5 +1,5 @@
 <script setup>
-// W18 웹 지난 여행 목록 (⑤, 11/10). 끝난 여행만 카드로, 누르면 3D 회고나 여행 메모로 가요
+// W18 웹 지난 여행 목록 (⑤, 11/10). 끝난 여행만 카드로, 누르면 3D 회고로 가요 (11/11 메모·사진 버튼은 뺌)
 // 여행 목록은 앱과 같은 API(② GET /api/trips)라서 앱에서 마친 여행이 그대로 보여요
 import { computed, onMounted, ref } from 'vue'
 import { get } from '@/api/http'
@@ -32,7 +32,7 @@ const doneTrips = computed(() => {
   return list
 })
 
-// 카드에 보여 줄 값: 여행 정보 + 이 브라우저에 저장한 메모(별점·일기 첫 줄·대표 사진)
+// 카드에 보여 줄 값: 여행 정보 + 이 브라우저에 저장한 메모(여행 메모 첫 줄·대표 사진)
 function toCard(trip) {
   const journal = loadJournal(trip.id)
   const firstLine = journal.diary.split('\n')[0]
@@ -43,7 +43,6 @@ function toCard(trip) {
     endDate: trip.endDate,
     people: trip.people,
     stopCount: trip.stopCount,
-    rating: journal.rating,
     diaryLine: firstLine,
     coverUrl: journal.tripCover ? '/api/photos/' + journal.tripCover + '/file' : null,
   }
@@ -65,7 +64,6 @@ function periodText(card) {
     <WebHeader />
     <main class="wt-main">
       <h1>지난 여행 <small v-if="!isLoading">{{ doneTrips.length }}개</small></h1>
-      <p class="wt-lead">앱에서 마친 여행이에요. 3D 지도로 다시 걷거나, 메모와 사진을 정리해 보세요.</p>
 
       <p v-if="isLoading" class="wt-state">불러오는 중…</p>
       <p v-else-if="errorMessage" class="wt-state">{{ errorMessage }}</p>
@@ -74,16 +72,14 @@ function periodText(card) {
       <div class="wt-grid">
         <article v-for="card in doneTrips" :key="card.id" class="wt-card">
           <div class="wt-cover" :style="card.coverUrl ? { backgroundImage: 'url(' + card.coverUrl + ')' } : {}">
-            <span v-if="!card.coverUrl" class="wt-cover__empty">대표 사진은 여행 메모에서 골라요</span>
+            <span v-if="!card.coverUrl" class="wt-cover__empty">대표 사진이 아직 없어요</span>
           </div>
           <div class="wt-body">
             <h2>{{ card.title }}</h2>
             <p class="wt-meta">{{ periodText(card) }} · {{ card.people }}명 · 장소 {{ card.stopCount }}곳</p>
-            <p v-if="card.rating > 0" class="wt-stars" :aria-label="'별점 ' + card.rating + '점'">{{ '★'.repeat(card.rating) }}<span>{{ '★'.repeat(5 - card.rating) }}</span></p>
             <p v-if="card.diaryLine" class="wt-diary">“{{ card.diaryLine }}”</p>
             <div class="wt-actions">
               <RouterLink :to="'/web/retro?id=' + card.id" class="wt-btn wt-btn--main">3D 회고 보기</RouterLink>
-              <RouterLink :to="'/web/journal?id=' + card.id" class="wt-btn">여행 메모하기</RouterLink>
             </div>
           </div>
         </article>
@@ -97,7 +93,6 @@ function periodText(card) {
 .wt-main { width: 100%; max-width: 1200px; margin: 0 auto; padding: 32px 24px 48px; }
 .wt-main h1 { margin: 0; font-size: 28px; }
 .wt-main h1 small { margin-left: 8px; font-size: 16px; font-weight: 400; color: var(--ink-muted); }
-.wt-lead { margin: 8px 0 24px; color: var(--ink-muted); }
 .wt-state { padding: 40px; border-radius: var(--radius-lg); background: #fff; text-align: center; color: var(--ink-muted); }
 .wt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
 .wt-card { overflow: hidden; border-radius: var(--radius-lg); background: #fff; box-shadow: var(--shadow-card); }
@@ -106,8 +101,6 @@ function periodText(card) {
 .wt-body { padding: 16px 18px 18px; }
 .wt-body h2 { margin: 0; font-size: 18px; line-height: 26px; }
 .wt-meta { margin: 4px 0 0; color: var(--ink-muted); font-size: 13px; }
-.wt-stars { margin: 6px 0 0; color: #F2A33A; letter-spacing: 2px; }
-.wt-stars span { color: var(--line); }
 .wt-diary { margin: 6px 0 0; color: var(--ink-muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-actions { display: flex; gap: 8px; margin-top: 14px; }
 .wt-btn { flex: 1; padding: 9px 0; border: 1px solid var(--line); border-radius: var(--radius-md); color: var(--ink); text-align: center; text-decoration: none; font-weight: 700; }
