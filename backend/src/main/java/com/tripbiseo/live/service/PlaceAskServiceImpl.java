@@ -45,6 +45,7 @@ public class PlaceAskServiceImpl implements PlaceAskService {
 
     private static final int STAY_MINUTES = 30;  // 들르면 머무는 시간(분). 프롬프트 규칙과 같음
     private static final int BAND_METERS = 190;  // 지도 띠 폭: 가는 길 양옆 190m = 걸어서 왕복 약 5분
+    private static final int SHOW_COUNT = 5;     // 화면에 보여 줄 곳 수. AI SQL은 10곳을 받고, 닫힌 곳을 뺀 뒤 앞에서 5곳만 (11/11)
     private static final String ROUTE = "route";
     private static final String ME = "me";
     private static final String NEXT = "next";
@@ -197,10 +198,13 @@ public class PlaceAskServiceImpl implements PlaceAskService {
         return makeResult(answer, situation.getSlack(), band, openPlaces);
     }
 
-    /** 지금 닫혀 있는 곳은 빼고, 닫는 시각·들르고 남는 여유를 채움 */
+    /** 지금 닫혀 있는 곳은 빼고, 닫는 시각·들르고 남는 여유를 채움. 열린 곳이 SHOW_COUNT개 모이면 멈춤 */
     private List<AskedPlace> addOpenAndSlack(List<AskedPlace> places, Integer slack) {
         List<AskedPlace> openPlaces = new ArrayList<>();
         for (AskedPlace place : places) {
+            if (openPlaces.size() >= SHOW_COUNT) {
+                break; // 예전엔 SQL이 5곳만 받아서, 닫힌 곳을 빼면 2~3곳만 남았음
+            }
             OpenInfo open = placeService.getOpenInfo(toPlace(place), Geo.now().toLocalDate(), Geo.nowMinutes(), STAY_MINUTES);
             if (open != null && Boolean.FALSE.equals(open.getOpen())) {
                 continue; // 휴무거나 닫을 시간
