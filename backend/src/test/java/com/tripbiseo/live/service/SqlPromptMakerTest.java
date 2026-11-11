@@ -39,6 +39,16 @@ class SqlPromptMakerTest {
     }
 
     @Test
+    void 단어장과_새_표가_들어감() { // 11/11: 특징 키워드·메뉴
+        String prompt = sqlPromptMaker.makePrompt("조용한 카페", Set.of("me"), null);
+        assertTrue(prompt.contains("[단어장]"));
+        assertTrue(prompt.contains("조용한·차분한 → 차분한 분위기예요, 대화하기 좋아요"));
+        assertTrue(prompt.contains("ask_menu: 메뉴"));
+        assertTrue(prompt.contains("keywords("));
+        assertFalse(prompt.contains("가격·메뉴·혼잡도·웨이팅 시간은 표에 없어")); // 예전 규칙이 남아 있으면 안 됨
+    }
+
+    @Test
     void 다시_물을_때는_떨어진_이유가_들어감() {
         String prompt = sqlPromptMaker.makePrompt("카페", Set.of("me"), "첫 번째 칸은 id여야 함");
         assertTrue(prompt.contains("방금 쓴 SQL은 쓸 수 없어: \"첫 번째 칸은 id여야 함\""));
