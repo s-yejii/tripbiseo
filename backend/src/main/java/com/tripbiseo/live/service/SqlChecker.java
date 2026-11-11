@@ -43,7 +43,7 @@ public class SqlChecker {
     private static final int MAX_LIMIT = 10;          // 결과는 많아야 10곳
     private static final int MAX_DETOUR_MIN = 15;     // 돌아가는 시간 상한(분)
     private static final int MAX_METERS = 1000;       // ST_DWithin 반경 상한(m)
-    private static final Set<String> ALLOWED_TABLES = Set.of("ask_place", "ask_review");
+    private static final Set<String> ALLOWED_TABLES = Set.of("ask_place", "ask_review", "ask_menu"); // ask_menu: 메뉴·가격 (11/11)
     private static final Set<String> ALLOWED_FUNCTIONS = Set.of(
             "detour_minutes", "st_dwithin", "st_distance", "count", "coalesce", "lower", "round", "least", "greatest");
     private static final Set<String> GEO_PLACEHOLDERS = Set.of("route", "me", "next"); // 위치 빈칸

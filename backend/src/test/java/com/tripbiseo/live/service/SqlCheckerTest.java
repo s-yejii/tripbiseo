@@ -38,6 +38,14 @@ class SqlCheckerTest {
     }
 
     @Test
+    void 특징_키워드와_메뉴_가격으로_찾는_SQL은_통과() { // 11/11: ask_place.keywords, ask_menu
+        assertTrue(sqlChecker.checkSql("SELECT id FROM ask_place WHERE kind = 'cafe' AND ST_DWithin(geom, :me, 500) "
+                + "AND keywords ILIKE '%집중하기 좋아요%' ORDER BY rating_adj DESC LIMIT 10").isOk());
+        assertTrue(sqlChecker.checkSql("SELECT id FROM ask_place WHERE ST_DWithin(geom, :me, 500) "
+                + "AND id IN (SELECT place_id FROM ask_menu WHERE name ILIKE '%파스타%' AND price <= 10000) LIMIT 10").isOk());
+    }
+
+    @Test
     void slack은_숫자_파라미터로_바꿈() {
         SqlCheck check = sqlChecker.checkSql("SELECT id FROM ask_place WHERE detour_minutes(geom, :route) + 30 <= :slack LIMIT 5");
         assertTrue(check.isOk());
