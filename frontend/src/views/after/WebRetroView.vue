@@ -5,20 +5,22 @@
 //  - 실제 경로(GPS, 파랑) vs 계획 경로(장소 순서, 회색 점선)
 //  - 내비게이션처럼 카메라가 이동 경로를 따라가며 재생 (위에서 보기 / 거리 시점)
 //  - 다녀온 장소의 건물은 일정 분류(음식점·카페·쇼핑·숙소 등)별 색
-//  - 오른쪽: 계획 vs 실제 표, 비용, 정산 (고치기는 앱 회고에서)
+//  - 오른쪽: 계획 vs 실제 표, 비용, 정산 (11/11: 정산은 여기서도 고쳐요 — 앱과 같은 API)
 //  - (11/10) 사진: 찍은 시각·장소에 맞춰 지도에 놓고, 재생 중 그 시각을 지나면 띄움
-//  - (11/10) 해: 그날 일출·일몰과 재생 시각의 해 높이로 하늘 색·밝기·건물 빛 방향이 바뀜
-//  - (11/10) 여행 메모하기(/web/journal)에 쓴 장소 메모를 핀 창에 같이 보여 줌
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+//  - (11/10) 해: 재생 시각의 해 높이로 하늘 색·밝기·건물 빛 방향이 바뀜 (11/11 일출·일몰 시각 카드는 뺌)
+//  - (11/11) 오른쪽 메모 카드: 여행 메모·날짜별 메모 + 핀에서 고른 장소의 메모·별점 (이 브라우저에 저장)
+//  - (11/11) 오른쪽 사진 카드: 따로 있던 메모·사진 페이지(/web/journal)를 지우고 올리기·앨범·꾸미기·대표 사진을 여기로 (RetroPhotoCard)
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as maplibregl from 'maplibre-gl' // MapLibre: 3D(기울이기·건물·지형)가 되는 무료 지도 라이브러리 (키 없음)
 import 'maplibre-gl/dist/maplibre-gl.css'
 // 지도 계산을 하는 뒤쪽 일꾼(worker) 파일 주소. Vite가 라이브러리를 옮겨 담아서 기본 주소를 못 찾기 때문에 직접 알려 줌
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
-import { get } from '@/api/http'
+import { get, post, put, del } from '@/api/http'
 import { toTime, toMinutes, toDuration, toWon } from '@/utils/time'
-import { sunTimes, sunPosition, sunPhase, skyAt, koreanDate } from '@/utils/sun'
-import { loadJournal, editedOriginalIds } from '@/utils/webJournal'
+import { sunPosition, sunPhase, skyAt, koreanDate } from '@/utils/sun'
+import { loadJournal, editedOriginalIds, makeDelayedSave, toggleStopRating } from '@/utils/webJournal'
+import RetroPhotoCard from '@/components/after/web/RetroPhotoCard.vue'
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty' // OpenFreeMap 지도 (OpenStreetMap 기반, 건물 높이 있음)
 const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png' // 지형 높이 그림 (AWS 공개 데이터)
@@ -75,10 +77,14 @@ const BUILDING_KINDS = [
   { name: '음식점', color: '#F2A33A', words: ['요리', '식당', '음식', '한식', '중식', '일식', '양식', '분식', '이자카야', '주점', '술집', '고기', '구이', '국밥', '치킨', '피자', '라멘', '초밥', '찌개', '냉면', '뷔페', '맛집', '호프', '포차'] },
 ]
 const OTHER_KIND = { name: '기타', color: '#8A93A6' }
+const TERRAIN_EXAGGERATION = 1.3 // 3D 지형 높이 배율 (1이면 실제 높이)
+const SIDE_KEY = 'chakchak.webRetroSide'
+const SIDE_DEFAULT = 440         // 오른쪽 칸 기본 너비(px)
+const SIDE_MIN = 320             // 오른쪽 칸 최소 너비
+const SIDE_MAX_RATIO = 0.55      // 오른쪽 칸은 화면의 55%까지 (지도가 너무 좁아지지 않게)
 const PHOTO_POP_MS = 3500        // 재생 중 사진 카드가 떠 있는 시간
 const PHOTO_MARKER_OFFSET = [30, -44] // 장소 사진 동그라미를 핀 오른쪽 위에 (핀과 안 겹치게)
 const SUN_STRIP_SAMPLES = 120    // 재생 막대의 낮·밤 띠를 이만큼 나눠서 색칠
-const MOVE_GAP_MINUTES = 30      // GPS 점 사이가 이보다 멀면 그 사이는 '이동 중'이 아니라 기록 없음
 const SKY_BLEND = { 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.7 }
 const DAY_SKY = { sky: '#A9C8EF', horizon: '#E9F0FA' } // 해 반영을 끄면 늘 이 하늘
 const DEFAULT_LIGHT = { anchor: 'viewport', position: [1.15, 210, 30], color: '#FFFFFF', intensity: 0.5 } // MapLibre 기본 빛
@@ -103,11 +109,15 @@ const mePosition = ref(null)      // 재생 중 지금 위치 [경도, 위도]
 const geoReady = ref(false)       // 서울 동·구 경계를 다 읽었는지
 const mapBox = ref(null)
 const photos = ref([])            // 이 여행 사진·영상 (GET /api/trips/{id}/photos)
-const journal = loadJournal(route.query.id) // 여행 메모하기에서 쓴 메모·대표 사진 (이 브라우저)
+const journal = reactive(loadJournal(route.query.id)) // 여행·장소 메모, 장소 별점, 대표 사진 (이 브라우저). reactive: 안의 값이 바뀌면 화면이 따라 바뀜
+const memoStopId = ref(null)     // 메모 카드에서 고른 장소 (핀·표를 누르면 바뀜)
+const memoSavedText = ref('')
 const isPhotoShown = ref(true)    // 지도에 사진 보이기
 const isSunOn = ref(true)         // 해·하늘 반영
 const floatPhoto = ref(null)      // 재생 중 잠깐 뜨는 사진 카드
 const viewer = ref(null)          // 크게 보기 { list, index }
+const sideWidth = ref(readSideWidth()) // 오른쪽 칸 너비(px). 가운데 막대를 끌어서 바꿈
+const photoCard = ref(null)       // 오른쪽 사진 카드 (사진 크게 보기의 [꾸미기]에서 편집기를 열 때)
 
 // 지도 관련 값은 화면 반응(ref)이 필요 없어서 보통 변수로 둠
 let map = null
@@ -131,6 +141,7 @@ let lastPhotoMinutes = null       // 재생 중 사진을 마지막으로 확인
 let floatTimer = null
 let isMapReady = false            // 지도 스타일을 다 읽었는지 (하늘·빛은 그 뒤에만 바꿀 수 있음)
 let lastSkyKey = ''               // 마지막으로 칠한 하늘 (같으면 다시 안 칠함)
+let isTerrainOn = false           // 3D 지형(땅 높이)을 켰는지
 
 // ============================== 데이터 읽기
 onMounted(async () => {
@@ -160,6 +171,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onViewerKey)
   cancelAnimationFrame(playFrame)
   cancelAnimationFrame(riseFrame)
+  stopSplitDrag()
   clearTimeout(startFlyTimer)
   clearTimeout(floatTimer)
   for (const timer of introTimers) clearTimeout(timer)
@@ -420,6 +432,18 @@ async function loadPhotos() {
   }
 }
 
+// 사진 카드가 올리기·꾸미기 뒤에 다시 읽어 달라고 하면: 읽고 나서 새 목록을 알려 줌
+async function reloadPhotosFor(resolve) {
+  await loadPhotos()
+  resolve(photos.value)
+}
+
+// 사진 크게 보기 [꾸미기] → 보기를 닫고 사진 카드의 편집기를 엶
+function editFromViewer(photoId) {
+  viewer.value = null
+  if (photoCard.value) photoCard.value.openEditorById(photoId)
+}
+
 // 여행 첫날 + (day − 1)일 → "2026-11-07"
 function dateOfDay(day) {
   const date = new Date(retro.value.startDate + 'T00:00:00')
@@ -449,7 +473,7 @@ function trackPointAt(day, minutes) {
   return best
 }
 
-// 고른 날의 사진 + 지도 자리. 편집본이 있는 원본은 빼고 편집본만 (여행 메모하기에서 편집한 것)
+// 고른 날의 사진 + 지도 자리. 편집본이 있는 원본은 빼고 편집본만 (메모·사진 화면에서 편집한 것)
 const shownPhotos = computed(() => {
   if (!retro.value) return []
   const hidden = editedOriginalIds(journal)
@@ -501,18 +525,6 @@ const sunPlace = computed(() => {
   return { lat: SEOUL_CENTER[1], lng: SEOUL_CENTER[0] }
 })
 
-// 날마다 해 시각 { day, date, times: { dawn, sunrise, sunset, dusk } }
-const daySuns = computed(() => {
-  if (!retro.value) return []
-  const list = []
-  for (let day = 1; day <= dayCount.value; day++) {
-    if (!isShownDay(day)) continue
-    const times = sunTimes(dateOfDay(day), sunPlace.value.lat, sunPlace.value.lng)
-    if (times) list.push({ day: day, date: dateOfDay(day), times: times })
-  }
-  return list
-})
-
 // 여행 시각(분) → 그 순간 해: 높이·방향·하늘 색
 function sunAt(tripMinute) {
   const day = Math.floor(tripMinute / MINUTES_PER_DAY) + 1
@@ -526,97 +538,6 @@ const currentSun = computed(() => {
   if (!isSunOn.value || !canPlay.value || (!playing.value && progress.value === 0)) return null
   return sunAt(nowMinutes.value)
 })
-
-function timesOfDay(day) {
-  for (const item of daySuns.value) {
-    if (item.day === day) return item.times
-  }
-  return null
-}
-
-// 내비 카드 해 한 줄: "🌇 노을 · 일몰 17:30까지 25분"
-const sunBadge = computed(() => {
-  const sun = currentSun.value
-  const times = sun ? timesOfDay(sun.day) : null
-  if (!sun || !times) return null
-  const minute = sun.minuteOfDay
-  const isMorning = minute < 12 * 60
-  const names = { night: '🌙 밤', twilight: isMorning ? '🌄 해 뜨기 전' : '🌆 해 진 뒤', golden: isMorning ? '🌅 아침 햇살' : '🌇 노을', day: '☀️ 낮' }
-  let detail = '일몰 ' + toTime(times.sunset) + ' 지남'
-  if (minute < times.sunrise) detail = '일출 ' + toTime(times.sunrise) + '까지 ' + toDuration(times.sunrise - minute)
-  else if (minute < times.sunset) detail = '일몰 ' + toTime(times.sunset) + '까지 ' + toDuration(times.sunset - minute)
-  return { name: names[sun.phase], detail: detail, phase: sun.phase }
-})
-
-// 그 시각에 어디 있었나: 머문 곳 이름 → 숙소에서 자는 중이면 숙소 이름 → GPS가 이어지면 '이동 중' → 모르면 null
-function placeAtMinute(tripMinute) {
-  const stayName = stayNameAt(tripMinute)
-  if (stayName) return stayName
-  const lodging = lodgingBefore(tripMinute)
-  if (lodging) return lodging
-  return isMovingAt(tripMinute) ? '이동 중' : null
-}
-
-// 장소에 머무는 중이면 그 이름 (일정 칸, 계획 밖에 머문 곳)
-function stayNameAt(tripMinute) {
-  for (const row of shownStops.value) {
-    if (!row.isVisited || row.actualStay === null) continue
-    const arrive = tripMinutes(row.day, row.actualArrive)
-    if (arrive <= tripMinute && tripMinute < arrive + row.actualStay) return row.name
-  }
-  for (const extra of shownExtras.value) {
-    const arrive = tripMinutes(extra.day, extra.arrive)
-    if (arrive <= tripMinute && tripMinute < arrive + extra.stay) return extra.kind === 'lodging' ? '숙소' : extra.name || '계획 밖에 들른 곳'
-  }
-  return null
-}
-
-// 이 시각 전에 마지막으로 떠난 곳이 숙소면 그 이름 (밤새 GPS가 없어도 숙소에서 잔 것으로 봄)
-function lodgingBefore(tripMinute) {
-  let last = null
-  let lastLeave = -Infinity
-  for (const row of shownStops.value) {
-    if (!row.isVisited || row.actualStay === null) continue
-    const leave = tripMinutes(row.day, row.actualArrive) + row.actualStay
-    if (leave <= tripMinute && leave > lastLeave) {
-      last = row
-      lastLeave = leave
-    }
-  }
-  if (last && kindOfCategory(last.category).name === '숙소') return last.name
-  return null
-}
-
-// 앞뒤 GPS 점이 MOVE_GAP_MINUTES 안으로 이어져 있으면 움직이는 중 (기록이 끊긴 밤은 이동 중이 아님)
-function isMovingAt(tripMinute) {
-  let before = null
-  let after = null
-  for (const point of shownTrack.value) {
-    const time = tripMinutes(point.day, point.time)
-    if (time <= tripMinute) before = time
-    else if (after === null) after = time
-  }
-  return before !== null && after !== null && after - before <= MOVE_GAP_MINUTES
-}
-
-// 해 뜰 때·질 때 있던 곳 (오른쪽 카드 이야기)
-const sunMoments = computed(() => {
-  const list = []
-  for (const item of daySuns.value) {
-    const events = [{ kind: 'sunrise', icon: '🌅', name: '해가 뜰 때', minute: item.times.sunrise }, { kind: 'sunset', icon: '🌇', name: '해가 질 때', minute: item.times.sunset }]
-    for (const event of events) {
-      const tripMinute = (item.day - 1) * MINUTES_PER_DAY + event.minute
-      const place = placeAtMinute(tripMinute)
-      if (place) list.push({ key: item.day + event.kind, day: item.day, icon: event.icon, name: event.name, time: toTime(event.minute), place: place, tripMinute: tripMinute })
-    }
-  }
-  return list
-})
-
-// "N시간 M분" 낮 길이
-function dayLengthText(times) {
-  return toDuration(times.sunset - times.sunrise)
-}
 
 // ============================== 다닌 동네 (머문 곳이 들어 있는 행정동)
 function addDongStay(stats, dong, placeName, minutes) {
@@ -673,21 +594,36 @@ const visitedGuText = computed(() => {
   return names.join(' · ')
 })
 
-// ============================== 정산 (앱 회고와 같은 계산, 여기서는 보기만)
+// ============================== 정산 (11/11: 앱 회고와 같은 API로 여기서도 고쳐요)
+// 계산: 직접 정한 사람(shareAmount)은 그 금액, 나머지는 (합계 − 정한 금액들)을 똑같이 나눔 (10원 단위, 남는 돈은 자동 중 첫 사람)
+// 예: 3명, 합계 90,000, 민지 20,000으로 정함 → 나·지수가 70,000을 35,000씩
+const settleDay = ref(0) // 정산 카드에서 볼 날 (0 = 전체). 날짜별은 그날 결제만 똑같이 나눔 (직접 정한 금액은 전체에서만)
+
+// 정산에 넣을 결제: 전체면 모두, 날짜를 고르면 그날 것만
+const settlePayments = computed(() => {
+  if (settleDay.value === 0) return payments.value
+  return payments.value.filter((payment) => payment.day === settleDay.value)
+})
+
+// 직접 정한 낼 돈은 여행 전체 기준이라 날짜별로 볼 때는 안 씀 (null = 자동)
+function shareOf(companion) {
+  return settleDay.value === 0 ? companion.shareAmount : null
+}
+
 const settlement = computed(() => {
   const list = companions.value
-  if (list.length < 2 || payments.value.length === 0) return null
+  if (list.length < 2 || settlePayments.value.length === 0) return null
   let total = 0
   const paid = {}
   for (const companion of list) paid[companion.name] = 0
-  for (const payment of payments.value) {
+  for (const payment of settlePayments.value) {
     total += payment.amount
     if (paid[payment.payer] !== undefined) paid[payment.payer] += payment.amount
   }
   let fixedTotal = 0
   const autoNames = []
   for (const companion of list) {
-    if (companion.shareAmount !== null) fixedTotal += companion.shareAmount
+    if (shareOf(companion) !== null) fixedTotal += shareOf(companion)
     else autoNames.push(companion.name)
   }
   const rest = total - fixedTotal
@@ -695,12 +631,206 @@ const settlement = computed(() => {
   if (autoNames.length > 0) autoShare = Math.floor(rest / autoNames.length / 10) * 10
   const people = []
   for (const companion of list) {
-    let should = companion.shareAmount
+    let should = shareOf(companion)
     if (should === null) should = companion.name === autoNames[0] ? rest - autoShare * (autoNames.length - 1) : autoShare
-    people.push({ name: companion.name, paid: paid[companion.name], should: should, balance: paid[companion.name] - should })
+    people.push({ id: companion.id, name: companion.name, isMe: companion.sortNo === 0, isFixed: shareOf(companion) !== null,
+      paid: paid[companion.name], should: should, balance: paid[companion.name] - should })
   }
-  return { total: total, people: people, transfers: toTransfers(people) }
+  // 안 맞는 돈: 모두 직접 정했는데 합이 다르거나, 정한 금액이 합계보다 많으면
+  let gap = 0
+  if (autoNames.length === 0) gap = total - fixedTotal
+  else if (rest < 0) gap = rest
+  return { total: total, people: people, transfers: toTransfers(people), gap: gap }
 })
+
+const settleMessage = ref('')      // 정산 칸 아래 한 줄 알림 (웹 화면에는 앱의 토스트가 없어서)
+const personEdit = ref(null)       // 이름 칸 { id, name }. id가 null이면 새 사람
+const shareEdit = ref(null)        // 낼 돈 칸 { id, amount(글자) }
+const askingRemoveId = ref(null)   // "뺄까요?"를 띄운 사람
+const askingDeleteId = ref(null)   // "지울까요?"를 띄운 결제
+const isSettleBusy = ref(false)
+
+// 서버에 한 번 고치는 공통 순서: 바쁨 표시 → 실행 → 실패하면 알림
+async function runSettle(work) {
+  isSettleBusy.value = true
+  settleMessage.value = ''
+  try {
+    await work()
+  } catch (e) {
+    settleMessage.value = e.message
+  }
+  isSettleBusy.value = false
+}
+
+async function reloadPayments() {
+  payments.value = await get('/trips/' + route.query.id + '/payments')
+}
+
+function startAddPerson() {
+  personEdit.value = { id: null, name: '' }
+}
+
+// 사람 이름 누르기 → 이름 칸 열기 ('나'는 못 바꿈)
+function startRenamePerson(person) {
+  if (person.isMe) return
+  personEdit.value = { id: person.id, name: person.name }
+}
+
+// 사람 추가(POST)·이름 바꾸기(PUT). 이름이 바뀌면 서버가 결제의 낸 사람 이름도 바꿔서 결제를 다시 읽음
+function savePerson() {
+  const edit = personEdit.value
+  const name = edit.name.trim()
+  if (name === '') return
+  runSettle(async () => {
+    const base = '/trips/' + route.query.id + '/companions'
+    if (edit.id === null) {
+      companions.value = await post(base, { name: name })
+    } else {
+      companions.value = await put(base + '/' + edit.id, { name: name })
+      await reloadPayments()
+    }
+    personEdit.value = null
+  })
+}
+
+// 사람 빼기. 그 사람이 낸 결제는 서버가 '나'로 바꿈
+function removePerson(person) {
+  runSettle(async () => {
+    companions.value = await del('/trips/' + route.query.id + '/companions/' + person.id)
+    await reloadPayments()
+    askingRemoveId.value = null
+    settleMessage.value = person.name + '을(를) 정산에서 뺐어요'
+  })
+}
+
+function startShareEdit(person) {
+  shareEdit.value = { id: person.id, amount: String(person.should) }
+}
+
+// 낼 돈 저장. amount가 null이면 자동(똑같이 나누기)으로 되돌림
+function saveShare(personId, amount) {
+  const value = amount === null ? null : Number(String(amount).replace(/,/g, ''))
+  if (value !== null && !(value >= 0)) {
+    settleMessage.value = '0원 이상 숫자로 넣어 주세요'
+    return
+  }
+  runSettle(async () => {
+    companions.value = await put('/trips/' + route.query.id + '/companions/' + personId + '/share', { amount: value })
+    shareEdit.value = null
+  })
+}
+
+// 결제의 낸 사람을 다음 사람으로 (나 → 민지 → 나 …)
+function cyclePayer(payment) {
+  const names = []
+  for (const companion of companions.value) names.push(companion.name)
+  if (names.length < 2) return
+  const next = names[(names.indexOf(payment.payer) + 1) % names.length] // %: 끝을 넘으면 처음으로
+  runSettle(async () => {
+    const changed = await put('/trips/' + route.query.id + '/payments/' + payment.id + '/payer', { payer: next })
+    payment.payer = changed.payer
+  })
+}
+
+function deletePayment(payment) {
+  runSettle(async () => {
+    await del('/trips/' + route.query.id + '/payments/' + payment.id)
+    await reloadPayments()
+    askingDeleteId.value = null
+    settleMessage.value = payment.storeName + ' 결제를 지웠어요'
+  })
+}
+
+// 결제 목록: 날짜 → 시각 순 (paidAt은 "14:20" 글자라 같은 날이면 글자 비교로 순서가 맞음)
+const sortedPayments = computed(() => {
+  const list = payments.value.slice()
+  list.sort((a, b) => (a.day !== b.day ? a.day - b.day : (a.paidAt < b.paidAt ? -1 : 1)))
+  return list
+})
+
+// ---------- 장소별 결제 (11/11): 장소마다 결제를 묶어 보여 주고, 그 장소에 넣기·고치기·지우기
+// 서버는 결제 시각으로 장소를 정해요(실제 도착 ≤ 결제 < 떠남). 그래서 새 결제는 그 장소에 머문 시간 가운데 시각으로 보냄
+const MIDNIGHT_MINUTES = 24 * 60 - 1
+const paymentEdit = ref(null) // 고치는 칸 { id(null이면 새로), groupKey, day, time, storeName, amount(글자), payer, old }
+
+// 묶음: 일정 순서대로 [다녀온 장소 또는 결제가 있는 장소] + 마지막에 '이동 중·계획 밖'
+const paymentGroups = computed(() => {
+  if (!retro.value) return []
+  const groups = []
+  const countOfDay = {}
+  for (const stop of retro.value.stops) {
+    countOfDay[stop.day] = (countOfDay[stop.day] || 0) + 1
+    if (settleDay.value !== 0 && stop.day !== settleDay.value) continue
+    const list = paymentsOfStop(stop.id)
+    const canAdd = stop.actualArrive !== null && stop.actualStay !== null
+    if (!canAdd && list.length === 0) continue
+    groups.push({ key: 'stop-' + stop.id, stop: stop, title: stop.day + '일차 · ' + countOfDay[stop.day] + '. ' + stop.name,
+      sub: canAdd ? stop.actualArrive + ' ~ ' + toTime((toMinutes(stop.actualArrive) + stop.actualStay) % (24 * 60)) : '안 감',
+      canAdd: canAdd, payments: list, total: sumAmount(list) })
+  }
+  const moving = paymentsOfStop(null)
+  if (moving.length > 0) groups.push({ key: 'moving', stop: null, title: '이동 중·계획 밖', sub: '', canAdd: false, payments: moving, total: sumAmount(moving) })
+  return groups
+})
+
+// 이 장소의 결제 (stopId가 null이면 이동 중·계획 밖 — 날짜를 골랐으면 그날 것만)
+function paymentsOfStop(stopId) {
+  return sortedPayments.value.filter((payment) => payment.stopId === stopId && (stopId !== null || settleDay.value === 0 || payment.day === settleDay.value))
+}
+
+function sumAmount(list) {
+  let total = 0
+  for (const payment of list) total += payment.amount
+  return total
+}
+
+// [+ 결제]: 그 장소에 머문 시간 가운데 시각으로 새 칸 열기
+function startAddPayment(group) {
+  const arrive = toMinutes(group.stop.actualArrive)
+  const time = toTime(Math.min(arrive + Math.floor(group.stop.actualStay / 2), MIDNIGHT_MINUTES))
+  paymentEdit.value = { id: null, groupKey: group.key, day: group.stop.day, time: time, storeName: group.stop.name, amount: '', payer: '나', old: null }
+}
+
+// ✎: 있던 결제를 고치는 칸 열기
+function startEditPayment(group, payment) {
+  paymentEdit.value = { id: payment.id, groupKey: group.key, day: payment.day, time: payment.paidAt, storeName: payment.storeName,
+    amount: String(payment.amount), payer: payment.payer, old: payment }
+}
+
+// 저장: 새로면 POST 한 번. 고치기는 결제 고치기 API가 없어서 새로 넣고(POST) 옛것을 지움(DELETE)
+// 낸 사람만 바뀌었으면 낸 사람 API(PUT) 하나로
+function savePayment() {
+  const edit = paymentEdit.value
+  const amount = Number(String(edit.amount).replace(/,/g, ''))
+  if (edit.storeName.trim() === '' || !(amount >= 1) || !Number.isInteger(amount)) {
+    settleMessage.value = '가게 이름과 1원 이상 금액을 넣어 주세요'
+    return
+  }
+  const body = { paidAt: dateOfDay(edit.day) + 'T' + edit.time, storeName: edit.storeName.trim(), amount: amount, payer: edit.payer }
+  runSettle(async () => {
+    const base = '/trips/' + route.query.id + '/payments'
+    if (edit.old && isOnlyPayerChanged(edit.old, body)) {
+      await put(base + '/' + edit.id + '/payer', { payer: body.payer })
+    } else {
+      if (edit.old) Object.assign(body, { method: edit.old.method, source: edit.old.source, memo: edit.old.memo })
+      await post(base, body)
+      if (edit.old) await del(base + '/' + edit.id) // 새로 넣은 뒤에 지움 (중간에 실패해도 결제가 사라지지는 않게)
+    }
+    await reloadPayments()
+    paymentEdit.value = null
+  })
+}
+
+function isOnlyPayerChanged(old, body) {
+  return old.storeName === body.storeName && old.amount === body.amount
+}
+
+function companionById(id) {
+  for (const companion of companions.value) {
+    if (companion.id === id) return companion
+  }
+  return null
+}
 
 // 보낼 사람이 받을 사람에게 차례로 보내기 (앱 회고 toTransfers와 같음)
 function toTransfers(people) {
@@ -721,6 +851,92 @@ function toTransfers(people) {
     }
   }
   return transfers
+}
+
+// ============================== 메모 (11/11): 여행 메모 + 고른 장소의 메모·별점. 쓰고 잠깐 멈추면 이 브라우저에 저장
+const saveJournalLater = makeDelayedSave(route.query.id, (isSaved) => {
+  memoSavedText.value = isSaved ? '저장됨 · ' + new Date().toTimeString().slice(0, 5) : '이 브라우저에서는 저장할 수 없어요'
+})
+watch(journal, () => {
+  memoSavedText.value = '저장 중…'
+  saveJournalLater(journal)
+}, { deep: true })
+
+// 메모 카드 장소 고르기 목록: 날짜 상관없이 모든 일정 칸 (번호는 그날 기준)
+const allStopRows = computed(() => {
+  if (!retro.value) return []
+  const list = []
+  const countOfDay = {}
+  for (const stop of retro.value.stops) {
+    countOfDay[stop.day] = (countOfDay[stop.day] || 0) + 1
+    list.push({ id: stop.id, day: stop.day, no: countOfDay[stop.day], name: stop.name })
+  }
+  return list
+})
+
+// 메모 카드에서 고른 장소
+const memoStop = computed(() => {
+  for (const row of allStopRows.value) {
+    if (row.id === memoStopId.value) return row
+  }
+  return null
+})
+
+// 별 누르기 (같은 별을 다시 누르면 지움)
+function setStopRating(value) {
+  toggleStopRating(journal, memoStopId.value, value)
+}
+
+// 별 글자: 3점 → "★★★☆☆"
+function starText(rating) {
+  return '★'.repeat(rating) + '☆'.repeat(5 - rating)
+}
+
+// ============================== 지도 ↔ 오른쪽 칸 너비 (11/11)
+function readSideWidth() {
+  try {
+    const saved = Number(localStorage.getItem(SIDE_KEY))
+    if (saved >= SIDE_MIN) return saved
+  } catch (e) {
+    // 저장소를 못 쓰면 기본 너비
+  }
+  return SIDE_DEFAULT
+}
+
+// 너비를 최소~최대 안으로 맞추고, 지도 크기도 다시 계산
+function setSideWidth(width) {
+  sideWidth.value = Math.round(Math.max(SIDE_MIN, Math.min(window.innerWidth * SIDE_MAX_RATIO, width)))
+  if (map) requestAnimationFrame(() => map.resize())
+}
+
+function startSplitDrag(event) {
+  event.preventDefault()
+  window.addEventListener('pointermove', onSplitMove)
+  window.addEventListener('pointerup', stopSplitDrag)
+}
+
+// 막대를 끈 자리부터 화면 오른쪽 끝까지가 오른쪽 칸 너비
+function onSplitMove(event) {
+  setSideWidth(window.innerWidth - event.clientX)
+}
+
+function stopSplitDrag() {
+  window.removeEventListener('pointermove', onSplitMove)
+  window.removeEventListener('pointerup', stopSplitDrag)
+  try {
+    localStorage.setItem(SIDE_KEY, String(sideWidth.value))
+  } catch (e) {
+    // 기억 못 해도 지금 화면에서는 바뀜
+  }
+}
+
+// 키보드: ←는 오른쪽 칸을 넓게, →는 좁게 (40px씩)
+function onSplitKey(event) {
+  if (event.key === 'ArrowLeft') setSideWidth(sideWidth.value + 40)
+  else if (event.key === 'ArrowRight') setSideWidth(sideWidth.value - 40)
+  else return
+  event.preventDefault()
+  stopSplitDrag()
 }
 
 // ============================== 지도 만들기
@@ -749,6 +965,7 @@ function createMap() {
     map.on('idle', findStopBuildings) // 지도가 멈출 때마다 아직 못 찾은 건물을 찾아봄
     isMapReady = true
     applySun()
+    useTerrain(true)
   })
 }
 
@@ -761,11 +978,22 @@ function useKoreanLabels() {
   }
 }
 
-// 산 그림자(hillshade)만 깔기. 땅을 실제로 올리면 지형이 갑자기 튀어나오고 카메라가 출렁여서 쓰지 않음
+// 산 그림자(hillshade) + 3D 지형용 높이 자료. 그림자와 지형은 자료를 따로 둬야 MapLibre가 경고 없이 그림
 function addHillshade() {
   map.addSource('dem-shade', { type: 'raster-dem', tiles: [DEM_TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 14 })
+  map.addSource('dem', { type: 'raster-dem', tiles: [DEM_TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 14 })
   map.addLayer({ id: 'hillshade', type: 'hillshade', source: 'dem-shade', paint: { 'hillshade-exaggeration': 0.35, 'hillshade-shadow-color': '#5a6b86' } }, 'building')
   setSkyColors(DAY_SKY)
+}
+
+// 3D 지형(땅을 실제 높이로 올림): 처음 연출·전체 보기에서만 켬 (11/11)
+// 내비 재생 중에는 끔 — 켜 두면 카메라가 땅 높이를 따라 위아래로 출렁여서. 2D에서도 끔
+function useTerrain(isOn) {
+  if (!map || !isMapReady) return
+  const isWanted = isOn && is3d.value
+  if (isWanted === isTerrainOn) return
+  isTerrainOn = isWanted
+  map.setTerrain(isWanted ? { source: 'dem', exaggeration: TERRAIN_EXAGGERATION } : null)
 }
 
 function setSkyColors(sky) {
@@ -1080,10 +1308,13 @@ function drawMarkers() {
   clearMarkers()
   for (const row of shownStops.value) {
     if (row.lat === null) continue
+    const popup = new maplibregl.Popup({ offset: 30, maxWidth: '280px' }).setDOMContent(makePopup(row))
+    popup.on('open', () => popup.setDOMContent(makePopup(row))) // 열 때마다 새로 (방금 쓴 메모·별점이 보이게)
     const marker = new maplibregl.Marker({ element: makePin(row), anchor: 'bottom' })
       .setLngLat([row.lng, row.lat])
-      .setPopup(new maplibregl.Popup({ offset: 30, maxWidth: '280px' }).setDOMContent(makePopup(row)))
+      .setPopup(popup)
       .addTo(map)
+    marker.getElement().addEventListener('click', () => { memoStopId.value = row.id }) // 메모 카드도 이 장소로
     stopMarkers[row.id] = marker
   }
   for (const extra of shownExtras.value) {
@@ -1133,8 +1364,11 @@ function makePopup(row) {
   for (const payment of payments.value) {
     if (payment.stopId === row.id) box.appendChild(makeTag('wr-pop__pay', payment.paidAt + ' ' + payment.storeName + ' ' + toWon(payment.amount) + ' (' + payment.payer + ')'))
   }
+  const rating = journal.stopRatings[row.id]
+  if (rating) box.appendChild(makeTag('wr-pop__stars', starText(rating)))
   const note = journal.stopNotes[row.id]
   if (note) box.appendChild(makeTag('wr-pop__note', '📝 ' + note))
+  else box.appendChild(makeTag('wr-pop__hint', '오른쪽 메모 칸에 이 장소 메모를 쓸 수 있어요'))
   appendPopupPhotos(box, row)
   return box
 }
@@ -1210,6 +1444,7 @@ function fitTrip(duration) {
 }
 
 function focusStop(row) {
+  memoStopId.value = row.id // 메모 카드도 이 장소로
   if (row.lat === null || !map) return
   stopPlay()
   setStreetLook(false) // 내비 시점에서 숨겼던 핀·바닥 표시를 되돌림
@@ -1248,6 +1483,7 @@ function toggle3d() {
     showDongs(false) // 2D에서는 기둥 없이 바닥 색만
     changeView('top') // 거리 시점은 3D에서만
   }
+  useTerrain(!playing.value) // 3D로 돌아오면 (재생 중이 아니면) 지형도 켬
   map.easeTo({ pitch: is3d.value ? OVERVIEW_PITCH : 0, bearing: is3d.value ? -20 : 0, duration: 900 })
 }
 
@@ -1487,6 +1723,7 @@ function startPlay() {
   playing.value = true
   isFollow.value = true
   showDongs(false) // 동네 기둥을 숨겨서 길·건물이 보이게 (테두리만 남김)
+  useTerrain(false) // 재생 중에는 땅을 평평하게 (카메라 출렁임 방지)
   setStreetLook(isStreet())
   if (progress.value === 0) {
     flyToStart()
@@ -1517,6 +1754,7 @@ function stopPlay() {
 // 재생을 맨 처음 상태로: 위치 0, 내 위치 점과 지나온 선 지우기
 function resetPlay() {
   stopPlay()
+  useTerrain(true) // 처음 상태(전체 보기)로 돌아오면 지형을 다시 켬
   progress.value = 0
   mePosition.value = null
   cameraCenter = null
@@ -1734,19 +1972,7 @@ function photoCaption(photo) {
   return photo.day + '일차 ' + photo.takenAt + ' · ' + photo.placeName
 }
 
-// ============================== 해: 재생 막대의 낮·밤 띠, 일출·일몰 바로 가기
-// 이 여행 시각(분)에 해당하는 재생 위치(초). 재생 시각은 계속 늘기만 해서 반씩 좁혀 찾음 (이분 탐색)
-function secondsAtMinutes(target) {
-  let low = 0
-  let high = playEnd.value
-  for (let i = 0; i < 30; i++) {
-    const middle = (low + high) / 2
-    if (routeAt(middle).minutes < target) low = middle
-    else high = middle
-  }
-  return high
-}
-
+// ============================== 해: 재생 막대의 낮·밤 띠
 // 막대 띠 색: 재생 위치마다 그 시각의 하늘 색 (낮은 하늘색, 노을은 주황, 밤은 남색)
 const sunStripStyle = computed(() => {
   if (!canPlay.value || !retro.value) return {}
@@ -1757,37 +1983,6 @@ const sunStripStyle = computed(() => {
   }
   return { background: 'linear-gradient(to right, ' + stops.join(', ') + ')' }
 })
-
-// 막대 위 눈금: 재생 구간 안에 든 일출·일몰
-const sunTicks = computed(() => {
-  if (!canPlay.value) return []
-  const first = routeAt(0).minutes
-  const last = routeAt(playEnd.value).minutes
-  const ticks = []
-  for (const item of daySuns.value) {
-    const events = [{ icon: '🌅', name: '일출', minute: item.times.sunrise }, { icon: '🌇', name: '일몰', minute: item.times.sunset }]
-    for (const event of events) {
-      const tripMinute = (item.day - 1) * MINUTES_PER_DAY + event.minute
-      if (tripMinute <= first || tripMinute >= last) continue
-      const percent = (secondsAtMinutes(tripMinute) / playEnd.value) * 100
-      ticks.push({ key: item.day + event.name, label: event.icon + ' ' + toTime(event.minute), title: item.day + '일차 ' + event.name, percent: percent, tripMinute: tripMinute })
-    }
-  }
-  return ticks
-})
-
-// 그 시각으로 재생 위치를 옮기고 멈춤 (일출·일몰 눈금, 오른쪽 카드에서)
-function goToMinute(tripMinute) {
-  if (!canPlay.value) return
-  clearIntro()
-  stopPlay()
-  showDongs(false)
-  setStreetLook(isStreet())
-  isFollow.value = true
-  progress.value = secondsAtMinutes(tripMinute)
-  lastPhotoMinutes = nowMinutes.value
-  showProgress()
-}
 
 function toggleSun() {
   isSunOn.value = !isSunOn.value
@@ -1819,7 +2014,6 @@ watch(shownPhotos, drawPhotoMarkers)
           <p>{{ retro.startDate }} ~ {{ retro.endDate }} · {{ retro.people }}명<template v-if="visitedGuText"> · {{ visitedGuText }}</template></p>
           <div class="wr-title__links">
             <RouterLink to="/web/trips" class="wr-btn">← 지난 여행</RouterLink>
-            <RouterLink :to="'/web/journal?id=' + retro.id" class="wr-btn wr-btn--memo">📝 여행 메모하기</RouterLink>
           </div>
         </div>
 
@@ -1843,7 +2037,7 @@ watch(shownPhotos, drawPhotoMarkers)
 
         <!-- 내비 카드 -->
         <div v-if="navCard && (playing || progress > 0)" class="wr-nav" :class="{ 'wr-nav--street': viewMode === 'street' }">
-          <div class="wr-nav__time">{{ toDayTime(nowMinutes) }}<span v-if="sunBadge" class="wr-nav__sun" :class="'is-' + sunBadge.phase">{{ sunBadge.name }} · {{ sunBadge.detail }}</span></div>
+          <div class="wr-nav__time">{{ toDayTime(nowMinutes) }}</div>
           <template v-if="navCard.isStay">
             <div class="wr-nav__label">머무는 중</div>
             <div class="wr-nav__place">{{ navCard.row.name }}</div>
@@ -1889,11 +2083,8 @@ watch(shownPhotos, drawPhotoMarkers)
           </div>
           <button type="button" class="wr-btn" :disabled="!canPlay" @click="changeSpeed">{{ speed }}배속</button>
           <div class="wr-player__barwrap">
-            <!-- 낮·밤 띠 + 일출·일몰 눈금 (누르면 그 시각으로) -->
+            <!-- 낮·밤 띠 (재생 시각의 하늘 색) -->
             <div v-if="isSunOn && canPlay" class="wr-player__sun" :style="sunStripStyle"></div>
-            <template v-if="isSunOn">
-              <button v-for="tick in sunTicks" :key="tick.key" type="button" class="wr-player__tick" :style="{ left: tick.percent + '%' }" :title="tick.title + '으로 가기'" @click="goToMinute(tick.tripMinute)">{{ tick.label }}</button>
-            </template>
             <input v-model="sliderValue" type="range" min="0" max="1000" :disabled="!canPlay" class="wr-player__bar" aria-label="재생 위치" />
           </div>
           <span class="wr-player__time">{{ canPlay ? toDayTime(nowMinutes) : 'GPS 기록 없음' }}</span>
@@ -1903,7 +2094,8 @@ watch(shownPhotos, drawPhotoMarkers)
       </template>
     </section>
 
-    <aside v-if="retro" class="wr-side">
+    <div v-if="retro" class="wr-split" role="separator" aria-orientation="vertical" aria-label="지도와 오른쪽 칸 너비 (끌거나 ← → 키)" :aria-valuenow="sideWidth" tabindex="0" title="끌어서 너비 바꾸기" @pointerdown="startSplitDrag" @keydown="onSplitKey"><i></i></div>
+    <aside v-if="retro" class="wr-side" :style="{ width: sideWidth + 'px' }">
       <!-- 숫자 4개 -->
       <div class="wr-kpis">
         <div><b>{{ summary.visited }}<small>/{{ summary.total }}</small></b><span>다녀온 곳</span></div>
@@ -1916,20 +2108,32 @@ watch(shownPhotos, drawPhotoMarkers)
         <template v-if="summary.skipped > 0"> 건너뛴 곳 {{ summary.skipped }}곳.</template>
       </p>
 
-      <!-- 해 뜨고 진 시각 -->
-      <section v-if="daySuns.length > 0" class="wr-card">
-        <h2>해 뜨고 진 시각 <small>여행한 곳 기준</small></h2>
-        <div v-for="item in daySuns" :key="item.day" class="wr-sunrow">
-          <span class="wr-sunrow__day">{{ item.day }}일차</span>
-          <span>🌅 {{ toTime(item.times.sunrise) }}</span>
-          <span>🌇 {{ toTime(item.times.sunset) }}</span>
-          <span class="wr-sunrow__len">낮 {{ dayLengthText(item.times) }}</span>
-        </div>
-        <button v-for="moment in sunMoments" :key="moment.key" type="button" class="wr-moment" :disabled="!canPlay" @click="goToMinute(moment.tripMinute)">
-          <span class="wr-moment__icon">{{ moment.icon }}</span>
-          <span>{{ moment.day }}일차 {{ moment.time }} {{ moment.name }} <b>{{ moment.place }}</b>{{ moment.place === '이동 중' ? '이었어요' : '에 있었어요' }}</span>
-          <span class="wr-moment__go">그 순간 보기 →</span>
-        </button>
+      <!-- 메모 (11/11): 여행 메모 + 고른 장소의 메모·별점 (메모·사진 화면과 같은 저장소) -->
+      <section class="wr-card">
+        <h2>메모 <small>{{ memoSavedText || '이 브라우저에 저장돼요' }}</small></h2>
+        <label class="wr-memo__label" for="wr-trip-memo">여행 메모</label>
+        <textarea id="wr-trip-memo" v-model="journal.diary" rows="3" class="wr-memo__text" placeholder="이번 여행은 어땠나요? 첫 줄은 지난 여행 목록 카드에 보여요."></textarea>
+        <template v-if="dayButtons.length > 2">
+          <span class="wr-memo__label">날짜별 한 줄 메모</span>
+          <input v-for="item in dayButtons.slice(1)" :key="item.day" v-model="journal.dayNotes[item.day]" class="wr-memo__day" :placeholder="item.label + ' 한 줄'" :aria-label="item.label + ' 한 줄 메모'" />
+        </template>
+        <label class="wr-memo__label" for="wr-stop-pick">장소 메모 <small>지도 핀을 눌러도 골라져요</small></label>
+        <select id="wr-stop-pick" v-model="memoStopId" class="wr-memo__select">
+          <option :value="null">장소를 골라 주세요</option>
+          <option v-for="row in allStopRows" :key="row.id" :value="row.id">{{ row.day }}일차 {{ row.no }}. {{ row.name }}</option>
+        </select>
+        <template v-if="memoStop">
+          <div class="wr-memo__stars" :aria-label="memoStop.name + ' 별점'">
+            <button v-for="value in 5" :key="value" type="button" :class="{ 'is-on': value <= (journal.stopRatings[memoStop.id] || 0) }" :aria-label="value + '점'" @click="setStopRating(value)">★</button>
+            <span>{{ journal.stopRatings[memoStop.id] ? journal.stopRatings[memoStop.id] + '점' : '별을 눌러 점수를 줘요' }}</span>
+          </div>
+          <textarea v-model="journal.stopNotes[memoStop.id]" rows="3" class="wr-memo__text" :placeholder="memoStop.name + '에서 있었던 일, 맛, 기분…'"></textarea>
+        </template>
+      </section>
+
+      <!-- 사진 (11/11: 메모·사진 페이지에서 옮김) -->
+      <section class="wr-card">
+        <RetroPhotoCard ref="photoCard" :retro="retro" :photos="photos" :journal="journal" @reload="reloadPhotosFor" @view="openViewer([Object.assign({ placeName: '' }, $event)], 0)" />
       </section>
 
       <!-- 다닌 동네 -->
@@ -1943,7 +2147,7 @@ watch(shownPhotos, drawPhotoMarkers)
         </button>
       </section>
 
-      <!-- 계획 vs 실제 -->
+      <!-- 계획 vs 실제 카드: 11/11 화면에서 뺌 (일단 주석으로 남김, 다시 쓰려면 이 주석을 풀기)
       <section class="wr-card">
         <h2>계획 vs 실제 <small>줄을 누르면 지도로 가요</small></h2>
         <table class="wr-table">
@@ -1963,6 +2167,7 @@ watch(shownPhotos, drawPhotoMarkers)
           </tbody>
         </table>
       </section>
+      -->
 
       <!-- 비용 -->
       <section class="wr-card">
@@ -1975,21 +2180,96 @@ watch(shownPhotos, drawPhotoMarkers)
         </div>
       </section>
 
-      <!-- 정산 -->
+      <!-- 정산 (11/11: 여기서도 고쳐요. 앱 회고와 같은 API라 양쪽이 같이 바뀜) -->
       <section class="wr-card">
-        <h2>정산 <small>여행 전체 · 고치기는 앱 회고에서</small></h2>
-        <p v-if="!settlement" class="wr-empty">같이 간 사람이 2명 이상이고 결제가 있으면 보여요.</p>
+        <div class="wr-card__head">
+          <h2>정산 <small>{{ settleDay === 0 ? '여행 전체' : settleDay + '일차만' }} · 앱과 같이 바뀌어요</small></h2>
+          <div v-if="dayButtons.length > 2" class="wr-seg wr-seg--small" role="group" aria-label="정산 날짜">
+            <button v-for="item in dayButtons" :key="item.day" type="button" :class="{ 'is-on': settleDay === item.day }" :aria-pressed="settleDay === item.day" @click="settleDay = item.day">{{ item.label }}</button>
+          </div>
+        </div>
+
+        <h3 class="wr-sub">같이 간 사람 <small>이름을 누르면 바꿔요</small></h3>
+        <div class="wr-chips">
+          <span v-for="companion in companions" :key="companion.id" class="wr-chip">
+            <button type="button" class="wr-chip__name" :disabled="companion.sortNo === 0" @click="startRenamePerson({ id: companion.id, name: companion.name, isMe: companion.sortNo === 0 })">{{ companion.name }}</button>
+            <button v-if="companion.sortNo !== 0" type="button" class="wr-chip__x" :aria-label="companion.name + ' 빼기'" @click="askingRemoveId = companion.id">✕</button>
+          </span>
+          <button type="button" class="wr-chip wr-chip--add" @click="startAddPerson">＋ 사람 추가</button>
+        </div>
+        <form v-if="personEdit" class="wr-inline" @submit.prevent="savePerson">
+          <input v-model="personEdit.name" maxlength="20" :placeholder="personEdit.id === null ? '새 사람 이름' : '바꿀 이름'" aria-label="이름" />
+          <button type="submit" class="wr-btn wr-btn--main" :disabled="isSettleBusy || personEdit.name.trim() === ''">저장</button>
+          <button type="button" class="wr-btn" @click="personEdit = null">취소</button>
+        </form>
+        <div v-if="askingRemoveId !== null && companionById(askingRemoveId)" class="wr-ask">
+          <span><b>{{ companionById(askingRemoveId).name }}</b>을(를) 정산에서 뺄까요? 이 사람이 낸 결제는 '나'로 바뀌어요.</span>
+          <button type="button" class="wr-btn" @click="askingRemoveId = null">취소</button>
+          <button type="button" class="wr-btn wr-btn--danger" :disabled="isSettleBusy" @click="removePerson(companionById(askingRemoveId))">빼기</button>
+        </div>
+
+        <h3 class="wr-sub">나눠 내기 <small>{{ settleDay === 0 ? '낼 돈을 누르면 직접 정해요' : '그날 쓴 돈을 똑같이 나눠요' }}</small></h3>
+        <p v-if="!settlement" class="wr-empty">같이 간 사람이 2명 이상이고 결제가 있으면 나눠 계산해요.</p>
         <template v-else>
-          <div v-for="person in settlement.people" :key="person.name" class="wr-person">
+          <div class="wr-person wr-person--head"><span>사람</span><span>낸 돈</span><span>낼 돈</span><span>받을·보낼 돈</span></div>
+          <div v-for="person in settlement.people" :key="person.id" class="wr-person">
             <span class="wr-person__name">{{ person.name }}</span>
-            <span>낸 돈 {{ toWon(person.paid) }}</span>
-            <span>낼 돈 {{ toWon(person.should) }}</span>
+            <span>{{ toWon(person.paid) }}</span>
+            <form v-if="shareEdit && shareEdit.id === person.id" class="wr-person__edit" @submit.prevent="saveShare(person.id, shareEdit.amount)">
+              <input v-model="shareEdit.amount" inputmode="numeric" :aria-label="person.name + ' 낼 돈'" />
+              <button type="submit" :disabled="isSettleBusy">저장</button>
+              <button type="button" :disabled="isSettleBusy" title="똑같이 나누기로 되돌리기" @click="saveShare(person.id, null)">자동</button>
+            </form>
+            <span v-else-if="settleDay !== 0" class="wr-person__auto">{{ toWon(person.should) }}</span>
+            <button v-else type="button" class="wr-person__should" title="낼 돈 직접 정하기" @click="startShareEdit(person)">{{ toWon(person.should) }} <small>{{ person.isFixed ? '직접' : '자동' }}</small></button>
             <b :class="person.balance >= 0 ? 'is-plus' : 'is-minus'">{{ person.balance >= 0 ? '+' : '−' }}{{ toWon(Math.abs(person.balance)) }}</b>
           </div>
+          <p v-if="settlement.gap !== 0" class="wr-warn">낼 돈을 더하면 쓴 돈과 {{ toWon(Math.abs(settlement.gap)) }} 달라요. 한 사람을 '자동'으로 두면 맞춰져요.</p>
           <div class="wr-transfers">
             <p v-for="(transfer, i) in settlement.transfers" :key="i">{{ transfer.from }} → {{ transfer.to }} <b>{{ toWon(transfer.amount) }}</b></p>
+            <p v-if="settlement.transfers.length === 0">주고받을 돈이 없어요.</p>
           </div>
         </template>
+
+        <h3 class="wr-sub">장소별 결제 {{ payments.length }}건 <small>낸 사람을 누르면 다음 사람으로</small></h3>
+        <p v-if="paymentGroups.length === 0" class="wr-empty">다녀온 장소가 없어서 결제를 넣을 곳이 없어요.</p>
+        <div v-for="group in paymentGroups" :key="group.key" class="wr-paygroup">
+          <div class="wr-paygroup__head">
+            <span class="wr-paygroup__title">{{ group.title }} <small>{{ group.sub }}</small></span>
+            <b>{{ group.total > 0 ? toWon(group.total) : '' }}</b>
+            <button v-if="group.canAdd" type="button" class="wr-mini" @click="startAddPayment(group)">＋ 결제</button>
+          </div>
+          <template v-for="payment in group.payments" :key="payment.id">
+            <div v-if="!(paymentEdit && paymentEdit.id === payment.id)" class="wr-payrow">
+              <span class="wr-payrow__time">{{ payment.paidAt }}</span>
+              <span class="wr-payrow__store">{{ payment.storeName }}</span>
+              <span class="wr-payrow__amount">{{ toWon(payment.amount) }}</span>
+              <button type="button" class="wr-payer" :disabled="companions.length < 2 || isSettleBusy" :title="companions.length < 2 ? '같이 간 사람을 먼저 추가해요' : '낸 사람 바꾸기'" @click="cyclePayer(payment)">{{ payment.payer }}</button>
+              <button type="button" class="wr-payrow__x" :aria-label="payment.storeName + ' 결제 고치기'" title="고치기" @click="startEditPayment(group, payment)">✎</button>
+              <button type="button" class="wr-payrow__x" :aria-label="payment.storeName + ' 결제 지우기'" title="지우기" @click="askingDeleteId = payment.id">✕</button>
+            </div>
+            <div v-if="askingDeleteId === payment.id" class="wr-ask">
+              <span><b>{{ payment.storeName }}</b> {{ toWon(payment.amount) }} 결제를 지울까요? 되돌릴 수 없어요.</span>
+              <button type="button" class="wr-btn" @click="askingDeleteId = null">취소</button>
+              <button type="button" class="wr-btn wr-btn--danger" :disabled="isSettleBusy" @click="deletePayment(payment)">지우기</button>
+            </div>
+            <form v-if="paymentEdit && paymentEdit.id === payment.id" class="wr-payform" @submit.prevent="savePayment">
+              <input v-model="paymentEdit.storeName" maxlength="50" placeholder="가게 이름" aria-label="가게 이름" />
+              <input v-model="paymentEdit.amount" inputmode="numeric" placeholder="금액(원)" aria-label="금액" />
+              <select v-model="paymentEdit.payer" aria-label="낸 사람"><option v-for="companion in companions" :key="companion.id" :value="companion.name">{{ companion.name }}</option></select>
+              <button type="submit" class="wr-btn wr-btn--main" :disabled="isSettleBusy">저장</button>
+              <button type="button" class="wr-btn" @click="paymentEdit = null">취소</button>
+            </form>
+          </template>
+          <form v-if="paymentEdit && paymentEdit.id === null && paymentEdit.groupKey === group.key" class="wr-payform" @submit.prevent="savePayment">
+            <input v-model="paymentEdit.storeName" maxlength="50" placeholder="가게 이름" aria-label="가게 이름" />
+            <input v-model="paymentEdit.amount" inputmode="numeric" placeholder="금액(원)" aria-label="금액" />
+            <select v-model="paymentEdit.payer" aria-label="낸 사람"><option v-for="companion in companions" :key="companion.id" :value="companion.name">{{ companion.name }}</option></select>
+            <button type="submit" class="wr-btn wr-btn--main" :disabled="isSettleBusy">넣기</button>
+            <button type="button" class="wr-btn" @click="paymentEdit = null">취소</button>
+          </form>
+        </div>
+        <p v-if="settleMessage" class="wr-settle-msg" role="status">{{ settleMessage }}</p>
       </section>
     </aside>
 
@@ -2000,7 +2280,7 @@ watch(shownPhotos, drawPhotoMarkers)
       <div class="wr-viewer__bar">
         <span>{{ photoCaption(viewerPhoto) }} <small v-if="viewer.list.length > 1">{{ viewer.index + 1 }} / {{ viewer.list.length }}</small></span>
         <span v-if="viewerPhoto.stopId && journal.stopNotes[viewerPhoto.stopId]" class="wr-viewer__note">📝 {{ journal.stopNotes[viewerPhoto.stopId] }}</span>
-        <RouterLink :to="'/web/journal?id=' + retro.id + '&tab=photo'" class="wr-btn">편집하기</RouterLink>
+        <button v-if="viewerPhoto.mediaType === 'photo'" type="button" class="wr-btn" @click="editFromViewer(viewerPhoto.id)">꾸미기</button>
       </div>
       <button v-if="viewer.list.length > 1" type="button" class="wr-viewer__move wr-viewer__move--prev" aria-label="이전 사진" @click="moveViewer(-1)">‹</button>
       <button v-if="viewer.list.length > 1" type="button" class="wr-viewer__move wr-viewer__move--next" aria-label="다음 사진" @click="moveViewer(1)">›</button>
@@ -2037,7 +2317,7 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-title p { margin: 0; color: var(--ink-muted); }
 .wr-badge { display: inline-block; padding: 2px 8px; border-radius: var(--radius-full); background: var(--navy); color: var(--on-navy); font-size: 12px; }
 
-.wr-tools { top: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; max-width: 560px; justify-content: flex-end; }
+.wr-tools { top: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; max-width: min(560px, max(260px, calc(100% - 470px))); justify-content: flex-end; } /* 지도가 좁아지면 제목 카드와 안 겹치게 여러 줄로 */
 .wr-seg { display: flex; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
 .wr-seg button { padding: 6px 12px; border: 0; background: #fff; cursor: pointer; }
 .wr-seg button.is-on { background: var(--navy); color: var(--on-navy); }
@@ -2076,7 +2356,14 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-seg--view button { white-space: nowrap; }
 .wr-seg--view button:disabled { opacity: 0.5; cursor: default; }
 
-.wr-side { width: 440px; flex: none; overflow-y: auto; padding: 16px; border-left: 1px solid var(--line); background: var(--surface); }
+.wr-side { width: 440px; flex: none; overflow-y: auto; padding: 16px; background: var(--surface); box-sizing: border-box; }
+.wr-split { position: relative; width: 8px; flex: none; background: var(--line); cursor: col-resize; touch-action: none; }
+.wr-split:hover, .wr-split:focus-visible { background: var(--navy-soft); outline: none; }
+.wr-split i { position: absolute; top: 50%; left: 2px; width: 4px; height: 44px; margin-top: -22px; border-radius: var(--radius-full); background: var(--ink-muted); opacity: 0.6; }
+.wr-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.wr-card__head h2 { margin: 0; }
+.wr-seg--small button { padding: 4px 10px; font-size: 12px; }
+.wr-person__auto { padding: 2px 0; }
 .wr-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .wr-kpis div { padding: 10px; border-radius: var(--radius-lg); background: #fff; box-shadow: var(--shadow-card); }
 .wr-kpis b { display: block; font-size: 17px; line-height: 24px; }
@@ -2113,11 +2400,65 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-bar__track i { display: block; height: 100%; background: var(--coral); }
 .wr-bar__amount { text-align: right; font-variant-numeric: tabular-nums; }
 
-.wr-person { display: grid; grid-template-columns: 70px 1fr 1fr 90px; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.wr-memo__label { display: block; margin: 10px 0 6px; font-size: 13px; font-weight: 700; }
+.wr-memo__label:first-of-type { margin-top: 0; }
+.wr-memo__label small { margin-left: 4px; font-weight: 400; color: var(--ink-muted); }
+.wr-memo__text { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); font: inherit; line-height: 20px; resize: vertical; box-sizing: border-box; color: var(--ink); }
+.wr-memo__text:focus, .wr-memo__select:focus, .wr-inline input:focus, .wr-person__edit input:focus { outline: 2px solid var(--navy); outline-offset: -1px; }
+.wr-memo__day { display: block; width: 100%; margin-bottom: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); font: inherit; font-size: 13px; box-sizing: border-box; }
+.wr-memo__day:focus { outline: 2px solid var(--navy); outline-offset: -1px; }
+.wr-memo__select { width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; font: inherit; color: var(--ink); }
+.wr-memo__stars { display: flex; align-items: center; gap: 2px; margin: 8px 0 6px; }
+.wr-memo__stars button { padding: 0 1px; border: 0; background: none; color: var(--line); font-size: 24px; line-height: 1; cursor: pointer; }
+.wr-memo__stars button.is-on { color: #F2A33A; }
+.wr-memo__stars span { margin-left: 6px; font-size: 12px; color: var(--ink-muted); }
+.wr-sub { margin: 14px 0 8px; font-size: 13px; }
+.wr-sub small { margin-left: 4px; font-weight: 400; color: var(--ink-muted); }
+.wr-card h2 + .wr-sub { margin-top: 0; }
+.wr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.wr-chip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-full); background: #fff; font-size: 13px; }
+.wr-chip__name { padding: 4px 10px; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; }
+.wr-chip__name:disabled { font-weight: 700; cursor: default; }
+.wr-chip__x { padding: 4px 8px 4px 0; border: 0; background: none; color: var(--ink-muted); font-size: 11px; cursor: pointer; }
+.wr-chip--add { padding: 4px 10px; border-style: dashed; color: var(--navy); font: inherit; font-size: 13px; cursor: pointer; }
+.wr-inline { display: flex; gap: 6px; margin-top: 8px; }
+.wr-inline input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); font: inherit; }
+.wr-ask { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); background: #FFF3EE; font-size: 13px; }
+.wr-ask span { flex: 1 1 100%; }
+.wr-btn--danger { border-color: var(--danger); color: var(--danger); }
+.wr-person { display: grid; grid-template-columns: 64px 1fr 1.25fr 92px; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.wr-person--head { border-top: 0; padding-top: 0; color: var(--ink-muted); font-size: 12px; }
+.wr-person--head span:last-child { text-align: right; }
 .wr-person__name { font-weight: 700; }
 .wr-person b { text-align: right; }
 .wr-person .is-plus { color: var(--success); }
 .wr-person .is-minus { color: var(--danger); }
+.wr-person__should { justify-self: start; padding: 2px 8px; border: 1px dashed var(--line); border-radius: var(--radius-md); background: none; font: inherit; color: var(--ink); cursor: pointer; }
+.wr-person__should small { color: var(--ink-muted); font-size: 11px; }
+.wr-person__edit { display: flex; gap: 4px; }
+.wr-person__edit input { width: 72px; padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); font: inherit; }
+.wr-person__edit button { padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.wr-warn { margin: 6px 0 0; color: var(--danger); font-size: 12px; }
+.wr-payrow { display: grid; grid-template-columns: 78px 1fr auto auto 22px; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.wr-payrow__time { color: var(--ink-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wr-payrow__store { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-payrow__amount { font-weight: 700; font-variant-numeric: tabular-nums; }
+.wr-payer { min-width: 44px; padding: 2px 8px; border: 0; border-radius: var(--radius-full); background: var(--navy-soft); color: var(--navy); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.wr-payer:disabled { cursor: default; opacity: 0.7; }
+.wr-payrow__x { padding: 0; border: 0; background: none; color: var(--ink-muted); font-size: 12px; cursor: pointer; }
+.wr-paygroup { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--surface); }
+.wr-paygroup__head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.wr-paygroup__title { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-paygroup__title small { margin-left: 4px; font-weight: 400; color: var(--ink-muted); }
+.wr-paygroup .wr-payrow { grid-template-columns: 44px 1fr auto auto 18px 18px; }
+.wr-mini { padding: 2px 8px; border: 1px solid var(--navy); border-radius: var(--radius-full); background: #fff; color: var(--navy); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.wr-payform { display: grid; grid-template-columns: 1fr 86px 72px; gap: 6px; margin-top: 6px; }
+.wr-payform input, .wr-payform select { min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; font: inherit; font-size: 13px; }
+.wr-payform .wr-btn { justify-self: start; }
+.wr-payform button[type='submit'] { grid-column: 2; }
+.wr-settle-msg { margin: 8px 0 0; color: var(--navy); font-size: 12px; font-weight: 700; }
+:deep(.wr-pop__stars) { margin-top: 6px; color: #F2A33A; letter-spacing: 1px; }
+:deep(.wr-pop__hint) { margin-top: 6px; font-size: 11px; color: var(--ink-muted); }
 .wr-transfers { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--navy-soft); }
 .wr-transfers p { margin: 2px 0; }
 
@@ -2142,30 +2483,19 @@ watch(shownPhotos, drawPhotoMarkers)
 /* (11/10) 웹사이트 이동 버튼 · 사진 · 해 */
 .wr-btn { display: inline-block; color: var(--ink); font: inherit; text-decoration: none; }
 .wr-btn.is-on { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); font-weight: 700; }
-.wr-btn--memo { border-color: var(--coral); background: var(--coral); color: #fff; font-weight: 700; }
 .wr-title__links { display: flex; gap: 6px; margin-top: 10px; }
 .wr-sky { position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: background 0.8s; }
-.wr-nav__sun { margin-left: 8px; padding: 1px 8px; border-radius: var(--radius-full); background: rgba(255, 255, 255, 0.16); }
-.wr-nav__sun.is-golden { background: rgba(255, 154, 60, 0.4); }
-.wr-nav__sun.is-twilight { background: rgba(160, 120, 220, 0.4); }
-.wr-nav__sun.is-night { background: rgba(10, 20, 60, 0.6); }
 .wr-legend__photo { width: 14px !important; height: 14px !important; border: 2px solid #fff; border-radius: 50%; background: #F2A33A; box-shadow: 0 0 0 1px #F2A33A; }
 .wr-player__barwrap { position: relative; flex: 1; min-width: 60px; padding-top: 24px; }
 .wr-player__barwrap .wr-player__bar { width: 100%; }
 .wr-player__sun { position: absolute; left: 0; right: 0; top: 18px; height: 6px; border-radius: var(--radius-full); }
-.wr-player__tick { position: absolute; top: 0; transform: translateX(-50%); padding: 0 6px; border: 0; border-radius: var(--radius-full); background: var(--navy); color: #fff; font: inherit; font-size: 11px; line-height: 16px; white-space: nowrap; cursor: pointer; }
+
 .wr-float { position: absolute; z-index: 3; right: 16px; bottom: 120px; width: 240px; padding: 0; overflow: hidden; border: 3px solid #fff; border-radius: var(--radius-lg); background: #000; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); cursor: zoom-in; }
 .wr-float img, .wr-float video { display: block; width: 100%; height: 170px; object-fit: cover; }
 .wr-float span { display: block; padding: 6px 10px; background: #fff; color: var(--ink); font-size: 13px; text-align: left; }
 .wr-float-enter-active, .wr-float-leave-active { transition: opacity 0.3s, transform 0.3s; }
 .wr-float-enter-from, .wr-float-leave-to { opacity: 0; transform: translateY(16px); }
-.wr-sunrow { display: grid; grid-template-columns: 56px 1fr 1fr auto; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-.wr-sunrow__day { font-weight: 700; }
-.wr-sunrow__len { color: var(--ink-muted); font-size: 12px; }
-.wr-moment { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; padding: 8px 10px; border: 0; border-radius: var(--radius-md); background: linear-gradient(90deg, #FFE9D6, #F3E6FF); color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
-.wr-moment:disabled { cursor: default; }
-.wr-moment__icon { font-size: 20px; }
-.wr-moment__go { margin-left: auto; color: var(--coral-ink); font-weight: 700; white-space: nowrap; }
+
 .wr-viewer { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(8, 12, 22, 0.92); }
 .wr-viewer img, .wr-viewer video { max-width: 86vw; max-height: 78vh; border-radius: var(--radius-md); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .wr-viewer__bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center; max-width: 86vw; color: #fff; }
@@ -2188,6 +2518,7 @@ watch(shownPhotos, drawPhotoMarkers)
 @media (max-width: 1100px) {
   .wr { flex-direction: column; overflow-y: auto; height: auto; }
   .wr-map { height: 70vh; flex: none; }
-  .wr-side { width: auto; border-left: 0; }
+  .wr-side { width: auto !important; border-left: 0; } /* 좁은 화면은 아래로 쌓여서 너비 조절 없음 */
+  .wr-split { display: none; }
 }
 </style>
