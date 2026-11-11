@@ -16,6 +16,17 @@ const date = ref('10/24(토)')
 const found = ref(null) // 서버가 읽은 결과 (DB 장소를 찾았으면 좌표 있음)
 const reading = ref(false)
 const readNote = ref('공연 19:00 · 자리 찾기까지 30분 넉넉히 18:30 도착으로 잡았어요')
+const DAY_MS = 24 * 60 * 60 * 1000 // 하루를 밀리초로
+
+// 읽은 날짜(yyyy-MM-dd)가 여행 며칠째인지 (여행 시작일 기준). 날짜를 못 읽었으면 1일차, 여행 날짜 밖이면 0
+function dayOfTrip(readDate) {
+  const conditions = store.planConditions || {}
+  const start = conditions.startDate || store.planStartDate
+  const end = conditions.endDate || store.planEndDate || start
+  if (!readDate || !start) return 1
+  if (readDate < start || readDate > end) return 0
+  return Math.round((new Date(readDate) - new Date(start)) / DAY_MS) + 1
+}
 
 // 고른 사진을 화면에 바로 보여 줘요
 function onFile(e) {
@@ -48,14 +59,17 @@ async function readFromServer(file) {
 function add() {
   const placeName = name.value.trim() || '예약한 곳'
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time.value)) return showToast('시간을 HH:mm으로 적어 주세요')
+  // 예전엔 날짜를 버려서 2일차 예약도 1일차에 들어갔어요 (11/11 주형)
+  const day = dayOfTrip(found.value && found.value.date)
+  if (day === 0) return showToast('예약 날짜가 여행 날짜 밖이에요 · 여행 날짜를 확인해 주세요')
   if (found.value && found.value.lat != null) {
-    store.addDraftPlace({ id: found.value.placeId, name: placeName, address: found.value.address, lat: found.value.lat, lng: found.value.lng }, true, time.value)
+    store.addDraftPlace({ id: found.value.placeId, name: placeName, address: found.value.address, lat: found.value.lat, lng: found.value.lng }, true, time.value, day)
   }
   // 여행 정보 화면에서 먼저 왔으면 조건이 아직 없어서 새로 만듦 (여행 정보의 다음 버튼이 이 값을 그대로 이어 씀)
   const conditions = store.planConditions || {}
   const fixed = conditions.fixed || []
-  store.planConditions = { ...conditions, fixed: [...fixed, { name: placeName, time: time.value }] }
-  showToast(placeName + ' ' + time.value + ' 고정했어요')
+  store.planConditions = { ...conditions, fixed: [...fixed, { name: placeName, time: time.value, day }] }
+  showToast(day + '일차 ' + placeName + ' ' + time.value + ' 고정했어요')
   goBack('/plan/info')
 }
 </script>
