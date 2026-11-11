@@ -23,7 +23,7 @@
 | `db/16_trash.sql` | 휴지통: `trip.deleted_at` 추가 (11/04, 이상재 확인 필요) | ③ |
 | `db/14_live.sql` | ④ 테이블 (`trip_track`) | ④ |
 | `db/17_place_area.sql` | 넓은 장소 경계 `place_area` + 여의도한강공원 1줄 (OSM, 11/06, 이상재 확인 필요) | ④ |
-| `db/18_ask_place.sql` | AI에게 묻기(Text-to-SQL)용 뷰 `ask_place`·`ask_review`, 함수 `detour_minutes`, 읽기 전용 계정 `ask_reader`, 리뷰 검색 인덱스 (11/06, 이상재 확인 필요) | ④ |
+| `db/18_ask_place.sql` | AI에게 묻기(Text-to-SQL)용 뷰 `ask_place`·`ask_review`·`ask_menu`, 함수 `detour_minutes`, 읽기 전용 계정 `ask_reader`, 리뷰 검색 인덱스 (11/06, 이상재 확인 필요. 11/11 ④: ask_place에 biz_group·keywords 칸, ask_menu 뷰 추가) | ④ |
 | `db/15_after.sql` | ⑤ 테이블 | ⑤ |
 | `db/90_test_data.sql` | 테스트 계정(tripuser / tripuser1234)·샘플 여행 | DB 총괄 |
 | `db/91_drop_old.sql` | 예전 DB에서 안 쓰는 테이블 정리 (예전 DB만 한 번) | DB 총괄 |
@@ -320,12 +320,15 @@
 
 | 이름 | 종류 | 내용 |
 |---|---|---|
-| `ask_place` | 뷰 (retrip_place) | id, name, kind(cafe/food/bar/tour/culture/shop/stay/etc), biz_type, rating_adj(보정 평점), review_count, amenities, use_time, rest_date, lat, lng, geom |
+| `ask_place` | 뷰 (retrip_place, place_keyword) | id, name, kind(cafe/food/bar/tour/culture/shop/stay/etc), biz_type, rating_adj(보정 평점), review_count, amenities, use_time, rest_date, lat, lng, geom, biz_group(업종 큰 묶음), keywords(특징 키워드, 아래) |
 | `ask_review` | 뷰 (retrip_review) | place_id, content |
+| `ask_menu` | 뷰 (place_menu) | place_id, name(메뉴), price(원), is_main(대표 메뉴) |
 | `detour_minutes(place, route)` | 함수 | 경로선까지 거리 × 2 ÷ 75m/분, 올림 = 가는 길에서 들르면 몇 분 더 |
-| `ask_reader` | 계정(롤, 로그인 불가) | 위 뷰 2개 읽기 + 함수만. 서버가 AI SQL을 실행할 때만 `SET LOCAL ROLE ask_reader` |
+| `ask_reader` | 계정(롤, 로그인 불가) | 위 뷰 3개 읽기 + 함수만. 서버가 AI SQL을 실행할 때만 `SET LOCAL ROLE ask_reader` |
 | `idx_retrip_review_content_trgm` | 인덱스 (pg_trgm) | 리뷰 글 ILIKE 검색용 |
 
+- keywords: 방문자 키워드(place_keyword) 중 그 가게 안 비율이 같은 kind 가게들 평균 비율의 1.5배 이상이고 5표 이상인 것을 ", "로 이은 글. 키워드가 있는 곳(영등포 크롤링)만 값이 있고 나머지는 NULL (11/11 ④)
+- ask_menu: 메뉴·가격은 영등포 크롤링 가게만 있어요 (11/11 ④)
 - kind·rating_adj 계산은 `PlaceMapper.xml`의 kindCase·adjustedRating과 같아요. 한쪽을 고치면 같이 고쳐요
 - 확인: `SET ROLE ask_reader; SELECT * FROM member;` → permission denied가 나와야 정상 (`RESET ROLE;`로 돌아오기)
 
