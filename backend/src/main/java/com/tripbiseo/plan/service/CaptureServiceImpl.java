@@ -92,6 +92,7 @@ public class CaptureServiceImpl implements CaptureService {
     /** 필요한 네 가지만 JSON으로 (예약 번호·전화번호·결제 정보는 받지 않음) */
     private String makePrompt() {
         return "이 사진은 공연·식당·전시 같은 예약 확인 화면이야. 아래 네 가지만 읽어서 JSON으로 답해. 안 보이면 null.\n"
+             + "날짜는 연·월·일을 모두 채워. 화면에 연도가 없으면 오늘(" + Geo.now().toLocalDate() + ") 이후 가장 가까운 그 날짜의 연도로 채워.\n"
              + "예약 번호, 전화번호, 이름, 결제·카드 정보는 적지 마.\n"
              + "{\"name\": \"장소 또는 공연 이름\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:mm (입장·예약 시각)\", \"address\": \"주소\"}";
     }
@@ -141,11 +142,19 @@ public class CaptureServiceImpl implements CaptureService {
 
     /** 이름으로 우리 DB(없으면 TourAPI·카카오) 장소를 찾아 좌표를 붙임. 못 찾으면 좌표 없이 */
     private void fillPlace(CaptureResponse response) {
-        Place place = placeService.getPlaceByName(response.getName(), null, null);
+        // 주소를 읽었으면 그 위치 가까운 지점으로 (11/11: "산청숯불가든"만으로 찾으면 을지로 대신 마곡 지점이 잡혔어요)
+        FoundLocation near = findFirstLocation(response.getAddress());
+        Double nearLat = near == null ? null : near.getLat();
+        Double nearLng = near == null ? null : near.getLng();
+        Place place = placeService.getPlaceByName(response.getName(), nearLat, nearLng);
         if (place == null) {
             return;
         }
         response.setPlaceId(place.getId());
+        // 읽은 이름이 지점 이름의 앞부분이면 DB 이름으로 ("산청숯불가든" → "산청숯불가든 을지로"). 일정 만들 때 이름으로 다시 찾아도 같은 지점이 되게
+        if (place.getName() != null && place.getName().replace(" ", "").contains(response.getName().replace(" ", ""))) {
+            response.setName(place.getName());
+        }
         response.setLat(place.getLat());
         response.setLng(place.getLng());
         if (response.getAddress() == null) {
