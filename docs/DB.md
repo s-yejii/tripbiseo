@@ -392,3 +392,26 @@
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
 
 `UNIQUE (member_id, organization)`. **카드사 아이디·비밀번호·카드 번호는 저장하지 않아요** (연결할 때 암호화해서 CODEF로만 보냄).
+
+
+### crowd_cell (② 이찬기, 19_crowd.sql) — 250m 칸
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| cell_id | VARCHAR(20) PK | 격자 ID (예: 다사47254650) |
+| dong_code | VARCHAR(10) | 행정동 코드 (여러 동에 걸치면 인원이 가장 많은 동) |
+| x5179 | INTEGER | 칸 왼쪽 아래 X (EPSG:5179) |
+| y5179 | INTEGER | 칸 왼쪽 아래 Y |
+| geom | geometry(Polygon, 4326) | 250m 네모, GIST 인덱스 |
+
+### crowd_hour (② 이찬기, 19_crowd.sql) — 칸 × 요일 × 시각 평소 인원
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| cell_id | VARCHAR(20) FK → crowd_cell | |
+| day_kind | SMALLINT | 1=월 … 7=일, 8=공휴일 |
+| hour | SMALLINT | 7~23시 |
+| people | INTEGER | 평균 인원 (내국인+단기외국인+장기외국인) |
+| foreign_short | INTEGER | 그중 단기외국인 |
+| seoul_pct | SMALLINT | 같은 요일·시각 서울 칸 중 순위 0~100 |
+| self_pct | SMALLINT | 이 칸 가장 붐빌 때 대비 % |
+
+PK (cell_id, day_kind, hour). 지금은 중구·강남구·종로구 1,076칸, 146,135줄. 출처: 서울 열린데이터광장 생활인구(250m), 최근 8주(2026-09-05~10-31) 평균, 공휴일만 1년치.
