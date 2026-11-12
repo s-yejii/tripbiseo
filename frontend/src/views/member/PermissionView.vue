@@ -3,6 +3,7 @@
 import { useRouter } from 'vue-router'
 import PermissionFrame from '@/components/member/PermissionFrame.vue'
 import { showToast } from '@/utils/toast'
+import { markPermissionSeenForMe } from '@/utils/permissionSeen'
 
 const router = useRouter()
 
@@ -12,6 +13,7 @@ const items = [
 ]
 
 function allow() {
+  markPermissionSeenForMe() // 다음 로그인부터는 이 화면을 건너뛰어요
   router.replace('/')
   showToast('위치·알림을 허용했어요')
 }
