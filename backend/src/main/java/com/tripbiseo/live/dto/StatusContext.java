@@ -27,5 +27,6 @@ public class StatusContext {
     private Map<Long, Integer> etaMap = new HashMap<>(); // 칸 id → 예상 도착(분)
     private Map<Long, OpenInfo> openMap = new HashMap<>(); // 칸 id → 영업 정보
     private WeatherInfo weather;                         // 다음 경로 비 소식, 없으면 null (LiveWeatherChecker가 채움)
-    private Integer fastestSlack;                        // 식당·카페 예약에 가장 빠른 방법으로 지금 가도 남는 여유(분), 음수면 못 닿음. 해당 없으면 null (11/12)
+    private Integer fastestSlack;                        // 고정 일정에 늦을 때 가장 빠른 방법으로 지금 가도 남는 여유(분), 음수면 못 닿음. 안 늦으면 null (11/12)
+    private boolean fixedMeal;                           // 고정 일정이 식당·카페·술집인지 (놓침 문구 "예약 시각"/"약속 시각", 11/12)
 }

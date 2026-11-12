@@ -44,6 +44,14 @@ export function closeLiveNotice() {
   save()
 }
 
+// 조건에 맞는 알림만 빼기 (11/12 ④): 같은 예약의 더 큰 알림(늦음·놓침 카드)이 뜨면 그 예약의 옛 알림(여유 N분뿐 등)은 뺌
+export function removeLiveNotices(isOld) {
+  for (let i = liveBanner.queue.length - 1; i >= 0; i--) {
+    if (isOld(liveBanner.queue[i])) liveBanner.queue.splice(i, 1)
+  }
+  save()
+}
+
 // 여행이 끝났거나 다른 여행일 때 줄 비우기
 export function clearLiveNotices() {
   liveBanner.queue.splice(0)

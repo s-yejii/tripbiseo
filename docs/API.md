@@ -150,7 +150,7 @@
 | `POST /api/trips/{id}/live/status` | 지금 상황 다시 계산 (알림·여유·날씨) | live/LiveView, live/LiveDelayView | 있음 |
 | `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView (AI 채팅 AskPanel) | 있음 |
-| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 (`replaceStopId`면 그 칸 자리에) | live/LiveView (AI 채팅 AskPanel), live/SimilarPlaceView | 있음 |
+| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 (`replaceStopId`면 그 칸 자리에) | live/LiveView (AI 채팅 AskPanel, 놓친 예약 비슷한 가게 SimilarSearch) | 있음 |
 | `POST /api/trips/{id}/live/skip` | 못 가게 된 일정 빼고 다음 장소로 (11/12) | live/LiveView (놓침 카드) | 있음 |
 | `POST /api/trips/{id}/live/link-fit` | 링크로 찾은 장소를 남은 일정에 넣어 보기 (저장 안 함) | live/LiveView (LinkAddSheet), live/LinkFitView | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
@@ -158,7 +158,7 @@
 | `POST /api/trips/{id}/live/preview` | 직접 고친 남은 일정 계산 (저장 안 함) | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `GET /api/trips/{id}/live/swap-candidates` | 바꿀 장소 후보 (바꿨을 때 여유 포함) | live/AltSwapView | 있음 |
 | (주소 미정) | 줄서기 대기 시간 반영 | live/LiveView (TablingModal) | 확인 필요 |
-| (주소 미정) | "그냥 갈게요" (늦어도 그대로 가기) | live/LateModalView, member/LockDelayView | 확인 필요 |
+| (주소 미정) | "그냥 갈게요" (늦어도 그대로 가기) | member/LockDelayView, member/LockPushView | 확인 필요 |
 
 ### ⑤ 여행 후·지도 부가 (after)
 
@@ -1147,7 +1147,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | now | string | 지금 시각 |
 | currentStopId | number (null 가능) | 지금 있는 일정 칸 id (도착했고 아직 출발 안 함, 또는 150m 안) |
 | alert | object (null 가능) | 화면 맨 위 알림 1개 `{key, level, title, text, repeat}` |
-| alert.key | string | 중복 알림 방지 키. 앞부분: `lost-` 식당·카페 예약에 가장 빠른 방법으로도 못 닿음 (11/12) / `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
+| alert.key | string | 중복 알림 방지 키. 앞부분: `lost-` 고정 일정에 가장 빠른 방법으로도 못 닿음 (11/12) / `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / ~~`next-` 다음 장소 지각~~ (11/12부터 안 보냄) / `rain-` 다음 경로 비 소식 |
 | alert.level | string | `danger` / `warn` |
 | alert.repeat | boolean (없을 수 있음) | `leave-` 알림에만 `true` |
 | leave | object (null 가능) | 출발 시각 ±10분 안일 때만 `{stopId, name, leaveAt, minutesLeft, to, atStop}`. `stopId`는 지금 있는 칸 또는 다음 칸 id. `minutesLeft`는 −10~10(음수=지남), `to`는 다음 장소 이름(null 가능), `atStop`이 `true`면 지금 있는 곳에서 출발 |
@@ -1182,14 +1182,14 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 | 순서 | key | 언제 | level |
 |---|---|---|---|
-| 0 | `lost-{고정 칸}` | 식당·카페·술집 고정 일정에 늦는데(`fixed.slackMin` < 0), 가장 빠른 방법(택시·지하철 갈아타기·대중교통 중 가장 짧은 것)으로 지금 바로 가도 예약 시각을 넘김 (유예 0분). `title`은 가게 이름. 가장 빠른 방법은 늦는 분이 10분 바뀔 때마다만 다시 계산 (11/12) | danger |
+| 0 | `lost-{고정 칸}` | 고정 일정에 늦는데(`fixed.slackMin` < 0), 가장 빠른 방법(택시·지하철 갈아타기·대중교통 중 가장 짧은 것)으로 지금 바로 가도 그 시각을 넘김 (유예 0분). `title`은 장소 이름, `text`의 시각 이름은 식당·카페·술집이면 "예약 시각", 그 밖은 "약속 시각". 가장 빠른 방법은 늦는 분이 10분 바뀔 때마다만 다시 계산. 화면은 가운데 놓침 카드, 그 칸이 `stops[].meal`이면 비슷한 가게 찾기도 (11/12) | danger |
 | 1 | `overdue-{칸}-{더 머문 분÷5}` | 지금 칸에서 떠날 시각(도착 + 머묾)이 지남 | danger |
 | 2 | `closed-{칸}` / `closed-{칸}-short` | 남은 칸이 도착할 때 닫힘·휴무 / 열려 있지만 닫을 때까지 남은 분 < 머무는 시간 | danger / warn |
-| 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0 | danger |
+| 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0, 대안으로 만회 가능. 화면은 위 배너 + [10분 뒤 다시] [알림 끄기](그 예약 늦음 배너 끔, 놓침 카드는 뜸), 누르면 지연 화면 (11/12) | danger |
 | 4 | `leave-{칸}-{남은 분}` | `leave`가 있음 (출발 ±10분). `repeat: true` | 남은 분 > 0이면 warn, 아니면 danger |
 | 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 고정(예약) 칸. 느슨한 칸은 시간이 밀릴 뿐이라 안 봄 (11/12: 코드에 맞춰 고침, 예전 문구 "고정 일정 제외"는 틀렸음) | warn |
 | 6 | `tight-{고정 칸}` | 고정 일정 여유 ≤ 10분 | warn |
-| 7 | `next-{칸}-{늦는 분÷10}` | 다음 칸에 10분 넘게 늦게 도착 | warn |
+| 7 | ~~`next-{칸}-{늦는 분÷10}`~~ | 11/12부터 알림으로 안 보냄. 지연 알림은 고정 일정 기준만 (앞 일정이 밀린 영향은 고정 일정 예상 도착에 이미 들어 있음). `replan` 판단에는 그대로 씀 | |
 | 8 | `rain-{비 시작 HHmm}` | 다음 경로에 비·눈 소식이 있고 그때 야외에 있을 칸이 있음 (`weather.outdoor`). 예보가 바뀌어 비 시작 시각이 달라지면 다시 울림 | warn |
 
 key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
