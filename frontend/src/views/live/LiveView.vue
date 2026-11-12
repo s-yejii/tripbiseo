@@ -691,14 +691,22 @@ async function finish() {
 }
 
 // ------------------------------------------------------------ 여행 끝 (11/06)
-// 마지막 날의 마지막 칸이 고정 일정(KTX 같은)이고 거기 도착하면 → 끝 시트(총 지출) → "회고 보기"로 여행 끝내기
+// 마지막 날의 마지막 칸에 도착하면 → 끝 시트(총 지출) → "회고 보기"로 여행 끝내기
+// 11/12 ④: 고정 일정이 아니어도 띄움 (마지막이 카페처럼 느슨한 칸이면 여행이 안 끝나던 문제). 닫았거나 일찍 끝낼 때는 카드 줄 끝 [여행 끝내기]
 const endStop = ref(null) // 끝 시트를 띄운 칸 { name, eta }
 let isEndShown = false // 닫아도 다시 안 띄움
+const isAskingEnd = ref(false) // [여행 끝내기] 카드를 눌러 한 번 더 묻는 중
+
+// [여행 끝내기] 확인: 여행을 끝내고 회고로
+function confirmEnd() {
+  isAskingEnd.value = false
+  finish()
+}
 
 watch(status, () => {
   if (isEndShown || !status.value || !live.trip.value) return
   const last = status.value.stops[status.value.stops.length - 1]
-  if (!last || !last.fixed || (last.reach !== 'here' && last.reach !== 'done')) return
+  if (!last || (last.reach !== 'here' && last.reach !== 'done')) return
   if (!isLastDayStop(last.id)) return
   isEndShown = true
   endStop.value = { name: last.name, eta: status.value.now, time: last.time }
@@ -732,6 +740,25 @@ function restartMoving() {
       <DevDot @clock="live.refresh()" @gps="restartMoving" />
       <DemoDrive :live="live" /><!-- 시연 계정만: 작은 "다음 장소로" 버튼 (GPS 이동 + 시계 배속만 자동, 11/08) -->
       <TripEndSheet v-if="endStop && live.trip.value" :trip="live.trip.value" :place-name="endStop.name" :arrived-at="endStop.eta" :planned-at="endStop.time" :is-busy="isFinishing" @finish="finish" @close="endStop = null" />
+      <!-- 여행 끝내기 확인 (11/12): 여행을 마친 트리피가 맞아 주는 창. 위 그림 → 글 → 버튼 -->
+      <template v-if="isAskingEnd">
+        <div class="dim" style="z-index: 8" @click="isAskingEnd = false"></div>
+        <section class="modal end-modal" role="alertdialog" aria-modal="true" aria-labelledby="end-modal-title" style="z-index: 9">
+          <div class="end-modal__art" aria-hidden="true">
+            <span class="end-modal__glow"></span>
+            <img src="/img/trippie-flag.webp" alt="" class="end-modal__img" />
+          </div>
+          <div class="end-modal__text">
+            <span class="end-modal__eyebrow">여행 수고했어요!</span>
+            <h2 id="end-modal-title" class="h-title">여기서 여행을 마무리할까요?</h2>
+            <p class="end-modal__desc">다녀온 길과 남긴 기록을<br />회고에서 돌아볼 수 있어요</p>
+          </div>
+          <div class="modal__btns">
+            <button type="button" class="btn btn--secondary btn--lg" @click="isAskingEnd = false">계속 여행</button>
+            <button type="button" class="btn btn--primary btn--lg" :disabled="isFinishing" @click="confirmEnd"><i class="ic i-flag" aria-hidden="true"></i>마무리하기</button>
+          </div>
+        </section>
+      </template>
       <!-- 진행 중인 여행이 없거나 위치를 기다릴 때 -->
       <template v-if="!isReady">
         <header class="topbar">
@@ -792,7 +819,7 @@ function restartMoving() {
         <LostFixedCard v-if="isLostOpen" :name="lostStop.name" :text="lostText" :can-find-similar="!!lostStop.placeId && !!lostStop.meal" :is-skipping="isSkipping" @similar="openSimilar" @skip="skipLost" @keep="keepLost" />
         <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
         <AppNoti
-          v-if="!isCardOpen && liveBanner.queue.length && !adding"
+          v-if="!isCardOpen && !isAskingEnd && liveBanner.queue.length && !adding"
           :key="liveBanner.queue[0].title + liveBanner.queue[0].body"
           :title="liveBanner.queue[0].title"
           :body="liveBanner.queue[0].body + (liveBanner.queue.length > 1 ? ' · 알림 ' + (liveBanner.queue.length - 1) + '개 더' : '')"
@@ -808,8 +835,8 @@ function restartMoving() {
           </template>
         </AppNoti>
         <!-- PC 마우스로도 한 번에 닫게 작은 닫기 버튼 (위로 밀기도 그대로) -->
-        <span v-if="!isCardOpen && liveBanner.queue.length && !adding" class="live-noti-at">{{ liveBanner.queue[0].at || '' }}</span>
-        <button v-if="!isCardOpen && liveBanner.queue.length && !adding" type="button" class="live-noti-x" aria-label="알림 닫기" @click="closeLiveNotice"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
+        <span v-if="!isCardOpen && !isAskingEnd && liveBanner.queue.length && !adding" class="live-noti-at">{{ liveBanner.queue[0].at || '' }}</span>
+        <button v-if="!isCardOpen && !isAskingEnd && liveBanner.queue.length && !adding" type="button" class="live-noti-x" aria-label="알림 닫기" @click="closeLiveNotice"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
         <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
         <template v-else-if="status.alert && !isAlertMuted && !(isLateOff && isLateKey(status.alert.key)) && !adding">
           <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="openAlert(status.alert)">
@@ -879,7 +906,7 @@ function restartMoving() {
             </div>
 
             <button v-if="selectedMealFixed && !isLostOpen" type="button" class="btn btn--secondary btn--md" style="align-self: flex-start" @click="manualLostId = selectedMealFixed.id">못 가게 됐어요</button>
-            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" :focus="cardFocus" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
+            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" :focus="cardFocus" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" show-end @end="isAskingEnd = true" />
 
             <p v-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비</p>
           </BottomSheet>
@@ -908,6 +935,17 @@ function restartMoving() {
 </template>
 
 <style>
+/* 여행 끝내기 확인 창 (11/12): 트리피 뒤로 은은한 빛 + 작은 색 점(축하), 글은 가운데 */
+.end-modal { align-items: stretch; text-align: center; padding-top: 16px; }
+.end-modal__art { position: relative; height: 190px; display: flex; align-items: flex-end; justify-content: center; }
+.end-modal__art::before { content: ''; position: absolute; left: 50%; top: 18px; width: 7px; height: 7px; border-radius: 50%; box-shadow: -112px 34px 0 #F2C230, -84px 0 0 var(--coral), -128px 104px 0 var(--navy), 104px 6px 0 #8CC63F, 126px 78px 0 #F2C230, 84px 128px 0 var(--coral), -96px 150px 0 #8CC63F; opacity: .85; }
+.end-modal__glow { position: absolute; left: 50%; bottom: 0; width: 230px; height: 190px; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(closest-side, var(--navy-soft) 0, var(--navy-soft) 62%, rgba(232, 238, 248, 0) 100%); }
+.end-modal__img { position: relative; width: 220px; height: 182px; object-fit: contain; transform-origin: 30% 100%; animation: endTrippieBob 2.6s ease-in-out infinite; }
+.end-modal__text { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.end-modal__eyebrow { font-size: 14px; line-height: 20px; font-weight: 700; color: var(--coral-ink); }
+.end-modal__desc { margin: 0; font-size: 15px; line-height: 22px; color: var(--ink-muted); }
+@keyframes endTrippieBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .end-modal__img { animation: none; } }
 .scr-Live .noti { padding-right: 46px; } /* 닫기(X) 자리를 비움 (11/09) */
 .scr-Live .noti .noti__meta > span { visibility: hidden; } /* "지금" 대신 알림이 생긴 시각을 옆에 따로 (지난 알림이 지금 일처럼 안 보이게) */
 .live-noti-at { position: absolute; top: 62px; right: 52px; z-index: 56; font-size: 12px; line-height: 16px; color: var(--ink-muted); font-variant-numeric: tabular-nums; pointer-events: none; }
