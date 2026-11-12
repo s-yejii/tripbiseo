@@ -2,7 +2,7 @@
 // S19-a 지난 여행 다시보기 (⑤): 다녀온 동선을 재생하고, 핀을 누르면 시간·결제 메모를 봐요. 계획과 실제도 비교해요
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { get, post, put, del } from '@/api/http'
+import { get, post, put, del, upload } from '@/api/http'
 import { toTime, toMinutes, toDuration, toWon } from '@/utils/time'
 import { showToast } from '@/utils/toast' // 아래에 잠깐 뜨는 알림
 import { goBack } from '@/utils/back' // 알림에서 들어왔으면(?back=) 알림함으로
@@ -456,6 +456,98 @@ function placeOfPayment(payment) {
   }
   return '이동 중'
 }
+
+// ---------- 결제 넣기 메뉴 (⋯ 버튼, 11/12)
+const isPayMenuOpen = ref(false) // ⋯ 메뉴가 펼쳐져 있는지
+
+// 메뉴에서 한 줄을 고르면: 메뉴를 닫고 그 줄의 함수를 실행
+function pickPayMenu(action) {
+  isPayMenuOpen.value = false
+  action()
+}
+
+// 결제 적는 창에 묶인 값. null이면 창 닫힘. 열 때는 { storeName, amount, paidAt, source } 를 넣음
+//  - paidAt 모양: "2026-11-14T20:52" (입력 칸 datetime-local이 주는 모양이자 저장 API가 받는 모양)
+//  - source: 'manual'(직접 적음) 또는 'capture'(영수증에서 읽음)
+const payForm = ref(null)
+const receiptInput = ref(null) // 숨겨 둔 사진 고르기 칸 (template의 ref="receiptInput")
+const cameraInput = ref(null)  // 숨겨 둔 카메라 칸 (template의 ref="cameraInput")
+
+// ↓↓↓ 아래 네 함수는 석진 님이 채움 (11/12). 화면(창·버튼·입력 칸)은 이미 연결돼 있어요 ↓↓↓
+
+// [직접 추가] 빈 값으로 결제 적는 창을 연다
+// 힌트: payForm.value 에 { storeName: '', amount: '', paidAt: '', source: 'manual' } 을 넣으면 창이 뜸
+function openManualPay() {
+  payForm.value = {storeName : '', amount : '', paidAt:'', source: 'manual' }
+}
+
+// 결제 적는 창의 [저장]: payForm 값을 결제 내역으로 저장
+// 힌트 1) 바로 아래 importCards의 post(...) 줄과 같은 주소·같은 모양. card.○○ 자리에 payForm.value.○○
+// 힌트 2) amount는 입력 칸에서 글자로 올 수 있음 → Number(...)로 숫자로
+// 힌트 3) 저장한 뒤: payForm.value = null (창 닫기) → await loadPayments() (목록 다시 읽기)
+// 힌트 4) 실패하면 showToast(e.message) (importCards의 try·catch를 보고 따라 하기)
+async function savePayForm() {
+  try{
+  await post('/trips/' + route.query.id + '/payments', {
+    paidAt:payForm.value.paidAt,
+    storeName : payForm.value.storeName,
+     amount: Number(payForm.value.amount),
+     source: payForm.value.source
+
+  })
+  payForm.value =  null
+} catch(e){
+  showToast(e.message)
+}
+await loadPayments()
+}
+
+// [영수증 찍기] 카메라를 켠다 (휴대폰). openReceipt와 똑같은 방식이고 칸 이름만 다름
+// 힌트: cameraInput 칸을 대신 눌러 주기
+function openCamera() {
+  cameraInput.value.click()
+}
+
+// [영수증 사진 고르기] 사진 고르기 창을 띄운다
+// 힌트: receiptInput.value.click()  (숨겨 둔 <input type="file">을 대신 눌러 주는 것)
+function openReceipt() {
+  receiptInput.value.click()
+}
+
+// 사진을 고르면 불림: 영수증을 OCR로 읽어 결제 적는 창에 채워 넣는다 (저장은 사용자가 확인하고 [저장]을 눌렀을 때)
+// 힌트 1) 고른 파일: event.target.files[0]  (없으면 return)
+// 힌트 2) const form = new FormData() → form.append('image', 파일) → const result = await upload('/plans/capture/receipt', form)
+//         upload는 맨 위 import 줄(@/api/http)에 추가해야 함. 같은 방식의 예: src/api/trips.js의 readCapture
+// 힌트 3) result 안에 storeName, totalAmount, paidAt("2026-11-14 20:52")이 들어 있음
+//         → payForm.value = { storeName: result.○○, amount: result.○○, paidAt: result.paidAt.replace(' ', 'T'), source: 'capture' }
+// 힌트 4) 실패하면 showToast(e.message). 끝나면 event.target.value = '' (같은 사진을 다시 고를 수 있게)
+async function readReceipt(event) {
+  const file = event.target.files[0]
+  if (!file) return
+
+  try{
+    const form = new FormData()
+    form.append('image',file)
+    const result = await upload('/plans/capture/receipt' , form)
+
+   let paidAt = '' 
+   if (result.paidAt) paidAt = result.paidAt.replace(' ', 'T')
+
+    payForm.value = {
+      storeName: result.storeName,
+      amount: Number(result.totalAmount),
+      paidAt: paidAt,
+      source: 'capture'
+    }
+  } catch (e) {
+    showToast(e.message)
+  }
+  event.target.value = ''                  // 같은 사진을 다시 고를 수 있게 비움
+}
+  
+
+
+// ↑↑↑ 여기까지 ↑↑↑
 
 // "카드 내역 가져오기" 창 열기. 아직 안 가져온 건 미리 체크
 async function openCardList() {
@@ -1045,7 +1137,16 @@ function toggleMapType() {
         <section class="card card--pad" aria-labelledby="pay-h">
           <div class="retro-payhead">
             <h2 id="pay-h" class="t-sub">결제 내역</h2>
-            <button type="button" class="btn btn--secondary btn--sm" @click="openCardList"><i class="ic ic--s i-receipt" aria-hidden="true"></i>카드 내역 가져오기</button>
+            <!-- ⋯ 버튼: 누르면 결제 넣는 방법 세 가지가 펼쳐짐 (11/12) -->
+            <div class="retro-paymenu">
+              <button type="button" class="btn btn--secondary btn--sm retro-paymenu__dots" aria-label="결제 넣기" :aria-expanded="isPayMenuOpen" @click="isPayMenuOpen = !isPayMenuOpen">⋯</button>
+              <ul v-if="isPayMenuOpen" class="retro-paymenu__list" role="menu">
+                <li><button type="button" role="menuitem" @click="pickPayMenu(openCamera)">영수증 찍기</button></li>
+                <li><button type="button" role="menuitem" @click="pickPayMenu(openReceipt)">영수증 사진 고르기</button></li>
+                <li><button type="button" role="menuitem" @click="pickPayMenu(openCardList)">카드 내역 가져오기</button></li>
+                <li><button type="button" role="menuitem" @click="pickPayMenu(openManualPay)">직접 추가</button></li>
+              </ul>
+            </div>
           </div>
           <p v-if="dayPayments.length === 0" class="t-cap">이 날 결제 내역이 없어요</p>
           <ul v-else class="retro-paylist">
@@ -1137,6 +1238,11 @@ function toggleMapType() {
 
       <!-- 사진 크게 보기 (◁ ▷로 이 여행 사진 전체를 넘겨 봄) -->
       <PhotoViewer v-if="viewerStart !== null" :photos="photos" :start="viewerStart" @close="viewerStart = null" />
+
+      <!-- 영수증 사진 칸 두 개 (화면에는 안 보임. 메뉴가 대신 눌러 줌). 어느 쪽이든 사진이 정해지면 readReceipt가 불림 -->
+      <!--  receiptInput: 저장된 사진 고르기 · cameraInput: 바로 찍기 (capture = 휴대폰에서 뒷카메라를 바로 켬. PC는 이 속성을 무시해서 파일 고르기 창이 뜸) -->
+      <input ref="receiptInput" type="file" accept="image/*" hidden @change="readReceipt" />
+      <input ref="cameraInput" type="file" accept="image/*" capture="environment" hidden @change="readReceipt" />
 
       <!-- 카드 내역 가져오기 (지금은 목업 → 나중에 CODEF). 이미 가져온 건 회색으로 막음 -->
       <div v-if="cardList !== null" class="retro-cards" role="dialog" aria-modal="true" aria-label="카드 내역 가져오기" @click.self="cardList = null">
@@ -1243,6 +1349,14 @@ function toggleMapType() {
 .scr-Retro .retro-remove{flex:none;width:28px;height:28px;color:var(--ink-subtle)}
 .scr-Retro span.retro-remove{display:inline-block}
 .scr-Retro .retro-del{flex:none;background:var(--danger,#D92D20);color:#fff}
+/* 결제 넣기 ⋯ 메뉴: 버튼 바로 아래 오른쪽에 붙어 펼쳐짐 */
+.retro-paymenu { position: relative; }
+.retro-paymenu__dots { min-width: 40px; font-size: 18px; line-height: 1; }
+.retro-paymenu__list { position: absolute; top: calc(100% + 4px); right: 0; z-index: 5; margin: 0; padding: 4px; list-style: none; min-width: 168px;
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; box-shadow: 0 6px 18px rgba(24, 33, 58, 0.16); }
+.retro-paymenu__list button { display: block; width: 100%; padding: 10px 12px; border: 0; border-radius: var(--radius-sm, 6px); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.retro-paymenu__list button:hover { background: var(--surface); }
+
 /* 카드 내역 가져오기 창 (화면 전체를 덮고 아래에서 올라온 상자) */
 .scr-Retro .retro-cards{position:absolute;inset:0;z-index:40;background:rgba(10,14,28,.45);display:flex;align-items:flex-end}
 .scr-Retro .retro-cards__box{width:100%;max-height:80%;background:var(--surface);border-radius:20px 20px 0 0;padding:16px 16px 28px;display:flex;flex-direction:column;gap:10px}
