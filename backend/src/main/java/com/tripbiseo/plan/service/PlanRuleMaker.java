@@ -88,6 +88,7 @@ public class PlanRuleMaker {
     private static final int OPEN_MOVE_LATEST_MIN = 21 * 60;   // 이 시각까지만 미뤄 봄
     private static final String MOVE_CATEGORY = "교통";         // 역·터미널 예약을 칸 만들 때 쓰는 분류 (11/12)
     private static final String MOVE_KIND = "move";
+    private static final List<String> FALLBACK_KINDS = List.of("tour", "culture", "shop", "cafe"); // 볼거리 칸이 빌 때 넣어 볼 종류 (11/12)
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
     // 칸 사이는 이동 20~40분을 비워 둠 (10:00~11:30 → 12:00 점심)
@@ -615,6 +616,13 @@ public class PlanRuleMaker {
             }
             for (int k = 0; place == null && maxWalkMeters != null && k < slotKinds.size(); k++) { // 가까운 곳이 없으면 거리 제한 없이
                 place = pickBest(candidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, null);
+            }
+            if (place == null && !slotKinds.contains(FOOD_KIND)) {
+                // 11/12 빈 칸 채우기: 볼거리 칸에 넣을 곳이 없으면 산책·카페 중 아직 안 쓴 곳으로 (끼니 칸은 그대로)
+                List<String> fallback = withoutExtraCafe(FALLBACK_KINDS, lastKind, cafeCount);
+                for (int k = 0; place == null && k < fallback.size(); k++) {
+                    place = pickBest(candidates, scores, used, fallback.get(k), point, firstPoint, date, start, stay, null);
+                }
             }
             if (place == null) {
                 continue; // 넣을 종류 후보가 다 떨어짐
