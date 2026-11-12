@@ -27,6 +27,7 @@ import com.tripbiseo.live.dto.LocationRequest;
 import com.tripbiseo.live.dto.PreviewRequest;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
+import com.tripbiseo.live.dto.SkipRequest;
 import com.tripbiseo.live.dto.StatusResponse;
 import com.tripbiseo.live.dto.SwapCandidate;
 import com.tripbiseo.live.dto.TrackRequest;
@@ -80,6 +81,12 @@ public class LiveController {
     @PostMapping("/insert")
     public InsertResponse addRecommendedPlace(@PathVariable long id, @RequestBody InsertRequest request) {
         return liveService.addRecommendedPlace(loginUser.id(), id, request);
+    }
+
+    /** 못 가게 된 일정 빼고 다음 장소로 (놓친 예약, 11/12) */
+    @PostMapping("/skip")
+    public InsertResponse skipStop(@PathVariable long id, @RequestBody SkipRequest request) {
+        return liveService.skipStop(loginUser.id(), id, request);
     }
 
     /** 대안 A·B·C 만들기 */

@@ -14,7 +14,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * ④ 돌발 ③ (11/06): 고정 일정(KTX)에 늦을 때 "지하철로 ○○역까지 간 뒤 택시"처럼 더 빨리 가는 방법 찾기.
  * 숫자는 모두 실제 길찾기(TMAP 자동차, ODsay 대중교통)로 계산하고, 대중교통 그대로보다 빠를 때만 알려 줘요.
- * AlternativeServiceImpl 안에서만 쓰는 도우미라 인터페이스 없이 @Component (LiveWeatherChecker와 같은 방식).
+ * AlternativeServiceImpl·StatusServiceImpl(놓침 판단, 11/12)에서만 쓰는 도우미라 인터페이스 없이 @Component (LiveWeatherChecker와 같은 방식).
  */
 @Component
 @RequiredArgsConstructor
@@ -65,6 +65,15 @@ public class TransferFinder {
         }
         best.setTransitMinutes(transit);
         return best.getMinutes() < transit ? best : null;
+    }
+
+    /** 출발점 → 도착 칸까지 가장 빠른 방법의 분: 택시·갈아타기가 더 빠르면 그 분, 아니면 대중교통 분 (놓침 판단, 11/12 ④) */
+    public int findFastestMinutes(double fromLat, double fromLng, double toLat, double toLng) {
+        Option faster = findFaster(fromLat, fromLng, toLat, toLng);
+        if (faster != null) {
+            return faster.getMinutes();
+        }
+        return minutesOf(fromLat, fromLng, toLat, toLng, "transit"); // findFaster가 null이면 대중교통이 가장 빠름
     }
 
     /** 이 역까지 대중교통 + 거기서 택시 */

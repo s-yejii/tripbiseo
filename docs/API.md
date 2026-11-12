@@ -150,7 +150,8 @@
 | `POST /api/trips/{id}/live/status` | 지금 상황 다시 계산 (알림·여유·날씨) | live/LiveView, live/LiveDelayView | 있음 |
 | `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView (AI 채팅 AskPanel) | 있음 |
-| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 | live/LiveView (AI 채팅 AskPanel) | 있음 |
+| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 (`replaceStopId`면 그 칸 자리에) | live/LiveView (AI 채팅 AskPanel), live/SimilarPlaceView | 있음 |
+| `POST /api/trips/{id}/live/skip` | 못 가게 된 일정 빼고 다음 장소로 (11/12) | live/LiveView (놓침 카드) | 있음 |
 | `POST /api/trips/{id}/live/link-fit` | 링크로 찾은 장소를 남은 일정에 넣어 보기 (저장 안 함) | live/LiveView (LinkAddSheet), live/LinkFitView | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `POST /api/trips/{id}/live/apply` | 고른 대안을 일정에 반영 | live/AltTrimView, live/AltDropView, live/AltSwapView → live/AppliedView | 있음 |
@@ -1146,7 +1147,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | now | string | 지금 시각 |
 | currentStopId | number (null 가능) | 지금 있는 일정 칸 id (도착했고 아직 출발 안 함, 또는 150m 안) |
 | alert | object (null 가능) | 화면 맨 위 알림 1개 `{key, level, title, text, repeat}` |
-| alert.key | string | 중복 알림 방지 키. 앞부분: `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
+| alert.key | string | 중복 알림 방지 키. 앞부분: `lost-` 식당·카페 예약에 가장 빠른 방법으로도 못 닿음 (11/12) / `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
 | alert.level | string | `danger` / `warn` |
 | alert.repeat | boolean (없을 수 있음) | `leave-` 알림에만 `true` |
 | leave | object (null 가능) | 출발 시각 ±10분 안일 때만 `{stopId, name, leaveAt, minutesLeft, to, atStop}`. `stopId`는 지금 있는 칸 또는 다음 칸 id. `minutesLeft`는 −10~10(음수=지남), `to`는 다음 장소 이름(null 가능), `atStop`이 `true`면 지금 있는 곳에서 출발 |
@@ -1161,6 +1162,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | stops[].closeAt, closedReason, closingSoon | | 영업 정보 일부 |
 | stops[].importance | string | 중요도 `must`/`maybe`/`drop` (11/03 추가) |
 | stops[].moveMin, moveMode, moveMeters | number, string, number | 남은 칸만: 앞(지금 위치·앞 칸)에서 오는 이동 분·수단(`walk`/`transit`/`car`)·거리(m). 아니면 `null`. 여행 중 화면 카드 사이 이동 칩 (11/03 추가) |
+| stops[].meal | boolean | 남은 칸 중 장소 종류(`kind`)가 식당·카페·술집(`food`/`cafe`/`bar`)이면 `true`, 아니면 `false`. "못 가게 됐어요" 버튼에 씀 (11/12 추가) |
 | next | object (null 가능) | 내 위치 → 다음 남은 일정 `{id, minutes, coords, source}` |
 
 ```json
@@ -1180,11 +1182,12 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 | 순서 | key | 언제 | level |
 |---|---|---|---|
+| 0 | `lost-{고정 칸}` | 식당·카페·술집 고정 일정에 늦는데(`fixed.slackMin` < 0), 가장 빠른 방법(택시·지하철 갈아타기·대중교통 중 가장 짧은 것)으로 지금 바로 가도 예약 시각을 넘김 (유예 0분). `title`은 가게 이름. 가장 빠른 방법은 늦는 분이 10분 바뀔 때마다만 다시 계산 (11/12) | danger |
 | 1 | `overdue-{칸}-{더 머문 분÷5}` | 지금 칸에서 떠날 시각(도착 + 머묾)이 지남 | danger |
 | 2 | `closed-{칸}` / `closed-{칸}-short` | 남은 칸이 도착할 때 닫힘·휴무 / 열려 있지만 닫을 때까지 남은 분 < 머무는 시간 | danger / warn |
 | 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0 | danger |
 | 4 | `leave-{칸}-{남은 분}` | `leave`가 있음 (출발 ±10분). `repeat: true` | 남은 분 > 0이면 warn, 아니면 danger |
-| 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 칸 (고정 일정 제외) | warn |
+| 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 고정(예약) 칸. 느슨한 칸은 시간이 밀릴 뿐이라 안 봄 (11/12: 코드에 맞춰 고침, 예전 문구 "고정 일정 제외"는 틀렸음) | warn |
 | 6 | `tight-{고정 칸}` | 고정 일정 여유 ≤ 10분 | warn |
 | 7 | `next-{칸}-{늦는 분÷10}` | 다음 칸에 10분 넘게 늦게 도착 | warn |
 | 8 | `rain-{비 시작 HHmm}` | 다음 경로에 비·눈 소식이 있고 그때 야외에 있을 칸이 있음 (`weather.outdoor`). 예보가 바뀌어 비 시작 시각이 달라지면 다시 울림 | warn |
@@ -1239,6 +1242,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | radius | number | 필수 | 반경(m) 100~3000 |
 | category | string | | 장소 종류. 식당·맛집·밥 등이면 음식점 전체(카페·디저트 제외), 술집이면 주점·호프·이자카야 등, 그 밖은 분류에 그 말이 들어간 곳 |
 | tags | string[] | | 원하는 분위기 `혼밥` / `조용` / `분위기` / `데이트` / `가성비` / `웨이팅없음` (assist의 `tags`를 그대로). 있는 곳에 점수를 더함 |
+| similarTo | string | | 놓친 장소 id (11/12). 있으면 그 장소와 업종(`biz_type` 낱말, 예: "일식,초밥")이 하나라도 겹치는 곳만 남기고, 이미 일정에 있는 곳은 빼요. 같은 브랜드 다른 지점(이름에서 끝의 "○○점"을 뗀 이름이 같은 곳)을 맨 앞으로. 머무는 시간은 놓친 칸 그대로로 영업을 확인 |
 
 **응답**
 ```json
@@ -1251,18 +1255,29 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 > 리뷰 태그 인정: 그 장소 리뷰 중 2개 이상이면서 (3개 이상 또는 20% 이상). 원하는 `tags`가 없으면 그 장소에 있는 태그를 2개까지 보여 줘요.
 
-**오류** 400 "radius 값이 필요해요." · 공통 오류 · 400 "반경은 100m~3km예요."
+**오류** 400 "radius 값이 필요해요." · 공통 오류 · 400 "반경은 100m~3km예요." · 404 "장소를 찾을 수 없어요." (`similarTo`가 없는 장소)
 
 ### `POST /api/trips/{id}/live/insert`
 추천 장소를 바로 다음 일정으로 넣어요. · 로그인 필요 · 화면: live/LiveView (AskPanel의 "일정에 넣기")
 
-**요청** `placeId`(장소 카드의 `id`), `lat`, `lng`
+**요청** `placeId`(장소 카드의 `id`), `lat`, `lng`, `replaceStopId`(선택, 11/12: 놓친 예약 칸 id)
 
-**동작** 새 칸(카페면 40분, 아니면 60분)을 넣고 남은 일정 시각을 다시 계산해 저장. 고정 일정에 늦으면 그 앞 칸 머무는 시간을 최대 절반까지 줄임.
+**동작** 새 칸(카페면 40분, 아니면 60분)을 넣고 남은 일정 시각을 다시 계산해 저장. 고정 일정에 늦으면 그 앞 칸 머무는 시간을 최대 절반까지 줄임. `replaceStopId`가 있으면 맨 앞 대신 그 칸 자리에 넣고, 그 칸은 `skipped`가 돼요.
 
 **응답** `{ "trip": Trip, "message": "카페OO을(를) 다음 일정으로 넣었어요. 세종문화회관에는 12분 여유가 있어요." }`
 
-**오류** 공통 오류 · 404 "장소를 찾을 수 없어요."
+**오류** 공통 오류 · 404 "장소를 찾을 수 없어요." · 400 "바꿀 일정을 찾을 수 없어요." (`replaceStopId`가 남은 칸이 아님)
+
+### `POST /api/trips/{id}/live/skip`
+못 가게 된 일정(놓친 예약 등) 하나를 빼고, 남은 일정을 앞으로 당겨 다시 계산해 저장해요. · 로그인 필요 · 화면: live/LiveView (놓침 카드의 "빼고 다음 장소로") · 11/12 추가
+
+**요청** `stopId`(뺄 칸 id, 필수), `lat`, `lng`(지금 위치)
+
+**동작** 그 칸은 `skipped`. 남은 칸은 `/live/apply`와 같은 방식으로 시각을 다시 계산해 저장 (고정 일정 시각은 그대로). 뒤에 남은 칸이 없으면 빼기만 해요.
+
+**응답** `{ "trip": Trip, "message": "스시OO을(를) 빼고 남은 일정을 다시 계산했어요." }`
+
+**오류** 공통 오류 · 400 "바꿀 일정을 찾을 수 없어요." (`stopId`가 남은 칸이 아님)
 
 ### `POST /api/trips/{id}/live/link-fit`
 여행 중 인스타 링크로 찾은 장소들을 남은 일정에 넣어 봐요. 한 곳씩 칸 사이마다 넣어 보고 방해가 가장 적은 자리를 골라요. **저장하지 않아요** — 고른 일정은 `/live/apply`로 저장해요. Gemini는 쓰지 않아요. · 로그인 필요 · 화면: live/LiveView (LinkAddSheet), live/LinkFitView · 11/04 추가
@@ -1583,7 +1598,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | `POST /api/plans/generate` (③) | ② PlanCheckView → `POST /api/trips` | 초안 Stop·`transports`가 ②의 저장 규칙과 맞아야 함 (조건에 transports가 없으면 `[]`로 와서 저장 400) |
 | `POST /api/plans/check` (②) | ③ 일정 생성 후 점검 | 응답 `legs[].mode`는 `walk/transit/car`라 Stop.mode(`taxi`)와 다름 |
 | `POST /api/trips/{id}/live/recommend` (④) | 응답 항목이 ②의 장소 카드 + 영업 정보 | ②가 장소 카드·영업 정보 모양을 바꾸면 ④ 화면이 바뀜 |
-| `POST /api/trips/{id}/live/insert`·`/status`·`/alternatives`·`/apply` (④) | 안에서 ②의 Trip·Stop을 읽고 고침 | Stop `state`·`fixed`·`arrivedAt` 뜻이 바뀌면 알림·대안이 달라짐 |
+| `POST /api/trips/{id}/live/insert`·`/skip`·`/status`·`/alternatives`·`/apply` (④) | 안에서 ②의 Trip·Stop을 읽고 고침 | Stop `state`·`fixed`·`arrivedAt` 뜻이 바뀌면 알림·대안이 달라짐 |
 
 ---
 

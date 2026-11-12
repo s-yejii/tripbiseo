@@ -3,8 +3,11 @@ package com.tripbiseo.live.service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Service;
 
@@ -40,6 +43,8 @@ import lombok.RequiredArgsConstructor;
 public class StatusServiceImpl implements StatusService {
 
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
+    private static final Set<String> MEAL_KINDS = Set.of("food", "cafe", "bar"); // 놓침 카드를 띄울 장소 종류 (PlaceMapper kindCase 값, 11/12)
+    private static final int LATE_STEP_MIN = 10;        // late- 알림과 같은 간격: 10분 더 늦어질 때마다만 가장 빠른 방법을 다시 계산
 
     private final AutoAdjuster autoAdjuster; // 최근 자동 일정 조정 안내 (③ 11/08)
     private final LiveTripReader liveTripReader;         // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
@@ -49,6 +54,9 @@ public class StatusServiceImpl implements StatusService {
     private final LiveAlertMaker liveAlertMaker;         // 출발 알림·맨 위 알림 만들기 (④ 도우미)
     private final LiveWeatherChecker liveWeatherChecker; // 비 소식 + 비 맞을 야외 일정 (④ 도우미)
     private final NotificationService notificationService; // 맨 위 알림을 알림함에도 남김 (①)
+    private final TransferFinder transferFinder;         // 가장 빠른 방법 (④ 도우미, 놓침 판단)
+    // "칸 id-늦음 단계" → 가장 빠른 방법으로 가도 남는 여유(분). 여러 요청이 동시에 써도 안전한 Map이라 ConcurrentHashMap (TMAP 호출 줄이기)
+    private final Map<String, Integer> fastestSlackCache = new ConcurrentHashMap<>();
 
     /** 지금 상황 다시 계산 */
     @Override
@@ -66,7 +74,8 @@ public class StatusServiceImpl implements StatusService {
         Map<Long, Route> routeMap = new HashMap<>(); // 칸 id → 앞에서 오는 길 (카드 사이 이동 칩)
         Map<Long, Integer> etaMap = getEtaMap(trip, todayStops, current, lat, lng, routeMap);
         Map<Long, String> reachMap = getReachMap(trip, todayStops, current, fixedStop, lat, lng);
-        Map<Long, OpenInfo> openMap = getOpenInfoMap(todayStops, current, etaMap);
+        Set<Long> mealStopIds = new HashSet<>(); // 남은 칸 중 식당·카페·술집 (영업 정보 읽을 때 같이 채움 → 쿼리 추가 없음)
+        Map<Long, OpenInfo> openMap = getOpenInfoMap(todayStops, current, etaMap, mealStopIds);
         // 여유(분) = 고정 일정 계획 시각 − 예상 도착. 음수면 지각
         Integer slack = fixedStop == null ? null : Geo.toMinutes(fixedStop.getTime()) - etaMap.get(fixedStop.getId());
 
@@ -76,7 +85,7 @@ public class StatusServiceImpl implements StatusService {
         for (Stop stop : todayStops) {
             OpenInfo open = openMap.get(stop.getId());
             String reach = getReach(stop, current, reachMap, open);
-            response.getStops().add(toStatusStop(stop, etaMap.get(stop.getId()), reach, open, routeMap.get(stop.getId())));
+            response.getStops().add(toStatusStop(stop, etaMap.get(stop.getId()), reach, open, routeMap.get(stop.getId()), mealStopIds.contains(stop.getId())));
         }
         response.setNext(getNextRoute(trip, nextStop, lat, lng));
         response.setFixed(toFixedStatus(fixedStop, etaMap, slack));
@@ -85,6 +94,7 @@ public class StatusServiceImpl implements StatusService {
 
         // 알림은 LiveAlertMaker, 날씨는 LiveWeatherChecker가 (계산 결과를 context 하나로 넘김)
         StatusContext context = toContext(todayStops, current, nextStop, fixedStop, slack, etaMap, openMap);
+        context.setFastestSlack(getFastestSlack(fixedStop, slack, mealStopIds, lat, lng)); // 놓침(lost-) 알림용
         context.setWeather(liveWeatherChecker.check(lat, lng, context)); // 알림(rain-)도 이 값을 씀
         response.setWeather(context.getWeather());
         LeaveInfo leave = liveAlertMaker.makeLeave(context);
@@ -274,7 +284,7 @@ public class StatusServiceImpl implements StatusService {
     }
 
     /** Stop → 화면용 StatusStop. eta: 남은 칸이면 예상 도착, 아니면 계획 시각. open: 영업 정보, route: 앞에서 오는 길 (둘 다 없으면 null) */
-    private StatusStop toStatusStop(Stop stop, Integer eta, String reach, OpenInfo open, Route route) {
+    private StatusStop toStatusStop(Stop stop, Integer eta, String reach, OpenInfo open, Route route, boolean isMeal) {
         StatusStop status = new StatusStop();
         status.setId(stop.getId());
         status.setPlaceId(stop.getPlaceId());
@@ -288,6 +298,7 @@ public class StatusServiceImpl implements StatusService {
         status.setEta(eta == null ? stop.getTime() : Geo.toHhmm(eta));
         status.setReach(reach);
         status.setImportance(stop.getImportance());
+        status.setMeal(isMeal);
         status.setClosingSoon(false);
         if (route != null) {
             status.setMoveMin(route.getMinutes());
@@ -328,7 +339,7 @@ public class StatusServiceImpl implements StatusService {
     // ---------------------------------------------------------------- 영업 정보 (5단계)
 
     /** 남은 칸마다 예상 도착 시각 기준 영업 정보. key = 칸 id. DB에 없는 장소(placeId 없음)는 모름이라 빠짐 */
-    private Map<Long, OpenInfo> getOpenInfoMap(List<Stop> todayStops, Stop current, Map<Long, Integer> etaMap) {
+    private Map<Long, OpenInfo> getOpenInfoMap(List<Stop> todayStops, Stop current, Map<Long, Integer> etaMap, Set<Long> mealStopIds) {
         Map<Long, OpenInfo> openMap = new HashMap<>();
         LocalDate today = Geo.now().toLocalDate();
         for (Stop stop : todayStops) {
@@ -338,9 +349,28 @@ public class StatusServiceImpl implements StatusService {
             Place place = findPlace(stop.getPlaceId());
             if (place != null) {
                 openMap.put(stop.getId(), placeService.getOpenInfo(place, today, etaMap.get(stop.getId()), liveStopFinder.getStay(stop)));
+                if (MEAL_KINDS.contains(place.getKind())) {
+                    mealStopIds.add(stop.getId()); // 11/12: 놓침 카드·"못 가게 됐어요" 버튼은 식당·카페·술집만 (KTX 등은 빠짐)
+                }
             }
         }
         return openMap;
+    }
+
+    /** 식당·카페 예약에 늦을 때: 가장 빠른 방법으로 지금 바로 가도 남는 여유(분). 해당 없으면 null (11/12 ④) */
+    private Integer getFastestSlack(Stop fixedStop, Integer slack, Set<Long> mealStopIds, double lat, double lng) {
+        if (slack == null || slack >= 0 || !mealStopIds.contains(fixedStop.getId())) {
+            return null; // 안 늦었거나 식당·카페가 아니면(KTX 등) 계산 안 함
+        }
+        String cacheKey = fixedStop.getId() + "-" + (-slack) / LATE_STEP_MIN;
+        Integer cached = fastestSlackCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        int fastestMinutes = transferFinder.findFastestMinutes(lat, lng, fixedStop.getLat(), fixedStop.getLng());
+        int fastestSlack = Geo.toMinutes(fixedStop.getTime()) - (Geo.nowMinutes() + fastestMinutes);
+        fastestSlackCache.put(cacheKey, fastestSlack);
+        return fastestSlack;
     }
 
     /** 장소 하나 (지워진 장소면 404 대신 null → 영업 정보 없이 계속) */
