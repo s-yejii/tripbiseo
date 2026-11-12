@@ -278,6 +278,70 @@ public class PlanRuleMaker {
         }
     }
 
+    /**
+     * 동선 정리(순서 바꾸기) 뒤 마지막 확인 (11/12): 날마다 시각 순으로 걸으며
+     * 앞 일정 끝 + 이동 시간보다 일찍 시작하는 칸은 뒤로 밀고, 그 때문에 다음 예약(고정)까지 못 가면 머무는 시간을 줄이고,
+     * 그래도 30분이 안 되면 그 칸을 뺌. 예약·숙소 칸은 시각을 안 바꿈. 시연 계정 일정(DemoScenario)은 여기를 안 지나감
+     */
+    public void fixTravelTimes(PlanGenerateResponse response) {
+        List<Stop> removed = new ArrayList<>();
+        Map<Integer, List<Stop>> byDay = new HashMap<>();
+        for (Stop stop : response.getStops()) {
+            byDay.computeIfAbsent(stop.getDay(), key -> new ArrayList<>()).add(stop); // computeIfAbsent: 없으면 새 목록을 만들어 넣음
+        }
+        for (List<Stop> dayStops : byDay.values()) {
+            dayStops.sort((first, second) -> first.getTime().compareTo(second.getTime()));
+            fixDayTimes(dayStops, removed);
+        }
+        response.getStops().removeAll(removed);
+    }
+
+    private void fixDayTimes(List<Stop> dayStops, List<Stop> removed) {
+        Stop previous = null;
+        for (int i = 0; i < dayStops.size(); i++) {
+            Stop stop = dayStops.get(i);
+            if (previous == null || isLocked(stop)) {
+                previous = stop;
+                continue;
+            }
+            int earliest = roundUp(endOf(previous) + PlanTravelTime.minutesBetween(pointOf(previous), pointOf(stop)));
+            int start = Math.max(Geo.toMinutes(stop.getTime()), earliest);
+            Stop nextLocked = nextLocked(dayStops, i);
+            int latestEnd = nextLocked == null ? Integer.MAX_VALUE
+                    : Geo.toMinutes(nextLocked.getTime()) - PlanTravelTime.minutesBetween(pointOf(stop), pointOf(nextLocked));
+            int stay = Math.min(stop.getStay() == null ? 0 : stop.getStay(), latestEnd - start);
+            if (stay < SHORTEST_STAY_MIN) {
+                removed.add(stop); // 이동까지 넣으면 들를 시간이 없음
+                continue;
+            }
+            stop.setTime(Geo.toHhmm(start));
+            stop.setStay(stay);
+            previous = stop;
+        }
+    }
+
+    /** 시각을 바꾸면 안 되는 칸: 예약(고정)·숙소 */
+    private boolean isLocked(Stop stop) {
+        return Boolean.TRUE.equals(stop.getFixed()) || "숙소".equals(stop.getCategory());
+    }
+
+    private Stop nextLocked(List<Stop> dayStops, int index) {
+        for (int k = index + 1; k < dayStops.size(); k++) {
+            if (isLocked(dayStops.get(k))) {
+                return dayStops.get(k);
+            }
+        }
+        return null;
+    }
+
+    private int endOf(Stop stop) {
+        return Geo.toMinutes(stop.getTime()) + (stop.getStay() == null ? 0 : stop.getStay());
+    }
+
+    private double[] pointOf(Stop stop) {
+        return stop.getLat() == null || stop.getLng() == null ? null : new double[] {stop.getLat(), stop.getLng()};
+    }
+
     // ---------------------------------------------------------------- 도우미
 
     /** 마지막 날 번호 (끝 날짜가 없으면 1). 15:00 시작·19:00 끝이 둘째 날 오전까지 막지 않게 (11/06) */
@@ -505,6 +569,10 @@ public class PlanRuleMaker {
             slots = pullToNow(slots); // 오늘 출발이면 지난 칸을 버리지 않고 남은 시간으로 당김 (11/04)
         }
         int replaced = 0;
+        // 11/12 이동 시간: 앞 일정이 끝나는 분. 출발지를 정했으면 첫 칸도 출발지에서 오는 시간만큼 늦게 시작 (모르면 -1 = 첫 칸은 그 시각 그대로)
+        int prevEnd = realStartOf(conditions, startDate, day) != null && !slots.isEmpty() && slots.get(0) != null
+                ? Geo.toMinutes(slots.get(0)[1]) : -1;
+        int dayEnd = dayEndOf(conditions, day, days, dayEndMin);
         for (int i = 0; i < slots.size(); i++) {
             if (slots.get(i) == null) {
                 continue; // 오늘 남은 시간에 못 들어가는 칸
@@ -515,6 +583,13 @@ public class PlanRuleMaker {
                 point = new double[] {keptBefore.getLat(), keptBefore.getLng()}; // 바로 앞이 담은 곳이면 거기서 가까운 곳
                 firstPoint = firstPoint == null ? point : firstPoint;
                 lastKind = kindOfKept(keptBefore);
+                prevEnd = Math.max(prevEnd, keptEndOf(keptBefore));
+            }
+            AiDraftStop extraBefore = lastExtraBefore(extras, day, start);
+            if (extraBefore != null && extraEndOf(extraBefore) > prevEnd) { // 바로 앞이 예약이면 예약이 끝난 뒤, 예약 자리에서 출발
+                prevEnd = extraEndOf(extraBefore);
+                Place extraPlace = locateExtra(extraBefore, candidates);
+                point = extraPlace == null || extraPlace.getLat() == null ? point : new double[] {extraPlace.getLat(), extraPlace.getLng()};
             }
             List<String> slotKinds = withoutExtraCafe(Arrays.asList(slots.get(i)[0].split(",")), lastKind, cafeCount);
             int stay = Integer.parseInt(slots.get(i)[2]);
@@ -542,8 +617,18 @@ public class PlanRuleMaker {
             if (place == null) {
                 continue; // 넣을 종류 후보가 다 떨어짐
             }
+            // 11/12 실제 시각: 앞 일정 끝 + 이동 시간보다 이르지 않게, 다음 예약(+ 거기까지 이동)·하루 끝 전에 끝나게 머무는 시간을 줄임
+            double[] placePoint = new double[] {place.getLat(), place.getLng()};
+            int actualStart = prevEnd < 0 ? start : roundUp(Math.max(start, prevEnd + PlanTravelTime.minutesBetween(point, placePoint)));
+            int latestEnd = Math.min(dayEnd, nextExtraLimit(extras, candidates, day, actualStart, placePoint));
+            int actualStay = Math.min(stay, latestEnd - actualStart);
+            if (actualStay < SHORTEST_STAY_MIN) {
+                continue; // 이동까지 넣으면 이 칸은 시간이 모자람
+            }
+            stay = actualStay;
+            prevEnd = actualStart + stay;
             used.add(place.getId());
-            AiDraftStop stop = toDraftStop(place, day, slots.get(i)[1], stay);
+            AiDraftStop stop = toDraftStop(place, day, Geo.toHhmm(actualStart), stay);
             stop.setReason(reason);
             stops.add(stop);
             point = new double[] {place.getLat(), place.getLng()};
@@ -552,6 +637,71 @@ public class PlanRuleMaker {
             cafeCount += CAFE_KIND.equals(lastKind) ? 1 : 0;
         }
         return replaced;
+    }
+
+    /** 그날 이 칸이 끝나야 하는 하루 끝 (끝 장소 마감이 있으면 그것, 시간을 골랐으면 고른 끝·다른 날 20:00, 아니면 23:00) */
+    private int dayEndOf(PlanConditions conditions, int day, int days, Integer dayEndMin) {
+        if (dayEndMin != null) {
+            return dayEndMin;
+        }
+        if (!hasDayTime(conditions)) {
+            return TODAY_LAST_END_MIN;
+        }
+        return day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
+    }
+
+    /** start 전에 시작한 그날 마지막 꼭 갈 곳·예약 (없으면 null) */
+    private AiDraftStop lastExtraBefore(List<AiDraftStop> extras, int day, int start) {
+        AiDraftStop last = null;
+        for (AiDraftStop extra : extras) {
+            if (dayOf(extra) == day && extra.getTime() != null && extra.getTime().matches("\\d{2}:\\d{2}")
+                    && Geo.toMinutes(extra.getTime()) < start && (last == null || extra.getTime().compareTo(last.getTime()) > 0)) {
+                last = extra;
+            }
+        }
+        return last;
+    }
+
+    /** 꼭 갈 곳·예약의 위치: 후보에 있으면 그것, 없으면(강남 예약처럼 고른 구 밖) 이름으로 우리 DB에서. 못 찾으면 null */
+    private Place locateExtra(AiDraftStop extra, Map<String, Place> candidates) {
+        Place place = findPlaceOf(extra, candidates);
+        if (place != null || extra.getName() == null) {
+            return place;
+        }
+        try {
+            return placeService.getPlaceByName(extra.getName(), null, null);
+        } catch (ApiException e) {
+            return null; // 위치를 모르면 이동 시간은 기본 20분으로
+        }
+    }
+
+    private int extraEndOf(AiDraftStop extra) {
+        return Geo.toMinutes(extra.getTime()) + (extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay());
+    }
+
+    /**
+     * 이 칸이 늦어도 끝나야 하는 분: start 뒤 그날 첫 꼭 갈 곳·예약 시각 − 거기까지 이동 시간 (11/12).
+     * 역·터미널은 타러 갈 시간(40분)과 비교해 더 긴 쪽. 뒤에 예약이 없으면 하루 끝까지
+     */
+    private int nextExtraLimit(List<AiDraftStop> extras, Map<String, Place> candidates, int day, int start, double[] from) {
+        int limit = Integer.MAX_VALUE;
+        for (AiDraftStop extra : extras) {
+            if (dayOf(extra) != day || extra.getTime() == null || !extra.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            int extraStart = Geo.toMinutes(extra.getTime());
+            if (extraStart <= start) {
+                continue;
+            }
+            Place place = locateExtra(extra, candidates);
+            int travel = place == null || place.getLat() == null ? TIMED_GAP_MIN
+                    : PlanTravelTime.minutesBetween(from, new double[] {place.getLat(), place.getLng()});
+            if (isBoardingExtra(extra)) {
+                travel = Math.max(travel, BOARDING_TRAVEL_MIN);
+            }
+            limit = Math.min(limit, extraStart - travel);
+        }
+        return limit;
     }
 
     /** 후보 중 이름이 같은 곳을 이미 쓴 곳으로 */

@@ -227,6 +227,7 @@ public class PlanServiceImpl implements PlanService {
         removeRepeatedStops(response.getStops()); // 같은 곳 두 번 (11/06)
         removeAfterBoarding(response.getStops(), days); // KTX 탄 뒤 일정 (11/06)
         addKeptAndSort(conditions, response, days);
+        planRuleMaker.fixTravelTimes(response); // 순서를 바꾼 뒤 이동 시간이 모자란 칸을 밀거나 줄임 (11/12)
         planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
             boolean isMissingLocation = isNearMe && request.getLat() == null;
