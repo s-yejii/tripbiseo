@@ -85,6 +85,8 @@ public class PlanRuleMaker {
     private static final int DEFAULT_EXTRA_STAY_MIN = 90;      // 꼭 갈 곳·고정 일정의 머무는 분을 모를 때
     private static final int OPEN_MOVE_STEP_MIN = 15;          // 꼭 갈 곳이 문을 안 열었으면 이만큼씩 뒤로 (11/06)
     private static final int OPEN_MOVE_LATEST_MIN = 21 * 60;   // 이 시각까지만 미뤄 봄
+    private static final String MOVE_CATEGORY = "교통";         // 역·터미널 예약을 칸 만들 때 쓰는 분류 (11/12)
+    private static final String MOVE_KIND = "move";
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
     // 칸 사이는 이동 20~40분을 비워 둠 (10:00~11:30 → 12:00 점심)
@@ -145,7 +147,11 @@ public class PlanRuleMaker {
         if (hasDayTime(conditions)) {
             int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
             int end = day == lastDayOf(conditions) ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
-            return timedSlotsOf(conditions, start, end, keptOfDay(conditions, day));
+            // 담은 곳 + 그날 예약(고정 일정)을 피해서 칸을 만듦 (11/12: 예약 시간은 빼고 칸을 만들다 보니 19:00 회식과 겹친 저녁 칸이 통째로 빠져 오후가 비었어요)
+            List<Stop> blocks = keptOfDay(conditions, day);
+            blocks.addAll(fixedBlocksOfDay(conditions, day));
+            blocks.sort((first, second) -> first.getTime().compareTo(second.getTime())); // 시각 글자 순
+            return timedSlotsOf(conditions, start, end, blocks);
         }
         boolean isCafeChosen = conditions.getKinds() != null && conditions.getKinds().contains(CAFE_KIND);
         return slotsOf(kindsOf(conditions), isCafeChosen);
@@ -340,6 +346,40 @@ public class PlanRuleMaker {
         return kept;
     }
 
+    /**
+     * 그날 예약(고정 일정)을 칸 만들 때 피할 자리로 (11/12). 머무는 분은 모르니 90분으로 봄.
+     * 식사 시간대의 예약은 그 끼니로 셈 (예약은 대부분 식당). 역·터미널은 끼니가 아니게 분류를 "교통"으로
+     */
+    private List<Stop> fixedBlocksOfDay(PlanConditions conditions, int day) {
+        List<Stop> blocks = new ArrayList<>();
+        if (conditions.getFixed() == null) {
+            return blocks;
+        }
+        for (FixedVisit fixed : conditions.getFixed()) {
+            int fixedDay = fixed.getDay() == null ? 1 : fixed.getDay();
+            if (fixedDay != day || fixed.getTime() == null || !fixed.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            Stop block = new Stop();
+            block.setDay(day);
+            block.setName(fixed.getName());
+            block.setTime(fixed.getTime());
+            block.setStay(DEFAULT_EXTRA_STAY_MIN);
+            block.setCategory(isBoardingName(fixed.getName()) ? MOVE_CATEGORY : "");
+            blocks.add(block);
+        }
+        return blocks;
+    }
+
+    /** 역·터미널·공항 이름인지 (isBoardingExtra와 같은 기준) */
+    private boolean isBoardingName(String rawName) {
+        if (rawName == null) {
+            return false;
+        }
+        String name = rawName.replace("KTX", "").replace("SRT", "").trim();
+        return name.endsWith("역") || name.contains("터미널") || name.contains("공항");
+    }
+
     /** clock 뒤에 끝나는 첫 담은 곳 (없으면 null) */
     private Stop nextKeptAfter(List<Stop> kept, int clock) {
         for (Stop stop : kept) {
@@ -375,6 +415,9 @@ public class PlanRuleMaker {
             }
         }
         String category = stop.getCategory() == null ? "" : stop.getCategory();
+        if (MOVE_CATEGORY.equals(category)) {
+            return MOVE_KIND; // 역·터미널 예약은 끼니도 볼거리도 아님
+        }
         if (category.matches(".*(카페|커피|디저트|베이커리).*")) {
             return CAFE_KIND;
         }
