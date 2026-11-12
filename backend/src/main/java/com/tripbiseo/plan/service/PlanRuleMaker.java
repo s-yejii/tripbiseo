@@ -197,7 +197,8 @@ public class PlanRuleMaker {
             replaced += fillDay(conditions, candidates, scores, startDate, day, days, areas, extras, slotPicks, used, stops, dayEndMin, maxWalkMeters);
         }
         if (replaced > 0) {
-            warnings.add("AI가 고른 " + replaced + "곳이 종류·영업시간·거리와 맞지 않아 평점·거리로 다시 골랐어요");
+            // 11/12: "AI가 틀렸다"처럼 읽혀서, 서버가 확인하고 바꾼 일로 말함
+            warnings.add("영업시간·이동 거리를 확인해 " + replaced + "곳을 문 연 곳·가까운 곳으로 바꿨어요");
         }
         removeOutsideHours(conditions, candidates, days, stops);
         addMissingKindWarnings(conditions, candidates, stops, warnings);
