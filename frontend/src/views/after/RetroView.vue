@@ -473,6 +473,20 @@ const payForm = ref(null)
 const receiptInput = ref(null) // 숨겨 둔 사진 고르기 칸 (template의 ref="receiptInput")
 const cameraInput = ref(null)  // 숨겨 둔 카메라 칸 (template의 ref="cameraInput")
 
+// 금액 칸에 보여 줄 글자: 19000 → "19,000" (비어 있으면 빈 글자)
+function toCommaText(amount) {
+  if (amount === '' || amount === null || amount === undefined) return ''
+  return Number(amount).toLocaleString('ko-KR') // toLocaleString: 숫자를 그 나라 방식 글자로 (천 단위 쉼표)
+}
+
+// 금액 칸에 글자를 칠 때마다: 숫자만 남겨 payForm.amount에 넣고, 칸에는 쉼표를 넣어 다시 보여 줌
+// 예: "19,0005"를 치면 → 숫자만 "190005" → 칸에는 "190,005"
+function setPayAmount(event) {
+  const digits = event.target.value.replace(/[^0-9]/g, '') // 숫자가 아닌 글자(쉼표·한글 등)는 지움
+  payForm.value.amount = digits === '' ? '' : Number(digits)
+  event.target.value = toCommaText(payForm.value.amount)
+}
+
 // ↓↓↓ 아래 네 함수는 석진 님이 채움 (11/12). 화면(창·버튼·입력 칸)은 이미 연결돼 있어요 ↓↓↓
 
 // [직접 추가] 빈 값으로 결제 적는 창을 연다
@@ -1253,7 +1267,7 @@ function toggleMapType() {
           </div>
           <p v-if="payForm.source === 'capture'" class="t-cap">잘못 읽은 곳이 있으면 고친 뒤 저장해 주세요</p>
           <label class="retro-payform__row"><span class="t-cap">가게 이름</span><input v-model="payForm.storeName" type="text" placeholder="예: 산청숯불가든" /></label>
-          <label class="retro-payform__row"><span class="t-cap">금액(원)</span><input v-model="payForm.amount" type="number" min="1" inputmode="numeric" placeholder="예: 150000" /></label>
+          <label class="retro-payform__row"><span class="t-cap">금액(원)</span><input :value="toCommaText(payForm.amount)" type="text" inputmode="numeric" placeholder="예: 150,000" @input="setPayAmount" /></label>
           <label class="retro-payform__row"><span class="t-cap">결제 시각</span><input v-model="payForm.paidAt" type="datetime-local" /></label>
           <button type="button" class="btn btn--primary btn--lg" :disabled="!payForm.storeName || !payForm.amount || !payForm.paidAt" @click="savePayForm">저장</button>
         </div>
