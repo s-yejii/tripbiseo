@@ -27,15 +27,15 @@ import LiveCards from '@/components/live/LiveCards.vue'
 import DevDot from '@/components/live/DevDot.vue'
 import DemoDrive from '@/components/live/DemoDrive.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
-import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
 import LostFixedCard from '@/components/live/LostFixedCard.vue'
-import { closeLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
+import { closeLiveNotice, liveBanner, removeLiveNotices, showLiveNotice } from '@/utils/liveBanner'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import { isBoardingPlace, missTrainTitle } from '@/utils/departure'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
+import SimilarSearch from '@/components/live/SimilarSearch.vue'
 import LinkAddSheet from '@/components/live/LinkAddSheet.vue'
 import { useReplanStore } from '@/stores/replan'
 import { demoRoute } from '@/utils/demoRoute'
@@ -60,6 +60,7 @@ const status = computed(() => live.status.value)
 const isReady = computed(() => live.phase.value === 'ready' && status.value !== null)
 
 const selected = ref(null) // 고른 카드·핀 (칸 id)
+const cardFocus = ref(null) // 지도 핀을 눌렀을 때 { no: 칸 id, at: 누른 시각 } → 아래 카드 줄이 그 카드를 가운데로 (11/12)
 const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
@@ -155,20 +156,25 @@ const isAlertMuted = computed(() => {
   if (!isReady.value || !fixed.value) return false
   return replan.isMutedFor(live.tripId.value, fixed.value.name, lateMin.value)
 })
+// [알림 끄기]로 이 예약의 늦음 배너를 껐는지 (놓침 카드는 그래도 뜸, 11/12)
+const isLateOff = computed(() => isReady.value && !!fixed.value && replan.isLateOffFor(live.tripId.value, fixed.value.name))
 const alertLink = computed(() => (isReady.value && status.value.replan ? '/live/delay' : ''))
 const currentAlert = computed(() => (isReady.value ? status.value.alert : null))
-// 중요한 알림(예약에 늦음 = 대안이 필요한 돌발)은 배너 대신 가운데 카드로. [나중에]를 누르면 그 알림은 알약으로만
+// 11/12 ④ 지연 알림 정리 (고정 일정 기준만)
+//   늦음(대안으로 만회 가능, late-·late-soon-) → 위 배너 + [10분 뒤 다시] [알림 끄기], 배너를 누르면 지연 화면(대안)
+//   어떤 방법으로도 못 맞춤(lost-) → 가운데 놓침 카드 (그대로 가기 / 빼고 다음으로 / 식당·카페면 비슷한 가게)
+//   [나중에]·닫기를 누른 놓침 카드는 알약으로만
 const laterKey = ref('')
-const isCriticalAlert = computed(() => !!currentAlert.value && /^late-/.test(currentAlert.value.key || ''))
 const pageRoute = useRoute()
-// 여행 중 화면 자체일 때만 (지연·대안 화면이 위에 열려 있으면 카드를 안 띄움: 11/08 카드가 지연 화면을 가리던 문제)
-const isCardOpen = computed(() => isCriticalAlert.value && pageRoute.path === '/live' && !isAlertMuted.value && !adding.value && laterKey.value !== currentAlert.value.key)
+const SNOOZE_MS = 10 * 60 * 1000 // [10분 뒤 다시]
+let snoozeTimer = null
+const similarStop = ref(null) // 비슷한 근처 가게를 찾는 중인 놓친 칸 (지도에 핀으로)
 // 시연 계정(11/09 주형): KTX는 "몇 분 늦어요" 대신 놓치는지로 말함. 다른 계정은 서버 문구 그대로
-const cardTitle = computed(() => {
-  const fixed = status.value && status.value.fixed
-  if (devMode.isOn && fixed && fixed.slackMin < 0 && isBoardingPlace(fixed.name)) return missTrainTitle(fixed.name, fixed.eta, fixed.time)
-  return status.value.alert.title
-})
+function lateTitle(alert) {
+  const fixedStatus = status.value && status.value.fixed
+  if (devMode.isOn && fixedStatus && fixedStatus.slackMin < 0 && isBoardingPlace(fixedStatus.name)) return missTrainTitle(fixedStatus.name, fixedStatus.eta, fixedStatus.time)
+  return alert.title
+}
 // 놓침 카드 (④ 11/12): 서버 lost- 알림(식당·카페 예약에 가장 빠른 방법으로도 못 닿음), 또는 고른 예약 카드의 "못 가게 됐어요"
 const manualLostId = ref(null) // "못 가게 됐어요"로 연 칸 id
 const isSkipping = ref(false)
@@ -179,19 +185,22 @@ const lostStop = computed(() => {
 })
 const isLostOpen = computed(() => {
   if (!lostStop.value || pageRoute.path !== '/live' || adding.value) return false
-  return manualLostId.value !== null || laterKey.value !== currentAlert.value.key
+  return manualLostId.value !== null || (!isAlertMuted.value && laterKey.value !== currentAlert.value.key)
 })
 const lostText = computed(() => (manualLostId.value ? '예약한 곳에 못 가게 됐나요?' : currentAlert.value.text))
+const isCardOpen = isLostOpen // 가운데 카드는 놓침 카드 하나뿐 (11/12)
 // 고른 카드가 아직 안 간 식당·카페 예약이면 "못 가게 됐어요" 버튼
 const selectedMealFixed = computed(() => stops.value.find((stop) => stop.id === selected.value && stop.fixed && stop.meal && stop.reach !== 'done' && stop.reach !== 'here') || null)
 
-// 비슷한 근처 가게 화면으로 (지금 위치 기준)
+// 비슷한 근처 가게: 지도 위에 핀으로 (근처 찾기와 같은 자리, 지금 위치 기준)
 function openSimilar() {
   const stop = lostStop.value
-  const position = live.position.value
-  if (!position) return showToast('아직 지금 위치를 받지 못했어요')
+  if (!live.position.value) return showToast('아직 지금 위치를 받지 못했어요')
   closeLost()
-  router.push({ path: '/live/similar', query: { tripId: live.tripId.value, stopId: stop.id, placeId: stop.placeId, name: stop.name, lat: position.lat, lng: position.lng } })
+  asking.value = false
+  info.value = null
+  similarStop.value = { id: stop.id, placeId: stop.placeId, name: stop.name }
+  adding.value = true
 }
 
 // 빼고 다음 장소로: 그 칸을 빼고 남은 일정을 당겨 다시 계산
@@ -211,11 +220,12 @@ async function skipLost() {
   isSkipping.value = false
 }
 
-// 그래도 갈게요: 서버 알림이었으면 가장 빠른 방법·가게에 전화하기 화면으로, 직접 연 거면 닫기만
+// 그래도 갈게요: 그대로 가기로 함 → 이 예약의 지연 알림은 더 안 띄움 (11/12). 직접 연 거면 닫기만
 function keepLost() {
+  const stop = lostStop.value
   const isManual = manualLostId.value !== null
   closeLost()
-  if (!isManual) router.push('/live/quick')
+  if (!isManual && stop) replan.muteFixed(live.tripId.value, stop.name, lateMin.value, true)
 }
 
 function closeLost() {
@@ -224,19 +234,66 @@ function closeLost() {
 }
 
 watch(isCardOpen, (isOpen) => (liveBanner.isCardOpen = isOpen), { immediate: true }) // 카드가 떠 있는 동안 시연 [+분] 버튼을 막음
-onUnmounted(() => (liveBanner.isCardOpen = false))
+onUnmounted(() => {
+  liveBanner.isCardOpen = false
+  clearTimeout(snoozeTimer)
+})
 
 // 새 알림이 오면(또는 화면에 들어오면) 펼칠지 정함: 같은 종류는 10분에 한 번만 펼치고 나머지는 알약으로 접어 둠
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
   const alert = currentAlert.value
   if (!alert) return
-  if (!shouldOpenAlert(alert) || /^(late|lost)-/.test(alert.key || '')) return // 늦음·놓침(돌발)은 가운데 카드로
+  if (isAlertMuted.value && isAboutFixed(alert.key)) return // 그대로 가기로 한 예약은 더 안 알림 (11/12)
+  if (isLateOff.value && isLateKey(alert.key) && isAboutFixed(alert.key)) return // [알림 끄기]를 누른 예약의 늦음 배너
+  if (/^(late|lost)-/.test(alert.key || '')) {
+    // 같은 예약의 옛 배너(여유 N분뿐·계획 시간 지남·덜 늦었을 때 늦음)는 뺌: 서로 다른 말을 하는 알림이 같이 보이던 문제 (11/12)
+    removeLiveNotices((notice) => notice.key !== alert.key && isAboutFixed(notice.key))
+  }
+  if (/^lost-/.test(alert.key || '')) return // 놓침은 가운데 카드로
+  if (!shouldOpenAlert(alert)) return
   rememberAlert(alert)
   queueAlert(alert)
 }, { immediate: true })
-// 서버 알림을 위쪽 알림 줄에 넣기 (닫을 때까지 남고, 앞 알림을 닫으면 이어서 보임)
+// 이 알림 key가 지금 고정 일정(예약)에 대한 지연 알림인지: tight-·missed-·late-soon-·late-·lost- 뒤 번호가 그 칸 id (11/12)
+function isAboutFixed(key) {
+  if (!fixed.value) return false
+  const match = (key || '').match(/^(?:tight|missed|late-soon|late|lost)-(\d+)/)
+  return !!match && Number(match[1]) === fixed.value.id
+}
+// 늦음 배너 알림인지 (빠듯 tight-, 늦음 late-·late-soon-). 놓침 lost-는 아님
+function isLateKey(key) {
+  return /^(?:tight|late)-/.test(key || '')
+}
+// 알약 누르기: 놓침이면 가운데 카드를 다시, 그 밖(늦음 포함)은 위 알림 줄에
+function openAlert(alert) {
+  if (/^lost-/.test(alert.key || '')) {
+    laterKey.value = ''
+    return
+  }
+  queueAlert(alert)
+}
+// 서버 알림을 위쪽 알림 줄에 넣기 (닫을 때까지 남고, 앞 알림을 닫으면 이어서 보임). 늦음은 누르면 지연 화면(대안) + 버튼 두 개
 function queueAlert(alert) {
-  showLiveNotice({ key: alert.key || alert.title, title: alert.title, body: alert.text || '', warn: alert.level === 'danger', icon: 'i-warning', to: alertLink.value, at: status.value.now })
+  const isLateAlert = /^late-/.test(alert.key || '')
+  showLiveNotice({ key: alert.key || alert.title, title: isLateAlert ? lateTitle(alert) : alert.title, body: alert.text || '', warn: alert.level === 'danger', icon: 'i-warning',
+    to: isLateAlert ? '/live/delay' : alertLink.value, at: status.value.now, isLate: isLateAlert })
+}
+// [10분 뒤 다시]: 배너를 닫고 10분 뒤에도 늦음이면 다시 띄움
+function snoozeLate() {
+  closeLiveNotice()
+  clearTimeout(snoozeTimer)
+  snoozeTimer = setTimeout(() => {
+    const alert = currentAlert.value
+    if (!alert || !/^late-/.test(alert.key || '') || isAlertMuted.value || isLateOff.value) return
+    rememberAlert(alert)
+    queueAlert(alert)
+  }, SNOOZE_MS)
+}
+// [알림 끄기]: 이 예약의 늦음 배너는 더 안 띄움. 어떤 방법으로도 못 맞추게 되면 놓침 카드는 뜸 (11/12)
+function turnOffLateAlert() {
+  closeLiveNotice()
+  clearTimeout(snoozeTimer)
+  if (fixed.value) replan.turnOffLate(live.tripId.value, fixed.value.name)
 }
 
 // 첫 칸을 가운데에 고름 (지금 있는 곳 → 다음 곳)
@@ -375,7 +432,9 @@ function onPickPin(pin) {
     return
   }
   const stop = stops.value.find((item) => item.id === pin.id)
-  if (stop) pickStop(stop, pin)
+  if (!stop) return
+  cardFocus.value = { no: stop.id, at: Date.now() } // 아래 카드 줄도 이 장소 카드를 가운데로 (11/12)
+  pickStop(stop, pin)
 }
 
 // ------------------------------------------------------------ 시트 위 큰 글자
@@ -586,6 +645,7 @@ function openNear() {
 }
 function closeNear() {
   adding.value = false
+  similarStop.value = null
   nearPlaces.value = []
   nearRadius.value = null
   nearPickedId.value = null
@@ -729,11 +789,10 @@ function restartMoving() {
 
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
         <!-- 예약 놓침: 가운데 카드 (11/12) -->
-        <LostFixedCard v-if="isLostOpen" :name="lostStop.name" :text="lostText" :can-find-similar="!!lostStop.placeId" :is-skipping="isSkipping" @similar="openSimilar" @skip="skipLost" @keep="keepLost" />
-        <CriticalAlertCard v-if="isCardOpen" :title="cardTitle" :text="status.alert.text" :to="'/live/quick'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
+        <LostFixedCard v-if="isLostOpen" :name="lostStop.name" :text="lostText" :can-find-similar="!!lostStop.placeId && !!lostStop.meal" :is-skipping="isSkipping" @similar="openSimilar" @skip="skipLost" @keep="keepLost" />
         <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
         <AppNoti
-          v-else-if="liveBanner.queue.length && !adding"
+          v-if="!isCardOpen && liveBanner.queue.length && !adding"
           :key="liveBanner.queue[0].title + liveBanner.queue[0].body"
           :title="liveBanner.queue[0].title"
           :body="liveBanner.queue[0].body + (liveBanner.queue.length > 1 ? ' · 알림 ' + (liveBanner.queue.length - 1) + '개 더' : '')"
@@ -741,13 +800,19 @@ function restartMoving() {
           :warn="liveBanner.queue[0].warn"
           :to="liveBanner.queue[0].to || ''"
           @close="closeLiveNotice"
-        />
+          @open="closeLiveNotice"
+        >
+          <template v-if="liveBanner.queue[0].isLate">
+            <button type="button" class="btn btn--secondary btn--sm" @click.stop="snoozeLate">10분 뒤 다시</button>
+            <button type="button" class="btn btn--primary btn--sm" @click.stop="turnOffLateAlert">알림 끄기</button>
+          </template>
+        </AppNoti>
         <!-- PC 마우스로도 한 번에 닫게 작은 닫기 버튼 (위로 밀기도 그대로) -->
         <span v-if="!isCardOpen && liveBanner.queue.length && !adding" class="live-noti-at">{{ liveBanner.queue[0].at || '' }}</span>
         <button v-if="!isCardOpen && liveBanner.queue.length && !adding" type="button" class="live-noti-x" aria-label="알림 닫기" @click="closeLiveNotice"><i class="ic ic--s i-close" aria-hidden="true"></i></button>
         <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
-        <template v-else-if="status.alert && !isAlertMuted && !adding">
-          <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="queueAlert(status.alert)">
+        <template v-else-if="status.alert && !isAlertMuted && !(isLateOff && isLateKey(status.alert.key)) && !adding">
+          <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="openAlert(status.alert)">
             <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + lateMin + '분' : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
         </template>
@@ -770,8 +835,19 @@ function restartMoving() {
         <LinkAddSheet v-if="linkOpen" :trip-id="live.tripId.value" :position="live.position.value" @close="linkOpen = false" @added="onLinkAdded" />
 
         <!-- 근처 찾기 (⑤) -->
+        <!-- 놓친 예약과 비슷한 근처 가게 (④ 11/12): 근처 찾기와 같은 자리·같은 지도 핀 -->
+        <SimilarSearch
+          v-if="adding && similarStop"
+          v-model:picked-id="nearPickedId"
+          :trip-id="live.tripId.value"
+          :position="live.position.value"
+          :stop="similarStop"
+          @results="onNearResults"
+          @added="onAdded"
+          @close="closeNear"
+        />
         <NearSearch
-          v-if="adding"
+          v-else-if="adding"
           v-model:picked-id="nearPickedId"
           :trip-id="live.tripId.value"
           :position="live.position.value"
@@ -803,7 +879,7 @@ function restartMoving() {
             </div>
 
             <button v-if="selectedMealFixed && !isLostOpen" type="button" class="btn btn--secondary btn--md" style="align-self: flex-start" @click="manualLostId = selectedMealFixed.id">못 가게 됐어요</button>
-            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
+            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" :focus="cardFocus" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
 
             <p v-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비</p>
           </BottomSheet>

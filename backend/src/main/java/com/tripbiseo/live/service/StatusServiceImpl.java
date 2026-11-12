@@ -94,7 +94,8 @@ public class StatusServiceImpl implements StatusService {
 
         // 알림은 LiveAlertMaker, 날씨는 LiveWeatherChecker가 (계산 결과를 context 하나로 넘김)
         StatusContext context = toContext(todayStops, current, nextStop, fixedStop, slack, etaMap, openMap);
-        context.setFastestSlack(getFastestSlack(fixedStop, slack, mealStopIds, lat, lng)); // 놓침(lost-) 알림용
+        context.setFastestSlack(getFastestSlack(fixedStop, slack, lat, lng)); // 어떤 방법으로도 못 닿는지 (lost-·늦음 카드 문구)
+        context.setFixedMeal(fixedStop != null && mealStopIds.contains(fixedStop.getId())); // 놓침 문구: 식당이면 "예약 시각", 아니면 "약속 시각" (11/12)
         context.setWeather(liveWeatherChecker.check(lat, lng, context)); // 알림(rain-)도 이 값을 씀
         response.setWeather(context.getWeather());
         LeaveInfo leave = liveAlertMaker.makeLeave(context);
@@ -357,10 +358,10 @@ public class StatusServiceImpl implements StatusService {
         return openMap;
     }
 
-    /** 식당·카페 예약에 늦을 때: 가장 빠른 방법으로 지금 바로 가도 남는 여유(분). 해당 없으면 null (11/12 ④) */
-    private Integer getFastestSlack(Stop fixedStop, Integer slack, Set<Long> mealStopIds, double lat, double lng) {
-        if (slack == null || slack >= 0 || !mealStopIds.contains(fixedStop.getId())) {
-            return null; // 안 늦었거나 식당·카페가 아니면(KTX 등) 계산 안 함
+    /** 고정 일정에 늦을 때: 가장 빠른 방법으로 지금 바로 가도 남는 여유(분). 안 늦으면 null (11/12 ④) */
+    private Integer getFastestSlack(Stop fixedStop, Integer slack, double lat, double lng) {
+        if (slack == null || slack >= 0) {
+            return null; // 안 늦으면 계산 안 함 (TMAP 호출 줄이기)
         }
         String cacheKey = fixedStop.getId() + "-" + (-slack) / LATE_STEP_MIN;
         Integer cached = fastestSlackCache.get(cacheKey);

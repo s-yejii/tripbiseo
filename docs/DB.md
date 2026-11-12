@@ -308,12 +308,13 @@
 | place_id | TEXT → retrip_place (ON DELETE SET NULL) | DB에 없는 장소면 NULL |
 | name | VARCHAR(60) NOT NULL UNIQUE | 칸 이름과 맞춰볼 이름 |
 | source | VARCHAR(40) NOT NULL | 출처 (예: `osm:relation/7550666`) |
-| boundary | geography(MultiPolygon, 4326) NOT NULL, GIST 인덱스 | 경계 |
+| boundary | geography(Geometry, 4326) NOT NULL, GIST 인덱스, CHECK `ST_IsValid(boundary::geometry)` | 경계. 공원 같은 면, 둘레길 같은 선 둘 다 (11/12: MultiPolygon → Geometry). 모양이 깨진 경계는 못 들어와요 (제약 `place_area_boundary_valid`, 11/12) |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
 
 - 칸과 잇는 법: `place_id`가 같거나 이름이 같을 때만(띄어쓰기 무시). 좌표로만 이으면 안 돼요 (여의도샛강생태공원도 여의도한강공원 경계 안에 있음)
 - 도착: 지금 점·앞 점 둘 다 경계 30m 안. 출발: 둘 다 경계 80m 밖. 경계 없는 칸은 예전처럼 150m/200m
-- 지금 들어 있는 곳: 여의도한강공원 1개. 출처 © OpenStreetMap contributors (ODbL), 앱에 경계를 보여주면 출처 표기 필요
+- 선(길)이면 길에서 30m 안 = 도착, 80m 밖 = 출발 (판정 쿼리는 같은 `ST_Distance`)
+- 지금 들어 있는 곳: 여의도한강공원(면), 남산순환나들길(선, 11/12: OSM 남산북측·남측순환로·남산공원길 8조각을 합침). 출처 © OpenStreetMap contributors (ODbL), 앱에 경계를 보여주면 출처 표기 필요
 ### ask_place · ask_review · ask_reader · AI에게 묻기 (④, `18_ask_place.sql`, 11/06)
 
 여행 중 "가는 길에 5분 안 카페"처럼 물으면 AI(Gemini)가 SQL을 써 주고, 서버가 검사한 뒤 실행해요. AI는 SQL을 글자로 쓰기만 하고 DB에 붙지 않아요.

@@ -79,7 +79,8 @@ const optionCount = computed(() => (replan.options ? replan.options.alternatives
 const altLink = computed(() => (replan.findOption('택시') || replan.findOption('지하철') ? '/live/quick' : '/live/alt'))
 
 function goAnyway() {
-  replan.muteLate(replan.lateMin)
+  // 11/12: 늦은 걸 알고 "그냥 갈게요" → 이 예약 지연 알림은 더 안 띄움. 빠듯할 때 "조금만 더 있을게요"는 예전처럼 10분 더 늦으면 다시
+  replan.muteLate(replan.lateMin, replan.lateMin > 0)
   router.replace('/live')
 }
 </script>

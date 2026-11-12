@@ -1,7 +1,7 @@
 <script setup>
 // 대안 고르기 화면 위 카드 (③, 11/06): 서버가 만든 "갈아타기"(택시로 바로·지하철 → 택시)나 "비 피하기"(야외 먼저)가 있으면 보여 줘요.
 // 아래 세 탭(시간 줄이기·한 곳 빼기·장소 바꾸기)은 사용자가 직접 고르는 것, 이 카드는 서버가 계산을 끝낸 대안을 한 번에 적용하는 것
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { getPlaceDetail } from '@/api/trips'
 import { devMode } from '@/utils/devMode'
 import { useRouter } from 'vue-router'
@@ -12,6 +12,7 @@ const QUICK_SHORTS = ['지하철', '택시', '갈아타기', '비 피하기'] //
 const router = useRouter()
 const replan = useReplanStore()
 const isApplying = ref(false)
+const emit = defineEmits(['empty'])
 
 // 보여 줄 카드들: 빠른 도착 순 (맨 앞 = 추천)
 const quickList = computed(() => {
@@ -22,6 +23,10 @@ const quickList = computed(() => {
   }
   return list.sort((a, b) => b.slackMin - a.slackMin)
 })
+// 11/12 ④: 빨리 가는 방법이 하나도 없으면(예약 앞에 다른 일정이 있고 택시도 안 빠를 때) 빈 화면이 돼서 알려 줌 → 화면이 원래 대안 화면으로 넘김
+watch(() => quickList.value.length, (count) => {
+  if (count === 0) emit('empty')
+}, { immediate: true })
 function changeTextOf(option) {
   const changed = option.stops.find((stop) => stop.change)
   return changed ? changed.name + ' · ' + changed.change : ''
