@@ -88,6 +88,7 @@ public class PlanRuleMaker {
     private static final int OPEN_MOVE_LATEST_MIN = 21 * 60;   // 이 시각까지만 미뤄 봄
     private static final String MOVE_CATEGORY = "교통";         // 역·터미널 예약을 칸 만들 때 쓰는 분류 (11/12)
     private static final String MOVE_KIND = "move";
+    private static final int SAME_SPOT_M = 50;                 // 같은 종류가 이 안이면 같은 곳으로 봄 (11/12)
     private static final List<String> FALLBACK_KINDS = List.of("tour", "culture", "shop", "cafe"); // 볼거리 칸이 빌 때 넣어 볼 종류 (11/12)
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
@@ -603,25 +604,26 @@ public class PlanRuleMaker {
             AiDraftStop pick = slotPicks.get(day + "/S" + (i + 1));
             // 여러 구면 이 칸은 정해진 구의 후보에서 먼저 (없으면 전체)
             Map<String, Place> slotCandidates = candidatesOfSlot(candidates, areas, (day - 1) * slots.size() + i, days * slots.size());
-            Place place = pick == null ? null : checkPick(pick, slotKinds, slotCandidates, used, conditions, date, start, stay, point, maxWalkMeters);
+            Set<String> blocked = withNearSameKind(used, candidates, stops, day); // 11/12 같은 곳 다른 이름(남대문·숭례문, DDP·역사문화공원)이 연달아 안 들어가게
+            Place place = pick == null ? null : checkPick(pick, slotKinds, slotCandidates, blocked, conditions, date, start, stay, point, maxWalkMeters);
             String reason = place == null ? null : pick.getReason();
             if (pick != null && place == null) {
                 replaced++;
             }
             for (int k = 0; place == null && k < slotKinds.size(); k++) { // 이 칸에 넣을 종류를 앞에서부터 (걷는 거리 안에서)
-                place = pickBest(slotCandidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
+                place = pickBest(slotCandidates, scores, blocked, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
             }
             for (int k = 0; place == null && slotCandidates != candidates && k < slotKinds.size(); k++) { // 그 구에 없으면 다른 구에서
-                place = pickBest(candidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
+                place = pickBest(candidates, scores, blocked, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
             }
             for (int k = 0; place == null && maxWalkMeters != null && k < slotKinds.size(); k++) { // 가까운 곳이 없으면 거리 제한 없이
-                place = pickBest(candidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, null);
+                place = pickBest(candidates, scores, blocked, slotKinds.get(k), point, firstPoint, date, start, stay, null);
             }
             if (place == null && !slotKinds.contains(FOOD_KIND)) {
                 // 11/12 빈 칸 채우기: 볼거리 칸에 넣을 곳이 없으면 산책·카페 중 아직 안 쓴 곳으로 (끼니 칸은 그대로)
                 List<String> fallback = withoutExtraCafe(FALLBACK_KINDS, lastKind, cafeCount);
                 for (int k = 0; place == null && k < fallback.size(); k++) {
-                    place = pickBest(candidates, scores, used, fallback.get(k), point, firstPoint, date, start, stay, null);
+                    place = pickBest(candidates, scores, blocked, fallback.get(k), point, firstPoint, date, start, stay, null);
                 }
             }
             if (place == null) {
@@ -647,6 +649,28 @@ public class PlanRuleMaker {
             cafeCount += CAFE_KIND.equals(lastKind) ? 1 : 0;
         }
         return replaced;
+    }
+
+    /**
+     * 이미 쓴 곳 + 그날 이미 넣은 곳과 50m 안의 같은 종류 후보 (11/12).
+     * 이름은 달라도 같은 곳(관광특구 "남대문" 점과 숭례문, DDP와 동대문역사문화공원)이 연달아 들어가던 문제
+     */
+    private Set<String> withNearSameKind(Set<String> used, Map<String, Place> candidates, List<AiDraftStop> stops, int day) {
+        Set<String> blocked = new HashSet<>(used);
+        for (AiDraftStop stop : stops) {
+            Place placed = stop.getId() == null || dayOf(stop) != day ? null : candidates.get(stop.getId());
+            if (placed == null || placed.getLat() == null) {
+                continue;
+            }
+            for (Place place : candidates.values()) {
+                boolean isSameKind = place.getKind() != null && place.getKind().equals(placed.getKind());
+                if (isSameKind && place.getLat() != null
+                        && Geo.distanceMeters(place.getLat(), place.getLng(), placed.getLat(), placed.getLng()) <= SAME_SPOT_M) {
+                    blocked.add(place.getId());
+                }
+            }
+        }
+        return blocked;
     }
 
     /** 그날 이 칸이 끝나야 하는 하루 끝 (끝 장소 마감이 있으면 그것, 시간을 골랐으면 고른 끝·다른 날 20:00, 아니면 23:00) */
