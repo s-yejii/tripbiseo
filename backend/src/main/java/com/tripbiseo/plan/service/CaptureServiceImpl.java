@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.dev.DevService;
 import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.common.util.Geo;
@@ -45,11 +46,18 @@ public class CaptureServiceImpl implements CaptureService {
 
     private final AiService aiService;
     private final PlaceService placeService;
+    private final DevService devService;       // 시연 계정인지 (공통 서비스, 부르기만)
+    private final DemoCaptures demoCaptures;   // 시연용 캡처 사진 → 정해 둔 값
 
     /** 사진 검사 → Gemini로 읽기 → 형식 검사 → DB 장소 찾기 */
     @Override
-    public CaptureResponse readCapture(byte[] image, String imageType) {
+    public CaptureResponse readCapture(long memberId, byte[] image, String imageType) {
         checkImage(image, imageType);
+        CaptureResponse demo = devService.isDemoAccount(memberId) ? demoCaptures.findReserve(image) : null;
+        if (demo != null) { // 시연 계정 + 시연용 사진이면 Gemini 대신 정해 둔 값 (11/12)
+            demoCaptures.waitForScan();
+            return demo;
+        }
         AiCapture capture = aiService.askJsonWithImage(makePrompt(), image, imageType, AiCapture.class);
         if (capture == null || capture.getName() == null || capture.getName().isBlank()) {
             throw fail(422, "예약 정보를 읽지 못했어요. 장소 이름과 시간이 보이게 다시 찍어 주세요.");
@@ -84,8 +92,13 @@ public class CaptureServiceImpl implements CaptureService {
 
     /** 영수증: 사진 검사 → Gemini로 읽기 → 금액·시각 검사 → DB 장소 찾기 (예약 캡처와 같은 장소 찾기) */
     @Override
-    public ReceiptResponse readReceipt(byte[] image, String imageType) {
+    public ReceiptResponse readReceipt(long memberId, byte[] image, String imageType) {
         checkImage(image, imageType);
+        ReceiptResponse demo = devService.isDemoAccount(memberId) ? demoCaptures.findReceipt(image) : null;
+        if (demo != null) { // 시연 계정 + 시연용 영수증이면 정해 둔 값 (11/12)
+            demoCaptures.waitForScan();
+            return demo;
+        }
         AiReceipt receipt = aiService.askJsonWithImage(makeReceiptPrompt(), image, imageType, AiReceipt.class);
         if (receipt == null || receipt.getStoreName() == null || receipt.getStoreName().isBlank()) {
             throw fail(422, "영수증을 읽지 못했어요. 가게 이름과 합계 금액이 보이게 다시 찍어 주세요.");
