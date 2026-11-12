@@ -11,8 +11,10 @@ import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.external.FoundLocation;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.plan.dto.AiCapture;
+import com.tripbiseo.plan.dto.AiReceipt;
 import com.tripbiseo.plan.dto.AiStayCapture;
 import com.tripbiseo.plan.dto.CaptureResponse;
+import com.tripbiseo.plan.dto.ReceiptResponse;
 import com.tripbiseo.plan.dto.StayCaptureResponse;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.service.PlaceService;
@@ -39,6 +41,7 @@ public class CaptureServiceImpl implements CaptureService {
     private static final List<String> GENERIC_WORDS = List.of("예약", "확정", "완료", "안내", "확인", "변경", "알림", "문자", "내역",
             "방문", "디저트", "식당", "음식점", "맛집", "카페", "레스토랑");
     private static final int MIN_STORE_NAME_LENGTH = 2;
+    private static final long MAX_AMOUNT = 10_000_000; // 영수증 합계 상한 (1천만 원). 넘으면 잘못 읽은 것으로 봄
 
     private final AiService aiService;
     private final PlaceService placeService;
@@ -79,7 +82,74 @@ public class CaptureServiceImpl implements CaptureService {
         return response;
     }
 
+    /** 영수증: 사진 검사 → Gemini로 읽기 → 금액·시각 검사 → DB 장소 찾기 (예약 캡처와 같은 장소 찾기) */
+    @Override
+    public ReceiptResponse readReceipt(byte[] image, String imageType) {
+        checkImage(image, imageType);
+        AiReceipt receipt = aiService.askJsonWithImage(makeReceiptPrompt(), image, imageType, AiReceipt.class);
+        if (receipt == null || receipt.getStoreName() == null || receipt.getStoreName().isBlank()) {
+            throw fail(422, "영수증을 읽지 못했어요. 가게 이름과 합계 금액이 보이게 다시 찍어 주세요.");
+        }
+        ReceiptResponse response = new ReceiptResponse();
+        response.setTotalAmount(toAmount(receipt.getTotalAmount()));
+        String date = matchesOrNull(receipt.getPaidDate(), DATE_PATTERN);
+        String time = matchesOrNull(receipt.getPaidTime(), TIME_PATTERN);
+        response.setPaidAt(date == null || time == null ? null : date + " " + time);
+        fillReceiptPlace(response, receipt);
+        fillCheckNeeded(response, Boolean.TRUE.equals(receipt.getIsSumDifferent()));
+        return response;
+    }
+
     // ---------------------------------------------------------------- 도우미
+
+    /** 영수증에서 필요한 다섯 가지만 (카드번호·승인번호·가맹점번호·사업자번호·전화번호는 받지 않음) */
+    private String makeReceiptPrompt() {
+        return "이 사진은 식당·카페·가게의 영수증이야. 아래 값만 읽어서 JSON으로 답해. 안 보이면 null.\n"
+             + "totalAmount는 '합계'·'결제 금액'·'받을 금액' 줄의 최종 금액(할인 뒤, 숫자만)이야. 품목 금액이나 부가세 줄이 아니야.\n"
+             + "품목 금액을 더한 값(할인 반영)이 합계와 다르면 isSumDifferent를 true로.\n"
+             + "날짜는 연·월·일을 모두 채워. 연도가 없으면 오늘(" + Geo.now().toLocalDate() + ")과 가장 가까운 그 날짜의 연도로 채워.\n"
+             + "카드번호, 승인번호, 가맹점번호, 사업자번호, 전화번호, 사람 이름은 적지 마.\n"
+             + "{\"storeName\": \"가게 이름\", \"paidDate\": \"YYYY-MM-DD\", \"paidTime\": \"HH:mm\", \"totalAmount\": \"합계 금액\", "
+             + "\"address\": \"가게 주소\", \"isSumDifferent\": false}";
+    }
+
+    /** "150,000원" → 150000. 숫자가 아니거나 1원~1천만 원 밖이면 null (사람이 확인) */
+    private Integer toAmount(String text) {
+        if (text == null) {
+            return null;
+        }
+        String digits = text.replaceAll("[^0-9]", "");
+        if (digits.isEmpty() || digits.length() > String.valueOf(MAX_AMOUNT).length()) {
+            return null;
+        }
+        long amount = Long.parseLong(digits);
+        return amount < 1 || amount > MAX_AMOUNT ? null : (int) amount;
+    }
+
+    /** 가게 이름·주소로 장소 찾기: 예약 캡처의 fillPlace를 그대로 써요 (같은 지점 고르기·주소 보정·DB 정식 이름) */
+    private void fillReceiptPlace(ReceiptResponse response, AiReceipt receipt) {
+        CaptureResponse place = new CaptureResponse();
+        place.setName(receipt.getStoreName().trim());
+        place.setAddress(receipt.getAddress());
+        fillPlace(place);
+        response.setStoreName(place.getName());
+        response.setAddress(place.getAddress());
+        response.setPlaceId(place.getPlaceId());
+        response.setLat(place.getLat());
+        response.setLng(place.getLng());
+    }
+
+    /** 금액·결제 시각을 못 읽었거나 품목 합이 합계와 다르면 사람이 꼭 확인하게 표시 */
+    private void fillCheckNeeded(ReceiptResponse response, boolean isSumDifferent) {
+        if (response.getTotalAmount() == null) {
+            response.setNote("합계 금액을 못 읽었어요 · 금액을 적어 주세요");
+        } else if (isSumDifferent) {
+            response.setNote("품목을 더한 값과 합계가 달라요 · 금액을 확인해 주세요");
+        } else if (response.getPaidAt() == null) {
+            response.setNote("결제 시각을 못 읽었어요 · 시각을 확인해 주세요");
+        }
+        response.setCheckNeeded(response.getNote() != null);
+    }
 
     /** 사진이 있고, 5MB 이하이고, PNG·JPG·WEBP인지 */
     private void checkImage(byte[] image, String imageType) {

@@ -34,6 +34,7 @@ import com.tripbiseo.plan.dto.PlanChatResponse;
 import com.tripbiseo.plan.dto.PlanGenerateRequest;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.CaptureResponse;
+import com.tripbiseo.plan.dto.ReceiptResponse;
 import com.tripbiseo.plan.dto.StayCaptureResponse;
 import com.tripbiseo.plan.service.AreaStatService;
 import com.tripbiseo.plan.service.CaptureService;
@@ -139,6 +140,13 @@ public class PlanController {
     public StayCaptureResponse readStayCapture(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
         byte[] bytes = image == null ? null : image.getBytes();
         return captureService.readStayCapture(bytes, image == null ? null : image.getContentType());
+    }
+
+    /** 영수증 사진 → 가게·결제 시각·합계 + 장소 (결제 후보, 저장 안 함. ⑤ 결제 메모가 확인 후 저장) */
+    @PostMapping("/capture/receipt")
+    public ReceiptResponse readReceipt(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
+        byte[] bytes = image == null ? null : image.getBytes();
+        return captureService.readReceipt(bytes, image == null ? null : image.getContentType());
     }
 
     /** 가고 싶은 곳 추천 게시물 */
