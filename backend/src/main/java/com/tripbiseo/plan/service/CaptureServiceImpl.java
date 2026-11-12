@@ -93,6 +93,7 @@ public class CaptureServiceImpl implements CaptureService {
     /** 필요한 네 가지만 JSON으로 (예약 번호·전화번호·결제 정보는 받지 않음) */
     private String makePrompt() {
         return "이 사진은 공연·식당·전시 같은 예약 확인 화면이야. 아래 네 가지만 읽어서 JSON으로 답해. 안 보이면 null.\n"
+             + "예약이 여러 개 보이면 맨 위 첫 번째 예약 하나만 읽고, 배열이 아니라 객체 하나로 답해.\n"
              + "날짜는 연·월·일을 모두 채워. 화면에 연도가 없으면 오늘(" + Geo.now().toLocalDate() + ") 이후 가장 가까운 그 날짜의 연도로 채워.\n"
              + "예약 번호, 전화번호, 이름, 결제·카드 정보는 적지 마.\n"
              + "{\"name\": \"장소 또는 공연 이름\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:mm (입장·예약 시각)\", \"address\": \"주소\"}";

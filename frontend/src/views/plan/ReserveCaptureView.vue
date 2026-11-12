@@ -120,6 +120,7 @@ function add() {
             <b>예약 확인 화면을 올려 주세요</b>
             <span class="t-cap">예약 문자 · 앱 예약 내역 캡처</span>
             <span class="t-cap">장소 · 날짜 · 시각을 읽어요</span>
+            <span class="t-cap">예약이 여러 개면 첫 번째만 읽어요 · 나머지는 다시 올려 주세요</span>
           </span>
           <span class="btn btn--secondary btn--sm rc-up"><i class="ic ic--s i-camera" aria-hidden="true"></i>{{ photo ? '다른 사진' : '캡처 올리기' }}</span>
           <input id="rc-file" type="file" accept="image/*" class="rc-file" @change="onFile" />
@@ -129,6 +130,8 @@ function add() {
           <i class="ic" :class="isFailed ? 'i-warning' : found ? 'i-success' : 'i-info'" aria-hidden="true"></i>
           <span class="banner__body"><span class="t-strong">{{ bannerTitle }}</span><span class="t-cap">{{ readNote }}</span></span>
         </div>
+
+        <p v-if="found" class="t-cap rc-multi">예약이 여러 개면 첫 번째만 읽어요 · 나머지는 다시 올려 주세요</p>
 
         <div class="field"><label class="field__label" for="rc-name">장소</label><div class="field__box"><input id="rc-name" v-model="name" type="text" /></div></div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
@@ -151,5 +154,6 @@ function add() {
 .scr-ReserveCapture .rc-drop{position:relative;display:flex;align-items:center;justify-content:center;height:260px;border-radius:var(--radius-lg);background:var(--surface-sunken);border:1.5px dashed var(--line-strong);cursor:pointer;overflow:hidden;transition:border-color .15s}
 .scr-ReserveCapture .rc-drop:hover{border-color:var(--navy)}
 .scr-ReserveCapture .rc-img{max-width:100%;max-height:100%;object-fit:contain}
+.scr-ReserveCapture .rc-multi{margin-top:-8px}
 .scr-ReserveCapture .rc-shot{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:15px;color:var(--ink);text-align:center}
 </style>
