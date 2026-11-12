@@ -46,6 +46,8 @@ public class PlanCandidateFinder {
     private static final int GU_RADIUS_M = 3000;    // 구를 고르면 3km (구 하나가 대략 이 정도)
     private static final int DONG_RADIUS_M = 1500;  // 동·동네를 고르면 1.5km (걸어서 20분)
     private static final int KIND_LIMIT = 25;       // 종류마다 후보 수 (평점 순)
+    private static final int SIGHT_KIND_LIMIT = 80; // 관광·전시·쇼핑은 더 많이 받고, 고른 구 밖은 keepInAreas가 뺌
+    private static final List<String> SIGHT_KINDS = List.of("tour", "culture", "shop");
     // 화면 태그 코드 → ④ PlaceTagReader가 리뷰에서 세는 태그 이름
     // 종류 코드 → 프롬프트·안내에 쓰는 이름 (PlaceMapper kindCase와 같은 코드)
     private static final String TOUR_KIND = "tour";
@@ -112,7 +114,9 @@ public class PlanCandidateFinder {
     public void addKinds(Map<String, Place> candidates, double lat, double lng, String areaType, List<String> kinds) {
         int radius = "gu".equals(areaType) ? GU_RADIUS_M : DONG_RADIUS_M;
         for (String kind : kinds) {
-            addAll(candidates, placeService.getKindPlaceList(lat, lng, radius, kind, KIND_LIMIT), KIND_LIMIT);
+            // 관광·전시·쇼핑은 평점 없는 곳이 많아 점수가 같아서, 25곳만 받으면 옆 구 것만 오고 고른 구는 0곳이 됐어요 (11/12 중구 관광 0곳)
+            int limit = SIGHT_KINDS.contains(kind) ? SIGHT_KIND_LIMIT : KIND_LIMIT;
+            addAll(candidates, placeService.getKindPlaceList(lat, lng, radius, kind, limit), limit);
         }
         if (kinds.contains(TOUR_KIND)) {
             addSights(candidates, lat, lng);

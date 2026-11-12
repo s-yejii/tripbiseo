@@ -94,12 +94,12 @@ async function makeDraft() {
     store.setDraft(result)
     draft.value = result
     for (const note of result.notes || []) showToast(note.text)
-    if (isLeft) showToast('일정이 완성됐어요')
+    if (isLeft) showToast('일정이 완성됐어요', { actionText: '완성본 보기', action: openResult }) // 홈에서 기다려도 점검 화면으로 갈 수 있게 (11/12)
   } catch (e) {
     failed.value = true
     failReason.value = e.message
     failCode.value = e.status ?? null
-    if (isLeft) showToast('일정을 만들지 못했어요')
+    if (isLeft) showToast('일정을 만들지 못했어요', { actionText: '이유 보기', action: openResult })
   }
   clearInterval(timer)
   percent.value = 100

@@ -78,13 +78,18 @@ public class PlanRuleMaker {
     private static final String FOOD_KIND = "food";
     private static final int DEFAULT_KEPT_STAY_MIN = 60;       // 담은 곳의 머무는 분을 모를 때
     private static final String BAR_KIND = "bar";
-    private static final Map<String, Integer> KIND_STAY_MIN = Map.of(FOOD_KIND, 70, CAFE_KIND, 60, BAR_KIND, 90); // 나머지는 80분
-    private static final int OTHER_STAY_MIN = 80;
+    // 종류별 머무는 분 (11/12: 카페 60→50, 관광 80→70, 전시 90, 쇼핑 60. 예전엔 밥·카페·술집 말고는 다 80분)
+    private static final Map<String, Integer> KIND_STAY_MIN = Map.of(FOOD_KIND, 70, CAFE_KIND, 50, BAR_KIND, 90, "tour", 70, "culture", 90, "shop", 60);
+    private static final int OTHER_STAY_MIN = 70;
     private static final int CHOSEN_KIND_EXTRA_MIN = 15;       // "어디 위주로"에서 고른 맛집·카페는 더 오래 (11/06)
     private static final int SHORTEST_STAY_MIN = 40;           // 동행에 맞춰 줄여도 이보다 짧게는 안 함
     private static final int DEFAULT_EXTRA_STAY_MIN = 90;      // 꼭 갈 곳·고정 일정의 머무는 분을 모를 때
     private static final int OPEN_MOVE_STEP_MIN = 15;          // 꼭 갈 곳이 문을 안 열었으면 이만큼씩 뒤로 (11/06)
     private static final int OPEN_MOVE_LATEST_MIN = 21 * 60;   // 이 시각까지만 미뤄 봄
+    private static final String MOVE_CATEGORY = "교통";         // 역·터미널 예약을 칸 만들 때 쓰는 분류 (11/12)
+    private static final String MOVE_KIND = "move";
+    private static final int SAME_SPOT_M = 50;                 // 같은 종류가 이 안이면 같은 곳으로 봄 (11/12)
+    private static final List<String> FALLBACK_KINDS = List.of("tour", "culture", "shop", "cafe"); // 볼거리 칸이 빌 때 넣어 볼 종류 (11/12)
 
     // 하루 칸: "시각/머무는 분/이 칸에 넣을 종류(앞이 먼저)". 고른 종류가 하나도 없는 칸은 건너뜀
     // 칸 사이는 이동 20~40분을 비워 둠 (10:00~11:30 → 12:00 점심)
@@ -145,7 +150,11 @@ public class PlanRuleMaker {
         if (hasDayTime(conditions)) {
             int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
             int end = day == lastDayOf(conditions) ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
-            return timedSlotsOf(conditions, start, end, keptOfDay(conditions, day));
+            // 담은 곳 + 그날 예약(고정 일정)을 피해서 칸을 만듦 (11/12: 예약 시간은 빼고 칸을 만들다 보니 19:00 회식과 겹친 저녁 칸이 통째로 빠져 오후가 비었어요)
+            List<Stop> blocks = keptOfDay(conditions, day);
+            blocks.addAll(fixedBlocksOfDay(conditions, day));
+            blocks.sort((first, second) -> first.getTime().compareTo(second.getTime())); // 시각 글자 순
+            return timedSlotsOf(conditions, start, end, blocks);
         }
         boolean isCafeChosen = conditions.getKinds() != null && conditions.getKinds().contains(CAFE_KIND);
         return slotsOf(kindsOf(conditions), isCafeChosen);
@@ -190,7 +199,8 @@ public class PlanRuleMaker {
             replaced += fillDay(conditions, candidates, scores, startDate, day, days, areas, extras, slotPicks, used, stops, dayEndMin, maxWalkMeters);
         }
         if (replaced > 0) {
-            warnings.add("AI가 고른 " + replaced + "곳이 종류·영업시간·거리와 맞지 않아 평점·거리로 다시 골랐어요");
+            // 11/12: "AI가 틀렸다"처럼 읽혀서, 서버가 확인하고 바꾼 일로 말함
+            warnings.add("영업시간·이동 거리를 확인해 " + replaced + "곳을 문 연 곳·가까운 곳으로 바꿨어요");
         }
         removeOutsideHours(conditions, candidates, days, stops);
         addMissingKindWarnings(conditions, candidates, stops, warnings);
@@ -272,6 +282,70 @@ public class PlanRuleMaker {
         }
     }
 
+    /**
+     * 동선 정리(순서 바꾸기) 뒤 마지막 확인 (11/12): 날마다 시각 순으로 걸으며
+     * 앞 일정 끝 + 이동 시간보다 일찍 시작하는 칸은 뒤로 밀고, 그 때문에 다음 예약(고정)까지 못 가면 머무는 시간을 줄이고,
+     * 그래도 30분이 안 되면 그 칸을 뺌. 예약·숙소 칸은 시각을 안 바꿈. 시연 계정 일정(DemoScenario)은 여기를 안 지나감
+     */
+    public void fixTravelTimes(PlanGenerateResponse response) {
+        List<Stop> removed = new ArrayList<>();
+        Map<Integer, List<Stop>> byDay = new HashMap<>();
+        for (Stop stop : response.getStops()) {
+            byDay.computeIfAbsent(stop.getDay(), key -> new ArrayList<>()).add(stop); // computeIfAbsent: 없으면 새 목록을 만들어 넣음
+        }
+        for (List<Stop> dayStops : byDay.values()) {
+            dayStops.sort((first, second) -> first.getTime().compareTo(second.getTime()));
+            fixDayTimes(dayStops, removed);
+        }
+        response.getStops().removeAll(removed);
+    }
+
+    private void fixDayTimes(List<Stop> dayStops, List<Stop> removed) {
+        Stop previous = null;
+        for (int i = 0; i < dayStops.size(); i++) {
+            Stop stop = dayStops.get(i);
+            if (previous == null || isLocked(stop)) {
+                previous = stop;
+                continue;
+            }
+            int earliest = roundUp(endOf(previous) + PlanTravelTime.minutesBetween(pointOf(previous), pointOf(stop)));
+            int start = Math.max(Geo.toMinutes(stop.getTime()), earliest);
+            Stop nextLocked = nextLocked(dayStops, i);
+            int latestEnd = nextLocked == null ? Integer.MAX_VALUE
+                    : Geo.toMinutes(nextLocked.getTime()) - PlanTravelTime.minutesBetween(pointOf(stop), pointOf(nextLocked));
+            int stay = Math.min(stop.getStay() == null ? 0 : stop.getStay(), latestEnd - start);
+            if (stay < SHORTEST_STAY_MIN) {
+                removed.add(stop); // 이동까지 넣으면 들를 시간이 없음
+                continue;
+            }
+            stop.setTime(Geo.toHhmm(start));
+            stop.setStay(stay);
+            previous = stop;
+        }
+    }
+
+    /** 시각을 바꾸면 안 되는 칸: 예약(고정)·숙소 */
+    private boolean isLocked(Stop stop) {
+        return Boolean.TRUE.equals(stop.getFixed()) || "숙소".equals(stop.getCategory());
+    }
+
+    private Stop nextLocked(List<Stop> dayStops, int index) {
+        for (int k = index + 1; k < dayStops.size(); k++) {
+            if (isLocked(dayStops.get(k))) {
+                return dayStops.get(k);
+            }
+        }
+        return null;
+    }
+
+    private int endOf(Stop stop) {
+        return Geo.toMinutes(stop.getTime()) + (stop.getStay() == null ? 0 : stop.getStay());
+    }
+
+    private double[] pointOf(Stop stop) {
+        return stop.getLat() == null || stop.getLng() == null ? null : new double[] {stop.getLat(), stop.getLng()};
+    }
+
     // ---------------------------------------------------------------- 도우미
 
     /** 마지막 날 번호 (끝 날짜가 없으면 1). 15:00 시작·19:00 끝이 둘째 날 오전까지 막지 않게 (11/06) */
@@ -340,6 +414,40 @@ public class PlanRuleMaker {
         return kept;
     }
 
+    /**
+     * 그날 예약(고정 일정)을 칸 만들 때 피할 자리로 (11/12). 머무는 분은 모르니 90분으로 봄.
+     * 식사 시간대의 예약은 그 끼니로 셈 (예약은 대부분 식당). 역·터미널은 끼니가 아니게 분류를 "교통"으로
+     */
+    private List<Stop> fixedBlocksOfDay(PlanConditions conditions, int day) {
+        List<Stop> blocks = new ArrayList<>();
+        if (conditions.getFixed() == null) {
+            return blocks;
+        }
+        for (FixedVisit fixed : conditions.getFixed()) {
+            int fixedDay = fixed.getDay() == null ? 1 : fixed.getDay();
+            if (fixedDay != day || fixed.getTime() == null || !fixed.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            Stop block = new Stop();
+            block.setDay(day);
+            block.setName(fixed.getName());
+            block.setTime(fixed.getTime());
+            block.setStay(DEFAULT_EXTRA_STAY_MIN);
+            block.setCategory(isBoardingName(fixed.getName()) ? MOVE_CATEGORY : "");
+            blocks.add(block);
+        }
+        return blocks;
+    }
+
+    /** 역·터미널·공항 이름인지 (isBoardingExtra와 같은 기준) */
+    private boolean isBoardingName(String rawName) {
+        if (rawName == null) {
+            return false;
+        }
+        String name = rawName.replace("KTX", "").replace("SRT", "").trim();
+        return name.endsWith("역") || name.contains("터미널") || name.contains("공항");
+    }
+
     /** clock 뒤에 끝나는 첫 담은 곳 (없으면 null) */
     private Stop nextKeptAfter(List<Stop> kept, int clock) {
         for (Stop stop : kept) {
@@ -375,6 +483,9 @@ public class PlanRuleMaker {
             }
         }
         String category = stop.getCategory() == null ? "" : stop.getCategory();
+        if (MOVE_CATEGORY.equals(category)) {
+            return MOVE_KIND; // 역·터미널 예약은 끼니도 볼거리도 아님
+        }
         if (category.matches(".*(카페|커피|디저트|베이커리).*")) {
             return CAFE_KIND;
         }
@@ -462,6 +573,10 @@ public class PlanRuleMaker {
             slots = pullToNow(slots); // 오늘 출발이면 지난 칸을 버리지 않고 남은 시간으로 당김 (11/04)
         }
         int replaced = 0;
+        // 11/12 이동 시간: 앞 일정이 끝나는 분. 출발지를 정했으면 첫 칸도 출발지에서 오는 시간만큼 늦게 시작 (모르면 -1 = 첫 칸은 그 시각 그대로)
+        int prevEnd = realStartOf(conditions, startDate, day) != null && !slots.isEmpty() && slots.get(0) != null
+                ? Geo.toMinutes(slots.get(0)[1]) : -1;
+        int dayEnd = dayEndOf(conditions, day, days, dayEndMin);
         for (int i = 0; i < slots.size(); i++) {
             if (slots.get(i) == null) {
                 continue; // 오늘 남은 시간에 못 들어가는 칸
@@ -472,6 +587,13 @@ public class PlanRuleMaker {
                 point = new double[] {keptBefore.getLat(), keptBefore.getLng()}; // 바로 앞이 담은 곳이면 거기서 가까운 곳
                 firstPoint = firstPoint == null ? point : firstPoint;
                 lastKind = kindOfKept(keptBefore);
+                prevEnd = Math.max(prevEnd, keptEndOf(keptBefore));
+            }
+            AiDraftStop extraBefore = lastExtraBefore(extras, day, start);
+            if (extraBefore != null && extraEndOf(extraBefore) > prevEnd) { // 바로 앞이 예약이면 예약이 끝난 뒤, 예약 자리에서 출발
+                prevEnd = extraEndOf(extraBefore);
+                Place extraPlace = locateExtra(extraBefore, candidates);
+                point = extraPlace == null || extraPlace.getLat() == null ? point : new double[] {extraPlace.getLat(), extraPlace.getLng()};
             }
             List<String> slotKinds = withoutExtraCafe(Arrays.asList(slots.get(i)[0].split(",")), lastKind, cafeCount);
             int stay = Integer.parseInt(slots.get(i)[2]);
@@ -482,25 +604,43 @@ public class PlanRuleMaker {
             AiDraftStop pick = slotPicks.get(day + "/S" + (i + 1));
             // 여러 구면 이 칸은 정해진 구의 후보에서 먼저 (없으면 전체)
             Map<String, Place> slotCandidates = candidatesOfSlot(candidates, areas, (day - 1) * slots.size() + i, days * slots.size());
-            Place place = pick == null ? null : checkPick(pick, slotKinds, slotCandidates, used, conditions, date, start, stay, point, maxWalkMeters);
+            Set<String> blocked = withNearSameKind(used, candidates, stops); // 11/12 같은 곳 다른 이름(남대문·숭례문, DDP·역사문화공원)이 또 안 들어가게
+            Place place = pick == null ? null : checkPick(pick, slotKinds, slotCandidates, blocked, conditions, date, start, stay, point, maxWalkMeters);
             String reason = place == null ? null : pick.getReason();
             if (pick != null && place == null) {
                 replaced++;
             }
             for (int k = 0; place == null && k < slotKinds.size(); k++) { // 이 칸에 넣을 종류를 앞에서부터 (걷는 거리 안에서)
-                place = pickBest(slotCandidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
+                place = pickBest(slotCandidates, scores, blocked, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
             }
             for (int k = 0; place == null && slotCandidates != candidates && k < slotKinds.size(); k++) { // 그 구에 없으면 다른 구에서
-                place = pickBest(candidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
+                place = pickBest(candidates, scores, blocked, slotKinds.get(k), point, firstPoint, date, start, stay, maxWalkMeters);
             }
             for (int k = 0; place == null && maxWalkMeters != null && k < slotKinds.size(); k++) { // 가까운 곳이 없으면 거리 제한 없이
-                place = pickBest(candidates, scores, used, slotKinds.get(k), point, firstPoint, date, start, stay, null);
+                place = pickBest(candidates, scores, blocked, slotKinds.get(k), point, firstPoint, date, start, stay, null);
+            }
+            if (place == null && !slotKinds.contains(FOOD_KIND)) {
+                // 11/12 빈 칸 채우기: 볼거리 칸에 넣을 곳이 없으면 산책·카페 중 아직 안 쓴 곳으로 (끼니 칸은 그대로)
+                List<String> fallback = withoutExtraCafe(FALLBACK_KINDS, lastKind, cafeCount);
+                for (int k = 0; place == null && k < fallback.size(); k++) {
+                    place = pickBest(candidates, scores, blocked, fallback.get(k), point, firstPoint, date, start, stay, null);
+                }
             }
             if (place == null) {
                 continue; // 넣을 종류 후보가 다 떨어짐
             }
+            // 11/12 실제 시각: 앞 일정 끝 + 이동 시간보다 이르지 않게, 다음 예약(+ 거기까지 이동)·하루 끝 전에 끝나게 머무는 시간을 줄임
+            double[] placePoint = new double[] {place.getLat(), place.getLng()};
+            int actualStart = prevEnd < 0 ? start : roundUp(Math.max(start, prevEnd + PlanTravelTime.minutesBetween(point, placePoint)));
+            int latestEnd = Math.min(dayEnd, nextExtraLimit(extras, candidates, day, actualStart, placePoint));
+            int actualStay = Math.min(stay, latestEnd - actualStart);
+            if (actualStay < SHORTEST_STAY_MIN) {
+                continue; // 이동까지 넣으면 이 칸은 시간이 모자람
+            }
+            stay = actualStay;
+            prevEnd = actualStart + stay;
             used.add(place.getId());
-            AiDraftStop stop = toDraftStop(place, day, slots.get(i)[1], stay);
+            AiDraftStop stop = toDraftStop(place, day, Geo.toHhmm(actualStart), stay);
             stop.setReason(reason);
             stops.add(stop);
             point = new double[] {place.getLat(), place.getLng()};
@@ -509,6 +649,93 @@ public class PlanRuleMaker {
             cafeCount += CAFE_KIND.equals(lastKind) ? 1 : 0;
         }
         return replaced;
+    }
+
+    /**
+     * 이미 쓴 곳 + 이미 넣은 곳(여행 전체)과 50m 안의 같은 종류 후보 (11/12).
+     * 이름은 달라도 같은 곳(관광특구 "남대문" 점과 숭례문, DDP와 동대문역사문화공원)이 연달아 들어가던 문제
+     */
+    private Set<String> withNearSameKind(Set<String> used, Map<String, Place> candidates, List<AiDraftStop> stops) {
+        Set<String> blocked = new HashSet<>(used);
+        for (AiDraftStop stop : stops) {
+            Place placed = stop.getId() == null ? null : candidates.get(stop.getId()); // 다른 날 넣은 곳도 (1일차 DDP, 2일차 동대문역사문화공원)
+            if (placed == null || placed.getLat() == null) {
+                continue;
+            }
+            for (Place place : candidates.values()) {
+                boolean isSameKind = place.getKind() != null && place.getKind().equals(placed.getKind());
+                if (isSameKind && place.getLat() != null
+                        && Geo.distanceMeters(place.getLat(), place.getLng(), placed.getLat(), placed.getLng()) <= SAME_SPOT_M) {
+                    blocked.add(place.getId());
+                }
+            }
+        }
+        return blocked;
+    }
+
+    /** 그날 이 칸이 끝나야 하는 하루 끝 (끝 장소 마감이 있으면 그것, 시간을 골랐으면 고른 끝·다른 날 20:00, 아니면 23:00) */
+    private int dayEndOf(PlanConditions conditions, int day, int days, Integer dayEndMin) {
+        if (dayEndMin != null) {
+            return dayEndMin;
+        }
+        if (!hasDayTime(conditions)) {
+            return TODAY_LAST_END_MIN;
+        }
+        return day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
+    }
+
+    /** start 전에 시작한 그날 마지막 꼭 갈 곳·예약 (없으면 null) */
+    private AiDraftStop lastExtraBefore(List<AiDraftStop> extras, int day, int start) {
+        AiDraftStop last = null;
+        for (AiDraftStop extra : extras) {
+            if (dayOf(extra) == day && extra.getTime() != null && extra.getTime().matches("\\d{2}:\\d{2}")
+                    && Geo.toMinutes(extra.getTime()) < start && (last == null || extra.getTime().compareTo(last.getTime()) > 0)) {
+                last = extra;
+            }
+        }
+        return last;
+    }
+
+    /** 꼭 갈 곳·예약의 위치: 후보에 있으면 그것, 없으면(강남 예약처럼 고른 구 밖) 이름으로 우리 DB에서. 못 찾으면 null */
+    private Place locateExtra(AiDraftStop extra, Map<String, Place> candidates) {
+        Place place = findPlaceOf(extra, candidates);
+        if (place != null || extra.getName() == null) {
+            return place;
+        }
+        try {
+            return placeService.getPlaceByName(extra.getName(), null, null);
+        } catch (ApiException e) {
+            return null; // 위치를 모르면 이동 시간은 기본 20분으로
+        }
+    }
+
+    private int extraEndOf(AiDraftStop extra) {
+        return Geo.toMinutes(extra.getTime()) + (extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay());
+    }
+
+    /**
+     * 이 칸이 늦어도 끝나야 하는 분: start 뒤 그날 첫 꼭 갈 곳·예약 시각 − 거기까지 이동 시간 (11/12).
+     * 역·터미널은 타러 갈 시간(40분)과 비교해 더 긴 쪽. 뒤에 예약이 없으면 하루 끝까지
+     */
+    private int nextExtraLimit(List<AiDraftStop> extras, Map<String, Place> candidates, int day, int start, double[] from) {
+        int limit = Integer.MAX_VALUE;
+        for (AiDraftStop extra : extras) {
+            if (dayOf(extra) != day || extra.getTime() == null || !extra.getTime().matches("\\d{2}:\\d{2}")) {
+                continue;
+            }
+            int extraStart = Geo.toMinutes(extra.getTime());
+            if (extraStart <= start) {
+                continue;
+            }
+            Place place = locateExtra(extra, candidates);
+            int travel = place == null || place.getLat() == null ? TIMED_GAP_MIN
+                    : PlanTravelTime.minutesBetween(from, new double[] {place.getLat(), place.getLng()});
+            if (isBoardingExtra(extra)) {
+                travel = Math.max(travel, BOARDING_TRAVEL_MIN);
+            }
+            limit = Math.min(limit, extraStart - travel);
+        }
+        return limit;
     }
 
     /** 후보 중 이름이 같은 곳을 이미 쓴 곳으로 */
