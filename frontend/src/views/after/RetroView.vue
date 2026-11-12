@@ -1244,6 +1244,21 @@ function toggleMapType() {
       <input ref="receiptInput" type="file" accept="image/*" hidden @change="readReceipt" />
       <input ref="cameraInput" type="file" accept="image/*" capture="environment" hidden @change="readReceipt" />
 
+      <!-- 결제 적는 창: [직접 추가]는 빈 값으로, [영수증 넣기]는 OCR이 읽은 값으로 열림 (11/12) -->
+      <div v-if="payForm !== null" class="retro-cards" role="dialog" aria-modal="true" aria-label="결제 적기" @click.self="payForm = null">
+        <div class="retro-cards__box">
+          <div class="retro-cards__head">
+            <b>{{ payForm.source === 'capture' ? '영수증에서 읽은 결제' : '결제 직접 추가' }}</b>
+            <button type="button" class="iconbtn" aria-label="닫기" @click="payForm = null"><i class="ic i-close" aria-hidden="true"></i></button>
+          </div>
+          <p v-if="payForm.source === 'capture'" class="t-cap">잘못 읽은 곳이 있으면 고친 뒤 저장해 주세요</p>
+          <label class="retro-payform__row"><span class="t-cap">가게 이름</span><input v-model="payForm.storeName" type="text" placeholder="예: 산청숯불가든" /></label>
+          <label class="retro-payform__row"><span class="t-cap">금액(원)</span><input v-model="payForm.amount" type="number" min="1" inputmode="numeric" placeholder="예: 150000" /></label>
+          <label class="retro-payform__row"><span class="t-cap">결제 시각</span><input v-model="payForm.paidAt" type="datetime-local" /></label>
+          <button type="button" class="btn btn--primary btn--lg" :disabled="!payForm.storeName || !payForm.amount || !payForm.paidAt" @click="savePayForm">저장</button>
+        </div>
+      </div>
+
       <!-- 카드 내역 가져오기 (지금은 목업 → 나중에 CODEF). 이미 가져온 건 회색으로 막음 -->
       <div v-if="cardList !== null" class="retro-cards" role="dialog" aria-modal="true" aria-label="카드 내역 가져오기" @click.self="cardList = null">
         <div class="retro-cards__box">
@@ -1349,6 +1364,10 @@ function toggleMapType() {
 .scr-Retro .retro-remove{flex:none;width:28px;height:28px;color:var(--ink-subtle)}
 .scr-Retro span.retro-remove{display:inline-block}
 .scr-Retro .retro-del{flex:none;background:var(--danger,#D92D20);color:#fff}
+/* 결제 적는 창의 입력 줄 */
+.retro-payform__row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.retro-payform__row input { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); font: inherit; }
+
 /* 결제 넣기 ⋯ 메뉴: 버튼 바로 아래 오른쪽에 붙어 펼쳐짐 */
 .retro-paymenu { position: relative; }
 .retro-paymenu__dots { min-width: 40px; font-size: 18px; line-height: 1; }
