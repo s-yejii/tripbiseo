@@ -34,6 +34,7 @@ public class CaptureServiceImpl implements CaptureService {
     private static final String DATE_PATTERN = "\\d{4}-\\d{2}-\\d{2}";
     private static final String TIME_PATTERN = "([01]\\d|2[0-3]):[0-5]\\d";
     private static final int MAX_QUERY_LENGTH = 40; // 위치 검색어 길이 제한 (② 검색과 같음)
+    private static final int SAME_ADDRESS_RADIUS_M = 30; // 주소 좌표에서 이 안의 가게면 "그 주소의 가게"로 봄
 
     private final AiService aiService;
     private final PlaceService placeService;
@@ -147,6 +148,14 @@ public class CaptureServiceImpl implements CaptureService {
         Double nearLat = near == null ? null : near.getLat();
         Double nearLng = near == null ? null : near.getLng();
         Place place = placeService.getPlaceByName(response.getName(), nearLat, nearLng);
+        // 이름으로 DB 가게를 못 찾았으면 주소 자리에 있는 DB 가게로 (11/12 정답지: 가게 이름 없이 주소만 있는 문자)
+        if (near != null && !isSameStore(place, response.getName())) {
+            Place atAddress = findAtAddress(near);
+            if (atAddress != null) {
+                place = atAddress;
+                response.setName(atAddress.getName());
+            }
+        }
         if (place == null) {
             return;
         }
@@ -160,5 +169,21 @@ public class CaptureServiceImpl implements CaptureService {
         if (response.getAddress() == null) {
             response.setAddress(place.getAddress());
         }
+    }
+
+    /** 찾은 곳이 우리 DB 가게이고, 읽은 이름과 DB 이름이 한쪽에 다른 쪽이 들어 있는 사이인지 (띄어쓰기 무시) */
+    private boolean isSameStore(Place place, String readName) {
+        if (place == null || place.getId() == null || place.getName() == null) {
+            return false;
+        }
+        String dbName = place.getName().replace(" ", "");
+        String name = readName.replace(" ", "");
+        return dbName.contains(name) || name.contains(dbName);
+    }
+
+    /** 주소 좌표 30m 안의 DB 가게 중 가장 가까운 곳 (② getNearbyPlaceList가 PostGIS로 가까운 순 정렬). 없으면 null */
+    private Place findAtAddress(FoundLocation near) {
+        List<Place> places = placeService.getNearbyPlaceList(near.getLat(), near.getLng(), SAME_ADDRESS_RADIUS_M, null);
+        return places.isEmpty() ? null : places.get(0);
     }
 }
