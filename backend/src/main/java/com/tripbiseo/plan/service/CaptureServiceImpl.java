@@ -35,6 +35,10 @@ public class CaptureServiceImpl implements CaptureService {
     private static final String TIME_PATTERN = "([01]\\d|2[0-3]):[0-5]\\d";
     private static final int MAX_QUERY_LENGTH = 40; // 위치 검색어 길이 제한 (② 검색과 같음)
     private static final int SAME_ADDRESS_RADIUS_M = 30; // 주소 좌표에서 이 안의 가게면 "그 주소의 가게"로 봄
+    // 가게 이름이 아닌 일반 단어 (이 단어들을 빼고 남는 글자가 2자 미만이면 가게 이름이 없는 문구로 봄)
+    private static final List<String> GENERIC_WORDS = List.of("예약", "확정", "완료", "안내", "확인", "변경", "알림", "문자", "내역",
+            "방문", "디저트", "식당", "음식점", "맛집", "카페", "레스토랑");
+    private static final int MIN_STORE_NAME_LENGTH = 2;
 
     private final AiService aiService;
     private final PlaceService placeService;
@@ -149,13 +153,8 @@ public class CaptureServiceImpl implements CaptureService {
         Double nearLat = near == null ? null : near.getLat();
         Double nearLng = near == null ? null : near.getLng();
         Place place = placeService.getPlaceByName(response.getName(), nearLat, nearLng);
-        // 이름으로 DB 가게를 못 찾았으면 주소 자리에 있는 DB 가게로 (11/12 정답지: 가게 이름 없이 주소만 있는 문자)
-        if (near != null && !isSameStore(place, response.getName())) {
-            Place atAddress = findAtAddress(near);
-            if (atAddress != null) {
-                place = atAddress;
-                response.setName(atAddress.getName());
-            }
+        if (!isSameStore(place, response.getName())) {
+            place = findWhenNameMissed(response, place, near);
         }
         if (place == null) {
             return;
@@ -171,6 +170,37 @@ public class CaptureServiceImpl implements CaptureService {
         if (response.getAddress() == null) {
             response.setAddress(place.getAddress());
         }
+    }
+
+    /**
+     * 이름으로 우리 DB 가게를 못 찾았을 때 (11/12 정답지).
+     * 읽은 이름이 "디저트 예약"처럼 가게 이름이 아닌 문구면 주소 자리(30m 안)의 DB 가게로.
+     * 가게 이름이 따로 있으면 같은 건물의 다른 가게로 바꾸지 않고, 주소 좌표만 붙이고 placeId는 비움 (화면이 "DB에 없는 곳" 안내)
+     */
+    private Place findWhenNameMissed(CaptureResponse response, Place byName, FoundLocation near) {
+        if (near == null) {
+            // 주소가 없으면 엉뚱한 DB 가게는 버리고, 외부 검색 결과(좌표만 있는 곳)는 그대로
+            return byName != null && byName.getId() == null ? byName : null;
+        }
+        if (isGenericName(response.getName())) {
+            Place atAddress = findAtAddress(near);
+            if (atAddress != null) {
+                response.setName(atAddress.getName());
+                return atAddress;
+            }
+        }
+        response.setLat(near.getLat());
+        response.setLng(near.getLng());
+        return null;
+    }
+
+    /** "디저트 예약", "[예약 확정]"처럼 일반 단어만 있고 가게 이름이 없는지 */
+    private boolean isGenericName(String name) {
+        String rest = name.replaceAll("[\\s\\[\\]()·:.,!-]", ""); // 띄어쓰기·괄호·문장부호 빼기
+        for (String word : GENERIC_WORDS) {
+            rest = rest.replace(word, "");
+        }
+        return rest.length() < MIN_STORE_NAME_LENGTH;
     }
 
     /** 찾은 곳이 우리 DB 가게이고, 읽은 이름과 DB 이름이 한쪽에 다른 쪽이 들어 있는 사이인지 (띄어쓰기 무시) */

@@ -28,6 +28,13 @@ const bannerTitle = computed(() => {
   return found.value ? '글자를 읽어 아래에 채웠어요' : '캡처를 올리면 글자를 읽어 채워요'
 })
 
+// 장소를 어떻게 찾았는지 한 줄 (DB 가게 / 주소 위치만 / 못 찾음)
+function placeNote(result) {
+  if (result.placeId) return '장소를 지도에서 찾았어요 · 시간이 맞는지 확인해 주세요'
+  if (result.lat != null) return '우리 DB에 없는 곳이에요 · 위치가 맞는지 확인해 주세요'
+  return '지도에서 장소를 못 찾았어요 · 이름을 확인해 주세요'
+}
+
 // 읽은 결과에서 비어 있는 칸 이름 (예: "날짜·시각")
 function missingFields(result) {
   const missing = []
@@ -74,7 +81,7 @@ async function readFromServer(file) {
     name.value = found.value.name
     time.value = found.value.time || ''
     date.value = found.value.date || ''
-    readNote.value = found.value.lat != null ? '장소를 지도에서 찾았어요 · 시간이 맞는지 확인해 주세요' : '지도에서 장소를 못 찾았어요 · 이름을 확인해 주세요'
+    readNote.value = placeNote(found.value)
     const missing = missingFields(found.value)
     if (missing) readNote.value = missing + '을(를) 못 읽었어요 · 아래 칸에 직접 적어 주세요'
   } catch (e) {
