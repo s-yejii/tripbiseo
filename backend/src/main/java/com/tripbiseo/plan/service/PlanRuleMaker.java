@@ -78,8 +78,9 @@ public class PlanRuleMaker {
     private static final String FOOD_KIND = "food";
     private static final int DEFAULT_KEPT_STAY_MIN = 60;       // 담은 곳의 머무는 분을 모를 때
     private static final String BAR_KIND = "bar";
-    private static final Map<String, Integer> KIND_STAY_MIN = Map.of(FOOD_KIND, 70, CAFE_KIND, 60, BAR_KIND, 90); // 나머지는 80분
-    private static final int OTHER_STAY_MIN = 80;
+    // 종류별 머무는 분 (11/12: 카페 60→50, 관광 80→70, 전시 90, 쇼핑 60. 예전엔 밥·카페·술집 말고는 다 80분)
+    private static final Map<String, Integer> KIND_STAY_MIN = Map.of(FOOD_KIND, 70, CAFE_KIND, 50, BAR_KIND, 90, "tour", 70, "culture", 90, "shop", 60);
+    private static final int OTHER_STAY_MIN = 70;
     private static final int CHOSEN_KIND_EXTRA_MIN = 15;       // "어디 위주로"에서 고른 맛집·카페는 더 오래 (11/06)
     private static final int SHORTEST_STAY_MIN = 40;           // 동행에 맞춰 줄여도 이보다 짧게는 안 함
     private static final int DEFAULT_EXTRA_STAY_MIN = 90;      // 꼭 갈 곳·고정 일정의 머무는 분을 모를 때
