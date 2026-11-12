@@ -179,7 +179,26 @@ async function searchFixed(word) {
     seen.add(name)
     list.push({ name: item.name, category: item.category, address: item.address, lat: item.lat, lng: item.lng })
   }
-  return list.slice(0, MAX_FIXED_RESULTS)
+  return sortByNameMatch(list, key).slice(0, MAX_FIXED_RESULTS) // 정렬한 뒤에 자르기
+}
+
+// 이름이 검색어와 똑같은 곳 → 검색어로 시작하는 곳 → 나머지 순서로 (11/12 ①, 같은 단계 안은 원래 순서)
+//   예) "서울역": 서울역 → 서울역사박물관 → 만천재 서울역점. key는 띄어쓰기를 뺀 검색어
+function sortByNameMatch(list, key) {
+  const same = []
+  const startsWith = []
+  const others = []
+  for (const item of list) {
+    const name = squash(item.name)
+    if (name === key) {
+      same.push(item)
+    } else if (name.startsWith(key)) {
+      startsWith.push(item)
+    } else {
+      others.push(item)
+    }
+  }
+  return [...same, ...startsWith, ...others]
 }
 
 // 현재 위치로 출발: GPS → 주소 → 맨 위에 넣고 골라 둠
