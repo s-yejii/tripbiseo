@@ -880,8 +880,10 @@ function restartMoving() {
           <!-- AI 채팅(④) -->
           <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" :selected="askPickedId" @found="onAskFound" @unpick="askPickedId = null" />
           <div v-else class="quick live-quick" data-sheet-follow role="group" aria-label="AI 채팅과 근처 찾기">
-            <button type="button" class="chip chip--sm chip--add live-chip" @click="openAsk"><i class="ic ic--s i-sparkle" style="color: #7C3AED" aria-hidden="true"></i>AI에게 묻기</button>
-            <button type="button" class="chip chip--sm chip--add live-chip" @click="openNear"><i class="ic ic--s i-search" style="color: var(--coral)" aria-hidden="true"></i>근처 찾기</button>
+            <button type="button" class="chip chip--sm chip--add live-chip" @click="openAsk"><span class="live-chip__ic live-chip__ic--ai" aria-hidden="true"><i class="ic ic--s i-sparkle"></i></span>AI에게 묻기</button>
+            <button type="button" class="chip chip--sm chip--add live-chip" @click="openNear"><span class="live-chip__ic live-chip__ic--near" aria-hidden="true"><i class="ic ic--s i-search"></i></span>근처 찾기</button>
+            <!-- 결제 메모 입구 (11/12): 화면은 ⑤ PayMemoView (/live/pay) -->
+            <RouterLink to="/live/pay" class="chip chip--sm chip--add live-chip"><span class="live-chip__ic live-chip__ic--pay" aria-hidden="true"><i class="ic ic--s i-receipt"></i></span>결제 메모</RouterLink>
           </div>
 
           <!-- 아래 시트: 오늘 일정 카드 -->
@@ -957,8 +959,17 @@ function restartMoving() {
 .scr-Live .live-fab__ic--link { background: linear-gradient(135deg, #F58529, #DD2A7B 55%, #8134AF); }
 .scr-Live .live-fab__ic--plan { background: var(--navy); }
 .scr-Live .live-fab__ic--share { background: var(--success); }
-.scr-Live .live-chip { font-weight: 600; }
-.scr-Live .live-quick { position: absolute; top: 392px; left: 0; right: 70px; z-index: 2; }
+.scr-Live .live-chip { font-weight: 600; height: 34px; padding-left: 10px; padding-right: 10px; gap: 3px; font-size: 13px; letter-spacing: -.02em; }
+/* 11/12: 지도 앱 칩처럼 흰 바탕 + 겹 그림자, 글씨는 진하게 (아이콘 색만 칩마다 다르게) */
+.scr-Live .live-quick .live-chip { border: 0; padding-left: 5px; padding-right: 10px; gap: 4px; background: #fff; color: var(--ink); box-shadow: 0 0 0 1px rgba(24, 33, 58, .05), 0 1px 2px rgba(24, 33, 58, .08), 0 4px 12px rgba(24, 33, 58, .12); }
+.scr-Live .live-quick .live-chip:hover { background: var(--surface); }
+/* 아이콘은 연한 색 동그라미 안에 (AI 보라 · 근처 산호 · 결제 남색) */
+.scr-Live .live-chip__ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; }
+.scr-Live .live-chip__ic .ic { width: 13px; height: 13px; }
+.scr-Live .live-chip__ic--ai { background: #F1EAFE; color: #7C3AED; }
+.scr-Live .live-chip__ic--near { background: var(--coral-soft); color: var(--coral-ink); }
+.scr-Live .live-chip__ic--pay { background: var(--navy-soft); color: var(--navy); } /* 11/12: 결제 메모까지 칩 3개가 + 버튼 왼쪽에 다 들어가게 */
+.scr-Live .live-quick { position: absolute; top: 392px; left: 0; right: 58px; z-index: 2; gap: 5px; padding-left: 12px; padding-right: 4px; }
 .scr-Live .live-sheet { top: 440px; padding: 8px 0 0; gap: 12px; }
 .scr-Live .live-head { display: flex; align-items: flex-end; gap: 12px; padding: 0 16px; }
 .scr-Live .live-pill { position: absolute; top: 112px; left: 16px; z-index: 3; }
