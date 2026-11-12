@@ -591,12 +591,6 @@ function locate() {
   showToast('아직 지금 위치를 받지 못했어요')
 }
 
-// 오늘 일정 전체가 한 화면에 보이게 지도를 맞춤 (다녀온 곳 + 남은 곳 + 내 위치)
-function showAllRoute() {
-  previewId.value = null
-  if (mapRef.value) mapRef.value.fitAll()
-}
-
 // 같이 간 사람에게 남은 일정 보내기 (휴대폰 공유 창, 없으면 글자 복사)
 async function share() {
   const lines = [(live.trip.value ? live.trip.value.title : '여행') + ' · 지금 ' + status.value.now]
@@ -851,7 +845,6 @@ function restartMoving() {
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openLink)"><span class="live-fab__text">링크 추가</span><span class="live-fab__ic live-fab__ic--link"><i class="ic i-link" aria-hidden="true"></i></span></button>
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(openToday)"><span class="live-fab__text">내 일정 {{ doneCount }}/{{ stops.length }}</span><span class="live-fab__ic live-fab__ic--plan"><i class="ic i-calendar" aria-hidden="true"></i></span></button>
             <button type="button" role="menuitem" class="live-fab__item" @click="runFab(share)"><span class="live-fab__text">일정 공유</span><span class="live-fab__ic live-fab__ic--share"><i class="ic i-share" aria-hidden="true"></i></span></button>
-            <button type="button" role="menuitem" class="live-fab__item" @click="runFab(showAllRoute)"><span class="live-fab__text">전체 경로</span><span class="live-fab__ic live-fab__ic--plan"><i class="ic i-route" aria-hidden="true"></i></span></button>
           </div>
           <!-- 내 위치: + 위에 떠 있다가 메뉴를 열면 아래로 내려가며 사라짐 (메뉴가 + 바로 위에 뜨게) -->
           <button type="button" class="live-fab__me" :class="{ 'is-hidden': fabOpen }" aria-label="내 위치로" :aria-hidden="fabOpen" :tabindex="fabOpen ? -1 : 0" @click="locate"><i class="ic i-locate" aria-hidden="true"></i></button>
