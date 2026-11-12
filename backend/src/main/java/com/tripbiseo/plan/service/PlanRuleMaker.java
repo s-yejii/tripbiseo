@@ -604,7 +604,7 @@ public class PlanRuleMaker {
             AiDraftStop pick = slotPicks.get(day + "/S" + (i + 1));
             // 여러 구면 이 칸은 정해진 구의 후보에서 먼저 (없으면 전체)
             Map<String, Place> slotCandidates = candidatesOfSlot(candidates, areas, (day - 1) * slots.size() + i, days * slots.size());
-            Set<String> blocked = withNearSameKind(used, candidates, stops, day); // 11/12 같은 곳 다른 이름(남대문·숭례문, DDP·역사문화공원)이 연달아 안 들어가게
+            Set<String> blocked = withNearSameKind(used, candidates, stops); // 11/12 같은 곳 다른 이름(남대문·숭례문, DDP·역사문화공원)이 또 안 들어가게
             Place place = pick == null ? null : checkPick(pick, slotKinds, slotCandidates, blocked, conditions, date, start, stay, point, maxWalkMeters);
             String reason = place == null ? null : pick.getReason();
             if (pick != null && place == null) {
@@ -652,13 +652,13 @@ public class PlanRuleMaker {
     }
 
     /**
-     * 이미 쓴 곳 + 그날 이미 넣은 곳과 50m 안의 같은 종류 후보 (11/12).
+     * 이미 쓴 곳 + 이미 넣은 곳(여행 전체)과 50m 안의 같은 종류 후보 (11/12).
      * 이름은 달라도 같은 곳(관광특구 "남대문" 점과 숭례문, DDP와 동대문역사문화공원)이 연달아 들어가던 문제
      */
-    private Set<String> withNearSameKind(Set<String> used, Map<String, Place> candidates, List<AiDraftStop> stops, int day) {
+    private Set<String> withNearSameKind(Set<String> used, Map<String, Place> candidates, List<AiDraftStop> stops) {
         Set<String> blocked = new HashSet<>(used);
         for (AiDraftStop stop : stops) {
-            Place placed = stop.getId() == null || dayOf(stop) != day ? null : candidates.get(stop.getId());
+            Place placed = stop.getId() == null ? null : candidates.get(stop.getId()); // 다른 날 넣은 곳도 (1일차 DDP, 2일차 동대문역사문화공원)
             if (placed == null || placed.getLat() == null) {
                 continue;
             }
