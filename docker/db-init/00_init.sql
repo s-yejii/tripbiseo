@@ -28,6 +28,7 @@
 \i /db/16_trash.sql
 \i /db/17_place_area.sql
 \i /db/18_ask_place.sql
+\i /db/19_crowd.sql
 
 \echo '== 90·95·96 테스트·시연 데이터'
 \i /db/90_test_data.sql
