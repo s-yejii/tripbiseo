@@ -50,11 +50,10 @@ public class DemoScenario {
     private static final String STAY_CHECK_OUT = "11:00"; // 늦잠 → 레이트 체크아웃 12:00 요청이 시나리오
     private static final int OVERSTAY_DAY = 2;          // 돌발: 2일차에
     private static final String OVERSTAY_NAME = STAY_NAME; // 11/12 돌발: 늦잠 → 숙소에서 나갈 시각이 지나도 그대로 → 스시도 지각 (앱은 이유를 모름)
-    private static final int OVERSTAY_MIN = 0;          // 0 = 서울역 도착 목표보다 늦어지는 순간까지 머묾 (그때 시계 멈춤)
+    private static final int OVERSTAY_MIN = 0;          // 0 = 다음 예약(스시도) 도착 목표보다 늦어지는 순간까지 머묾 (그때 시계 멈춤)
     private static final String START_TIME = "11:30"; // 시연 계정은 1일차 이 시각부터 (종로3가역 모임, 11/12)
 
     // 일차, 시각, 이름, 장소 번호(retrip_place.id, 없으면 null), 종류, 위도, 경도, 머무는 분, 고정, 메모
-    // DEMO.md(11/06 팀 시나리오)대로 + 출발만 가마산로 242 15:00 (11/08 주형 확정)
     // 일차, 시각, 이름, 장소 번호, 종류, 위도, 경도, 머무는 분, 고정, 메모, 중요도(must면 줄이기·빼기 대상 아님)
     // 11/12 촬영 시나리오(아카데미 동기 5명 서울 1박 2일) 시간표 그대로 (주형: "촬영 시나리오에 맞춰서")
     //   1일차: 11:30 종로3가역 모임 → 남도분식 → 동백양과점 → 15:00 숙소 체크인 → 남산순환나들길 → 팔각정(17:30까지)
@@ -109,7 +108,7 @@ public class DemoScenario {
         return response;
     }
 
-    /** AI 일정 화면에 미리 채워 둘 출발지·예약(KTX)·숙소 */
+    /** AI 일정 화면에 미리 채워 둘 출발지·예약(회식·스시도)·숙소 */
     public ScenarioSetup getSetup() {
         ScenarioSetup setup = new ScenarioSetup();
         setup.setOriginName(ORIGIN_NAME);
