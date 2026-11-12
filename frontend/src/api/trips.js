@@ -96,8 +96,10 @@ export function readCapture(file) {
 export const sendTrack = (tripId, lat, lng, accuracy) => post(`/trips/${tripId}/live/track`, { lat, lng, accuracy })
 export const getLiveStatus = (tripId, lat, lng) => post(`/trips/${tripId}/live/status`, { lat, lng })
 export const askAssist = (tripId, message, lat, lng) => post(`/trips/${tripId}/live/assist`, { message, lat, lng })
-export const askRecommend = (tripId, lat, lng, radius, category, tags) => post(`/trips/${tripId}/live/recommend`, { lat, lng, radius, category, tags })
-export const insertPlace = (tripId, placeId, lat, lng) => post(`/trips/${tripId}/live/insert`, { placeId, lat, lng })
+// similarTo: 놓친 장소 id (비슷한 가게 찾기, 11/12), replaceStopId: 이 칸 자리에 넣기 (놓친 예약 바꾸기). 둘 다 안 넣으면 예전과 같음
+export const askRecommend = (tripId, lat, lng, radius, category, tags, similarTo) => post(`/trips/${tripId}/live/recommend`, { lat, lng, radius, category, tags, similarTo })
+export const insertPlace = (tripId, placeId, lat, lng, replaceStopId) => post(`/trips/${tripId}/live/insert`, { placeId, lat, lng, replaceStopId })
+export const skipStop = (tripId, stopId, lat, lng) => post(`/trips/${tripId}/live/skip`, { stopId, lat, lng })
 export const getAlternatives = (tripId, lat, lng, reason = 'delay', request = null) => post(`/trips/${tripId}/live/alternatives`, { lat, lng, reason, request })
 export const applyAlternative = (tripId, key, stops, lat, lng) => post(`/trips/${tripId}/live/apply`, { key, stops, lat, lng })
 // 링크로 찾은 장소들(장소 카드)을 남은 일정에 넣어 보기 → { fits, fixedName, message, best, alternatives } (저장 안 함)

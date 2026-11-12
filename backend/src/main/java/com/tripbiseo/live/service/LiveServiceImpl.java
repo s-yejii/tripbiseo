@@ -5,8 +5,10 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,7 @@ import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.live.dto.RecommendPlace;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
+import com.tripbiseo.live.dto.SkipRequest;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -98,20 +101,32 @@ public class LiveServiceImpl implements LiveService {
         if (request.getRadius() == null) {
             throw fail(400, "radius 값이 필요해요.");
         }
-        liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
         if (request.getRadius() < MIN_RADIUS_M || request.getRadius() > MAX_RADIUS_M) {
             throw fail(400, "반경은 100m~3km예요.");
         }
         List<Place> candidates = findCandidates(request);
+        int stay = getStay(request.getCategory());
+        Place missed = null;
+        if (request.getSimilarTo() != null) {
+            // 11/12: 놓친 예약과 비슷한 가게 (업종이 겹치는 곳만, 머무는 시간은 놓친 칸 그대로)
+            missed = placeService.getPlace(request.getSimilarTo()); // 없으면 404
+            candidates = keepSimilarPlaces(candidates, missed, trip);
+            stay = getMissedStay(trip, missed, stay);
+        }
         Map<String, PlaceTagCount> tagMap = placeTagReader.countTags(candidates);
         List<String> wantedTags = request.getTags() == null ? new ArrayList<>() : request.getTags();
         sortByScore(candidates, tagMap, wantedTags);
-        return pickOpenPlaces(candidates, tagMap, wantedTags, getStay(request.getCategory()));
+        if (missed != null) {
+            moveSameBrandFirst(candidates, missed);
+        }
+        return pickOpenPlaces(candidates, tagMap, wantedTags, stay);
     }
 
     /**
      * 추천 장소를 바로 다음 일정으로. 새 칸을 맨 앞에 둔 "대안"을 계산해서 대안 적용(applyAlternative)으로 저장해요.
      * 고정 일정에 늦으면 고정 일정 바로 앞 칸 머무는 시간을 최대 절반까지 줄임 (API.md)
+     * replaceStopId가 있으면 맨 앞 대신 그 칸 자리에 넣고, 그 칸은 skipped (놓친 예약 바꾸기, 11/12)
      */
     @Override
     @Transactional
@@ -121,24 +136,51 @@ public class LiveServiceImpl implements LiveService {
         List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
         Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
 
-        List<Stop> plan = new ArrayList<>();
-        plan.add(toNewStop(place, liveStopFinder.getToday(trip)));
-        for (Stop stop : todayStops) {
-            if (liveStopFinder.isRemaining(stop, current)) {
-                plan.add(stop);
-            }
+        if (request.getReplaceStopId() != null) {
+            findRemainingStop(todayStops, current, request.getReplaceStopId()); // 바꿀 칸이 남은 칸이 아니면 400
         }
+        Stop newStop = toNewStop(place, liveStopFinder.getToday(trip));
+        List<Stop> plan = makeInsertPlan(todayStops, current, newStop, request.getReplaceStopId());
         plan = alternativeCalculator.copyStops(plan); // 원본을 고치지 않게 복사본으로 계산
         Alternative result = alternativeCalculator.calculate(trip, current, plan, request.getLat(), request.getLng());
         String shortened = shortenBeforeFixed(plan, result);
         if (shortened != null) {
             result = alternativeCalculator.calculate(trip, current, plan, request.getLat(), request.getLng());
         }
-        alternativeService.applyAlternative(memberId, tripId, toApplyRequest(result, request));
+        alternativeService.applyAlternative(memberId, tripId, toApplyRequest(result, request.getLat(), request.getLng(), "insert"));
 
         InsertResponse response = new InsertResponse();
         response.setTrip(tripService.getTrip(memberId, tripId));
         response.setMessage(getInsertMessage(place, plan, result, shortened));
+        return response;
+    }
+
+    /** 못 가게 된 일정 하나를 빼고, 남은 일정을 앞으로 당겨 다시 계산 (11/12 놓친 예약) */
+    @Override
+    @Transactional // 칸 빼기(skipped) + 남은 칸 시각 다시 저장. 하나라도 실패하면 전부 되돌림
+    public InsertResponse skipStop(long memberId, long tripId, SkipRequest request) {
+        Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
+        List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
+        Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
+        Stop skipped = findRemainingStop(todayStops, current, request.getStopId()); // 없으면 400
+
+        List<Stop> plan = new ArrayList<>();
+        for (Stop stop : todayStops) {
+            if (liveStopFinder.isRemaining(stop, current) && stop != skipped) {
+                plan.add(stop);
+            }
+        }
+        if (plan.isEmpty()) {
+            tripService.skipStops(memberId, tripId, List.of(skipped.getId())); // 뒤에 남은 칸이 없으면 빼기만
+        } else {
+            // plan에 없는 칸(뺀 칸)은 applyAlternative가 skipped로 바꿈
+            plan = alternativeCalculator.copyStops(plan);
+            Alternative result = alternativeCalculator.calculate(trip, current, plan, request.getLat(), request.getLng());
+            alternativeService.applyAlternative(memberId, tripId, toApplyRequest(result, request.getLat(), request.getLng(), "skip"));
+        }
+        InsertResponse response = new InsertResponse();
+        response.setTrip(tripService.getTrip(memberId, tripId));
+        response.setMessage(skipped.getName() + "을(를) 빼고 남은 일정을 다시 계산했어요.");
         return response;
     }
 
@@ -294,13 +336,121 @@ public class LiveServiceImpl implements LiveService {
         return before.getName();
     }
 
-    private ApplyRequest toApplyRequest(Alternative result, InsertRequest request) {
+    private ApplyRequest toApplyRequest(Alternative result, Double lat, Double lng, String key) {
         ApplyRequest apply = new ApplyRequest();
-        apply.setKey("insert");
+        apply.setKey(key);
         apply.setStops(result.getStops());
-        apply.setLat(request.getLat());
-        apply.setLng(request.getLng());
+        apply.setLat(lat);
+        apply.setLng(lng);
         return apply;
+    }
+
+    // ---------------------------------------------------------------- 놓친 예약 도우미 (11/12)
+
+    /** 넣을 일정: replaceStopId가 없으면 새 칸을 맨 앞에, 있으면 그 칸 자리에 (그 칸은 빠져서 skipped가 됨) */
+    private List<Stop> makeInsertPlan(List<Stop> todayStops, Stop current, Stop newStop, Long replaceStopId) {
+        List<Stop> plan = new ArrayList<>();
+        if (replaceStopId == null) {
+            plan.add(newStop);
+        }
+        for (Stop stop : todayStops) {
+            if (!liveStopFinder.isRemaining(stop, current)) {
+                continue;
+            }
+            plan.add(stop.getId().equals(replaceStopId) ? newStop : stop);
+        }
+        return plan;
+    }
+
+    /** 남은 칸 중 id가 같은 칸. 없으면 400 */
+    private Stop findRemainingStop(List<Stop> todayStops, Stop current, Long stopId) {
+        for (Stop stop : todayStops) {
+            if (liveStopFinder.isRemaining(stop, current) && stop.getId().equals(stopId)) {
+                return stop;
+            }
+        }
+        throw fail(400, "바꿀 일정을 찾을 수 없어요.");
+    }
+
+    /** 놓친 가게와 업종 낱말이 하나라도 겹치는 곳만. 이미 일정에 있는 곳(놓친 가게 포함)은 뺌 */
+    private List<Place> keepSimilarPlaces(List<Place> candidates, Place missed, Trip trip) {
+        Set<String> missedTypes = splitTypes(missed.getCategory());
+        Set<String> inTripIds = new HashSet<>();
+        for (Stop stop : trip.getStops()) {
+            if (stop.getPlaceId() != null) {
+                inTripIds.add(stop.getPlaceId());
+            }
+        }
+        List<Place> similar = new ArrayList<>();
+        for (Place place : candidates) {
+            if (!inTripIds.contains(place.getId()) && hasCommonType(missedTypes, place.getCategory())) {
+                similar.add(place);
+            }
+        }
+        return similar;
+    }
+
+    /** biz_type("일식,초밥")을 낱말 묶음으로 */
+    private Set<String> splitTypes(String bizType) {
+        Set<String> types = new HashSet<>();
+        if (bizType == null) {
+            return types;
+        }
+        for (String word : bizType.split(",")) {
+            if (!word.isBlank()) {
+                types.add(word.trim());
+            }
+        }
+        return types;
+    }
+
+    /** 낱말 묶음과 이 업종이 하나라도 겹치는지 */
+    private boolean hasCommonType(Set<String> types, String bizType) {
+        for (String word : splitTypes(bizType)) {
+            if (types.contains(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 같은 브랜드 다른 지점을 맨 앞으로 ("스시하루 강남점" → "스시하루"). 나머지 순서는 그대로 */
+    private void moveSameBrandFirst(List<Place> places, Place missed) {
+        String brand = brandOf(missed.getName());
+        if (brand == null) {
+            return;
+        }
+        List<Place> sameBrand = new ArrayList<>();
+        List<Place> others = new ArrayList<>();
+        for (Place place : places) {
+            if (brand.equals(brandOf(place.getName()))) {
+                sameBrand.add(place);
+            } else {
+                others.add(place);
+            }
+        }
+        places.clear();
+        places.addAll(sameBrand);
+        places.addAll(others);
+    }
+
+    /** 이름 끝 "○○점"을 뗀 브랜드 이름. 띄어쓰기가 없거나 "점"으로 안 끝나면 null (브랜드로 안 봄) */
+    private String brandOf(String name) {
+        int space = name == null ? -1 : name.lastIndexOf(' ');
+        if (space < 0 || !name.endsWith("점")) {
+            return null;
+        }
+        return name.substring(0, space);
+    }
+
+    /** 놓친 칸에서 머물려던 시간 (일정에서 못 찾으면 기본값) */
+    private int getMissedStay(Trip trip, Place missed, int defaultStay) {
+        for (Stop stop : trip.getStops()) {
+            if (missed.getId().equals(stop.getPlaceId()) && stop.getStay() != null) {
+                return stop.getStay();
+            }
+        }
+        return defaultStay;
     }
 
     /** "카페OO을(를) 다음 일정으로 넣었어요. (청계천 시간을 줄여) 세종문화회관에는 12분 여유가 있어요." */

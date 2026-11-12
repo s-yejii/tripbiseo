@@ -6,6 +6,7 @@ import com.tripbiseo.live.dto.InsertRequest;
 import com.tripbiseo.live.dto.InsertResponse;
 import com.tripbiseo.live.dto.RecommendRequest;
 import com.tripbiseo.live.dto.RecommendResponse;
+import com.tripbiseo.live.dto.SkipRequest;
 
 /**
  * ④ 여행 중 판별: 채팅, 추천, 일정에 넣기. 지금 상황은 StatusService, GPS 저장·도착 판정은 TrackService, 대안은 AlternativeService.
@@ -22,4 +23,7 @@ public interface LiveService {
 
     /** 추천 장소를 바로 다음 일정으로 넣고 남은 시각 다시 계산 */
     InsertResponse addRecommendedPlace(long memberId, long tripId, InsertRequest request);
+
+    /** 못 가게 된 일정 하나를 빼고, 남은 일정을 앞으로 당겨 다시 계산 (놓친 예약, 11/12) */
+    InsertResponse skipStop(long memberId, long tripId, SkipRequest request);
 }

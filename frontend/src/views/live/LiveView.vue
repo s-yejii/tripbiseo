@@ -17,7 +17,7 @@ import { toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 import { goBack } from '@/utils/back'
 import { rememberAlert, shouldOpenAlert } from '@/utils/alertMemory'
-import { finishTrip, getTripPhotos } from '@/api/trips'
+import { finishTrip, getTripPhotos, skipStop } from '@/api/trips'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
@@ -28,6 +28,7 @@ import DevDot from '@/components/live/DevDot.vue'
 import DemoDrive from '@/components/live/DemoDrive.vue'
 import TripEndSheet from '@/components/live/TripEndSheet.vue'
 import CriticalAlertCard from '@/components/live/CriticalAlertCard.vue'
+import LostFixedCard from '@/components/live/LostFixedCard.vue'
 import { closeLiveNotice, liveBanner, showLiveNotice } from '@/utils/liveBanner'
 import { daysBetween, todayText } from '@/utils/dates'
 import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
@@ -168,6 +169,60 @@ const cardTitle = computed(() => {
   if (devMode.isOn && fixed && fixed.slackMin < 0 && isBoardingPlace(fixed.name)) return missTrainTitle(fixed.name, fixed.eta, fixed.time)
   return status.value.alert.title
 })
+// 놓침 카드 (④ 11/12): 서버 lost- 알림(식당·카페 예약에 가장 빠른 방법으로도 못 닿음), 또는 고른 예약 카드의 "못 가게 됐어요"
+const manualLostId = ref(null) // "못 가게 됐어요"로 연 칸 id
+const isSkipping = ref(false)
+const isLostAlert = computed(() => !!currentAlert.value && /^lost-/.test(currentAlert.value.key || ''))
+const lostStop = computed(() => {
+  const id = manualLostId.value || (isLostAlert.value ? Number(currentAlert.value.key.slice('lost-'.length)) : null)
+  return id ? stops.value.find((stop) => stop.id === id) || null : null
+})
+const isLostOpen = computed(() => {
+  if (!lostStop.value || pageRoute.path !== '/live' || adding.value) return false
+  return manualLostId.value !== null || laterKey.value !== currentAlert.value.key
+})
+const lostText = computed(() => (manualLostId.value ? '예약한 곳에 못 가게 됐나요?' : currentAlert.value.text))
+// 고른 카드가 아직 안 간 식당·카페 예약이면 "못 가게 됐어요" 버튼
+const selectedMealFixed = computed(() => stops.value.find((stop) => stop.id === selected.value && stop.fixed && stop.meal && stop.reach !== 'done' && stop.reach !== 'here') || null)
+
+// 비슷한 근처 가게 화면으로 (지금 위치 기준)
+function openSimilar() {
+  const stop = lostStop.value
+  const position = live.position.value
+  if (!position) return showToast('아직 지금 위치를 받지 못했어요')
+  closeLost()
+  router.push({ path: '/live/similar', query: { tripId: live.tripId.value, stopId: stop.id, placeId: stop.placeId, name: stop.name, lat: position.lat, lng: position.lng } })
+}
+
+// 빼고 다음 장소로: 그 칸을 빼고 남은 일정을 당겨 다시 계산
+async function skipLost() {
+  const position = live.position.value
+  if (!position) return showToast('아직 지금 위치를 받지 못했어요')
+  if (isSkipping.value) return
+  isSkipping.value = true
+  try {
+    const res = await skipStop(live.tripId.value, lostStop.value.id, position.lat, position.lng)
+    closeLost()
+    showToast(res.message)
+    await live.refresh()
+  } catch (e) {
+    showToast(e.message)
+  }
+  isSkipping.value = false
+}
+
+// 그래도 갈게요: 서버 알림이었으면 가장 빠른 방법·가게에 전화하기 화면으로, 직접 연 거면 닫기만
+function keepLost() {
+  const isManual = manualLostId.value !== null
+  closeLost()
+  if (!isManual) router.push('/live/quick')
+}
+
+function closeLost() {
+  if (isLostAlert.value) laterKey.value = currentAlert.value.key
+  manualLostId.value = null
+}
+
 watch(isCardOpen, (isOpen) => (liveBanner.isCardOpen = isOpen), { immediate: true }) // 카드가 떠 있는 동안 시연 [+분] 버튼을 막음
 onUnmounted(() => (liveBanner.isCardOpen = false))
 
@@ -175,7 +230,7 @@ onUnmounted(() => (liveBanner.isCardOpen = false))
 watch(() => (currentAlert.value ? currentAlert.value.key || currentAlert.value.title : null), () => {
   const alert = currentAlert.value
   if (!alert) return
-  if (!shouldOpenAlert(alert) || /^late-/.test(alert.key || '')) return // 늦음(돌발)은 가운데 카드로
+  if (!shouldOpenAlert(alert) || /^(late|lost)-/.test(alert.key || '')) return // 늦음·놓침(돌발)은 가운데 카드로
   rememberAlert(alert)
   queueAlert(alert)
 }, { immediate: true })
@@ -673,6 +728,8 @@ function restartMoving() {
         </header>
 
         <!-- 중요한 알림: 가운데 카드 (이게 떠 있으면 위쪽 배너는 안 띄움) -->
+        <!-- 예약 놓침: 가운데 카드 (11/12) -->
+        <LostFixedCard v-if="isLostOpen" :name="lostStop.name" :text="lostText" :can-find-similar="!!lostStop.placeId" :is-skipping="isSkipping" @similar="openSimilar" @skip="skipLost" @keep="keepLost" />
         <CriticalAlertCard v-if="isCardOpen" :title="cardTitle" :text="status.alert.text" :to="'/live/quick'" @later="laterKey = status.alert.key" @go="laterKey = status.alert.key" />
         <!-- 위쪽 알림 줄: 한 장씩, 닫아야(위로 밀기) 다음 알림 · 저절로 안 사라짐 (11/08 주형) -->
         <AppNoti
@@ -745,6 +802,7 @@ function restartMoving() {
               <span v-if="fixedBadge" class="badge" :class="fixedBadge.cls"><i class="ic ic--s i-lock" aria-hidden="true"></i>{{ fixedBadge.text }}</span>
             </div>
 
+            <button v-if="selectedMealFixed && !isLostOpen" type="button" class="btn btn--secondary btn--md" style="align-self: flex-start" @click="manualLostId = selectedMealFixed.id">못 가게 됐어요</button>
             <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
 
             <p v-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비</p>

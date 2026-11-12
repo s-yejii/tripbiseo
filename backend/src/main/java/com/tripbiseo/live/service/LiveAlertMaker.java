@@ -49,12 +49,17 @@ public class LiveAlertMaker {
 
     /**
      * 화면 맨 위 알림 하나. 여러 개면 위에서부터 먼저 맞는 것 하나만:
-     * 더 머묾 > 영업 끝·휴무·머묾 부족 > 고정 일정 지각 > 출발 > 지난 일정 > 고정 여유 10분 이하 > 다음 장소 지각
+     * 예약 놓침 > 더 머묾 > 영업 끝·휴무·머묾 부족 > 고정 일정 지각 > 출발 > 지난 일정 > 고정 여유 10분 이하 > 다음 장소 지각
      */
     public LiveAlert makeAlert(StatusContext context, LeaveInfo leave) {
         Stop current = context.getCurrent();
         Stop fixedStop = context.getFixedStop();
         Integer slack = context.getSlack();
+        // 11/12 ④: 식당·카페 예약에 가장 빠른 방법으로도 못 닿으면 "늦음" 대신 "놓침" (가운데 놓침 카드). 유예 0분
+        if (isLost(context)) {
+            return newAlert("lost-" + fixedStop.getId(), "danger", fixedStop.getName(),
+                    "가장 빠른 방법으로 가도 예약 시각(" + fixedStop.getTime() + ")보다 " + (-context.getFastestSlack()) + "분 늦어요");
+        }
         // 11/08: 고정 일정(KTX·예약)에 늦는 게 가장 중요해서 맨 먼저. 도착 "목표" 시각을 같이 보여 줘서 기차를 놓친다고 오해하지 않게
         if (isLate(slack)) {
             // key 끝의 숫자는 10분 더 늦어질 때마다 바뀜 → 그때마다 다시 알려 줌
@@ -166,6 +171,11 @@ public class LiveAlertMaker {
     private boolean isAtStopBeforeFixed(StatusContext context) {
         Stop nextStop = context.getNextStop();
         return context.getCurrent() != null && nextStop != null && isFixed(nextStop);
+    }
+
+    /** 식당·카페 예약에 가장 빠른 방법으로 지금 가도 늦는지 (11/12) */
+    private boolean isLost(StatusContext context) {
+        return context.getFastestSlack() != null && context.getFastestSlack() < 0;
     }
 
     /** 예약(고정) 일정인지 */
