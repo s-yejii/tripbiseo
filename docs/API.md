@@ -100,6 +100,7 @@
 | `GET /api/themes` · `GET /api/themes/{id}` | 테마 코스 목록·상세 | plan/ThemeView, trip/MainView | 확인 필요 |
 | `POST /api/plans/capture` | 예약 캡처 사진 → 장소 이름·시각 (고정 일정) | plan/ReserveCaptureView | 있음 |
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
+| `POST /api/plans/capture/receipt` | 영수증 사진 → 가게·결제 시각·합계 + 장소 (결제 후보) | after/PayMemoView(⑤가 연결) | 확인 필요 (11/12 ③ 추가, ⑤ 석진 확인 전) |
 | `GET /api/plans/places` | 직접 고르기 지도: 종류별 장소 (들를 곳은 카카오 보충) | trip/PlanManualView | 있음 |
 | `GET /api/plans/areas` | 추천 지역 (종류마다 리뷰가 많은 서울 구) | plan/PlanAiView | 있음 |
 | `GET·POST /api/my/places` · `DELETE /api/my/places/{placeId}` | 내 장소 (친구 소식에서 저장, 식당·카페·놀거리) | plan/MyPlacesView, member/MyView (SavePlaceButton) | 있음 (11/06) |
@@ -939,6 +940,30 @@
 > 예약 번호·예약자 이름·전화번호·결제 정보는 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
 
 **오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "숙소 예약 정보를 읽지 못했어요. 숙소 이름과 체크인 날짜가 보이게 다시 찍어 주세요." · Gemini 공통 오류
+
+### `POST /api/plans/capture/receipt`
+여행 중 영수증 사진을 읽어 결제 후보로 돌려줘요 (Gemini OCR, ③). **저장하지 않아요** — ⑤ 결제 메모 화면에서 사용자가 확인·수정한 뒤 `payment`(source `capture`)로 저장해요. 가게 찾기는 예약 캡처와 같아요 (주소 근처 같은 이름 지점 → 이름을 못 찾고 문구뿐이면 주소 30m 안 DB 가게 → DB 정식 이름). · 로그인 필요 · 화면: after/PayMemoView (⑤가 연결) · 11/12 추가, 확인 필요
+
+**요청** `multipart/form-data`, 파일 칸 이름 `image` (PNG·JPG·WEBP, 5MB까지)
+
+**응답**
+```json
+{ "storeName": "산청숯불가든 을지로", "paidAt": "2026-11-14 20:52", "totalAmount": 150000, "address": "서울 중구 을지로 114-6 1층",
+  "placeId": "naver-1850187827", "lat": 37.5658, "lng": 126.9906, "checkNeeded": false, "note": null }
+```
+
+| 필드 | 설명 |
+|---|---|
+| storeName | 가게 이름 (DB에서 찾으면 DB 정식 이름) |
+| paidAt | `yyyy-MM-dd HH:mm`. 날짜나 시각을 못 읽으면 `null` |
+| totalAmount | 합계(결제 금액, 할인 뒤) 원. 숫자가 아니거나 1원~1천만 원 밖이면 `null` |
+| placeId, lat, lng | 우리 DB 장소. DB에 없으면 `placeId` `null`, 주소가 있으면 주소 좌표만 |
+| checkNeeded | `true`면 화면에서 꼭 확인 (금액·시각을 못 읽었거나, 품목을 더한 값이 합계와 다름) |
+| note | `checkNeeded` 이유 한 줄 (예: "품목을 더한 값과 합계가 달라요 · 금액을 확인해 주세요") |
+
+> 카드번호·승인번호·가맹점번호·사업자번호·전화번호·사람 이름은 Gemini에게 읽지 말라고 하고 받지도 않아요. 사진은 서버에 남기지 않아요.
+
+**오류** 400 "사진을 올려 주세요." · 400 "사진은 5MB까지예요." · 400 "PNG·JPG 사진만 올릴 수 있어요." · 422 "영수증을 읽지 못했어요. 가게 이름과 합계 금액이 보이게 다시 찍어 주세요." · Gemini 공통 오류
 
 ### `GET /api/plans/places`
 직접 고르기 지도에 보여 줄 장소예요. 기준점 3km 안, 종류별 평점 순. · 로그인 필요 · 화면: trip/PlanManualView
