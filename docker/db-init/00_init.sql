@@ -18,6 +18,7 @@
 \i /db/08_retrip_cleanup.sql
 \i /db/09_retrip_seed_yeongdeungpo.sql
 \i /db/10_retrip_update_demo_places.sql
+\i /db/10b_retrip_seed_tour_stay.sql
 
 \echo '== 11~18 담당별 테이블'
 \i /db/11_member.sql
