@@ -4,6 +4,7 @@
 // 읽은 값은 사용자가 고친 뒤 "고정 일정으로 넣기"를 눌러야 들어가요 (AI가 읽은 값을 그대로 믿지 않게)
 import { computed, ref } from 'vue'
 import { readCapture } from '@/api/trips'
+import ScanOverlay from '@/components/plan/ScanOverlay.vue'
 import { useTripStore } from '@/stores/trip'
 import { goBack } from '@/utils/back'
 import { showToast } from '@/utils/toast'
@@ -55,6 +56,22 @@ function dayOfTrip(readDate) {
   return Math.round((new Date(readDate) - new Date(start)) / DAY_MS) + 1
 }
 
+// 스캔 모션 (11/12): 읽는 중엔 스캔 빛, 다 읽으면 잠깐 초록 체크 + 짧은 진동
+const DONE_SHOW_MS = 1200 // 초록 체크를 보여 주는 시간
+const VIBRATE_MS = 40 // 다 읽었을 때 진동 길이
+const isDoneShown = ref(false)
+const scanState = computed(() => {
+  if (reading.value) return 'reading'
+  return isDoneShown.value ? 'done' : 'idle'
+})
+function showDone() {
+  isDoneShown.value = true
+  if (navigator.vibrate) navigator.vibrate(VIBRATE_MS) // 진동이 없는 기기(PC)는 그냥 넘어가요
+  setTimeout(() => {
+    isDoneShown.value = false
+  }, DONE_SHOW_MS)
+}
+
 // 고른 사진을 화면에 바로 보여 줘요
 function onFile(e) {
   const file = e.target.files && e.target.files[0]
@@ -84,6 +101,7 @@ async function readFromServer(file) {
     readNote.value = placeNote(found.value)
     const missing = missingFields(found.value)
     if (missing) readNote.value = missing + '을(를) 못 읽었어요 · 아래 칸에 직접 적어 주세요'
+    showDone()
   } catch (e) {
     isFailed.value = true
     readNote.value = e.message
@@ -122,6 +140,7 @@ function add() {
       <div class="scroll" style="padding-top: 4px; gap: 16px; bottom: 102px">
         <label class="rc-drop" for="rc-file">
           <img v-if="photo" class="rc-img" :src="photo" alt="올린 예약 캡처" />
+          <ScanOverlay v-if="photo" :state="scanState" />
           <span v-else class="rc-shot" aria-label="캡처 올리기 안내">
             <i class="ic i-camera" aria-hidden="true"></i>
             <b>예약 확인 화면을 올려 주세요</b>
