@@ -161,8 +161,9 @@ public class CaptureServiceImpl implements CaptureService {
             return;
         }
         response.setPlaceId(place.getId());
-        // 읽은 이름이 지점 이름의 앞부분이면 DB 이름으로 ("산청숯불가든" → "산청숯불가든 을지로"). 일정 만들 때 이름으로 다시 찾아도 같은 지점이 되게
-        if (place.getName() != null && place.getName().replace(" ", "").contains(response.getName().replace(" ", ""))) {
+        // 읽은 이름과 DB 이름이 서로 포함 관계면 DB 이름으로 ("산청숯불가든" → "산청숯불가든 을지로", "하나마토 문래 예약" → "하나마토 문래").
+        // 일정 만들 때 이름으로 다시 찾아도 같은 지점이 되게
+        if (isSameStore(place, response.getName())) {
             response.setName(place.getName());
         }
         response.setLat(place.getLat());
