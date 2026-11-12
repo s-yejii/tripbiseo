@@ -11,11 +11,12 @@ import ChipScroller from '@/components/common/ChipScroller.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TripPage from '@/components/trip/TripPage.vue'
-import { stopWon, toWonText } from '@/utils/budget'
+import { SHOW_PRICE_ESTIMATE, stopWon, toWonText } from '@/utils/budget'
 import { useStopPhotos } from '@/utils/useStopPhotos'
 import { concertTrip } from '@/data/trips'
 import { modes } from '@/data/places'
-import { checkPlan, createTrip, deleteTrip} from '@/api/trips'
+import { checkPlan, createTrip, deleteTrip, finishTrip, getTripList } from '@/api/trips'
+import { devMode } from '@/utils/devMode'
 import { useTripStore } from '@/stores/trip'
 import { addDays } from '@/utils/dates'
 import { dayStopsOf, retime, setDayStops } from '@/utils/draftEdit'
@@ -24,6 +25,8 @@ import { showToast } from '@/utils/toast'
 import { showTrashToast } from '@/utils/trash'
 import { useRouteSim } from '@/utils/useRouteSim'
 import RouteSimButton from '@/components/trip/RouteSimButton.vue'
+import TripWeather from '@/components/plan/TripWeather.vue'
+import ScenarioRainNotice from '@/components/plan/ScenarioRainNotice.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,7 +46,7 @@ const stopPhotos = useStopPhotos(() => (hasDraft.value ? store.draft.stops.filte
 // 칸 오른쪽 아래 금액 글자 (숙소처럼 넣지 않는 곳은 없음, 저장 전 초안에만)
 function costTextOf(stop) {
   const won = stopWon(stop)
-  return hasDraft.value && won !== null && won !== undefined ? toWonText(won) : null
+  return SHOW_PRICE_ESTIMATE && hasDraft.value && won !== null && won !== undefined ? toWonText(won) : null
 }
 const trip = computed(() => ({
   ...baseTrip.value,
@@ -57,6 +60,9 @@ const dayList = computed(() => {
   for (let d = 1; d <= last; d++) list.push({ day: d, label: store.draft.startDate ? toShortDate(addDays(store.draft.startDate, d - 1)) : '' })
   return list
 })
+
+// 고른 날 날짜 (날씨·옷차림 줄에 씀, 11/06)
+const dayDate = computed(() => (store.draft.startDate ? addDays(store.draft.startDate, day.value - 1) : ''))
 
 onMounted(runCheck)
 
@@ -82,7 +88,10 @@ function addMissed() {
 async function runCheck() {
   if (!hasDraft.value) return
   try {
-    check.value = await checkPlan(store.draft, day.value)
+    // 출발지(AI 일정의 "어디서 출발해요?")도 같이 보내서 1일차 첫 장소 앞에 길안내 (11/09, 저장은 안 함)
+    const origin = store.planOrigin
+    const draft = origin ? { ...store.draft, originName: origin.name, originLat: origin.lat, originLng: origin.lng } : store.draft
+    check.value = await checkPlan(draft, day.value)
     for (let i = 0; i < check.value.stops.length; i++) {
       const checked = check.value.stops[i]
       const stop = store.draft.stops.find((s) => s.name === checked.name && (s.day || 1) === checked.day)
@@ -154,6 +163,23 @@ async function replaceOld() {
   if (isMoved) showTrashToast(oldId) // 옛 여행은 휴지통으로 (되돌리면 두 여행 다 남아요)
 }
 
+// 시연 계정만 (11/08 주형: 몇 번을 하든 시나리오 날짜로, 겹치면 오래된 거 지우기): 새 여행과 날짜가 겹치는 예전 여행을 휴지통으로
+//   영구 삭제가 아니라 휴지통(되돌리기 가능). 진행 중이면 먼저 끝냄. 다른 팀원이 쓰는 여행 번호는 건드리지 않음
+const PROTECTED_TRIP_IDS = [51, 81, 82, 83, 84, 85, 86]
+async function trashOverlappingTrips(saved) {
+  const trips = await getTripList().catch(() => [])
+  for (const trip of trips) {
+    const isOverlap = trip.startDate <= saved.endDate && trip.endDate >= saved.startDate
+    if (trip.id === saved.id || !isOverlap || PROTECTED_TRIP_IDS.includes(trip.id)) continue
+    try {
+      if (trip.status === 'ongoing') await finishTrip(trip.id)
+      await deleteTrip(trip.id)
+    } catch (e) {
+      // 못 지운 여행은 그대로 둠 (새 일정 저장은 이미 끝남)
+    }
+  }
+}
+
 async function save() {
   if (!hasDraft.value) {
     router.replace('/trips/today')
@@ -164,6 +190,7 @@ async function save() {
   try {
     const saved = await createTrip(store.draft)
     store.tripId = saved.id
+    if (devMode.isOn) await trashOverlappingTrips(saved) // 시연 계정: 날짜가 겹치는 예전 여행은 휴지통으로
     if (store.replanFrom) {
       savedId.value = saved.id // 다시 짜기: 새 일정이 저장된 뒤에만 옛 여행을 어떻게 할지 물어봄
       return
@@ -179,12 +206,12 @@ async function save() {
 
 <template>
   <div class="scr scr-PlanCheck">
-    <TripPage :trip="trip" back="/trips" :show-budget="hasDraft" :sim-me="sim.me.value" :active-stop="sim.activeStop.value" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode">
+    <TripPage :trip="trip" back="/trips" :show-budget="hasDraft && SHOW_PRICE_ESTIMATE" :sim-me="sim.me.value" :active-stop="sim.activeStop.value" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode">
       <template #right="{ selected }">
         <RouteSimButton v-if="hasDraft" :sim="sim" />
         <RouterLink v-if="selected !== null && !sim.isOn.value" :to="editLink(selected)" class="btn btn--sm btn--float"><i class="ic ic--s i-edit" aria-hidden="true"></i>{{ editLabel(selected) }}</RouterLink>
       </template>
-      <template v-if="hasDraft && (dayList.length > 1 || missedList.length)" #head>
+      <template v-if="hasDraft" #head>
         <div v-if="missedList.length" class="pc-missed">
           <i class="ic ic--s i-warning" aria-hidden="true"></i>
           <span class="pc-missed__text">{{ missedText }}</span>
@@ -195,6 +222,8 @@ async function save() {
             {{ d.day }}일차<span v-if="d.label" class="t-cap tn" style="margin-left: 4px">{{ d.label }}</span>
           </button>
         </ChipScroller>
+        <TripWeather :date="dayDate" :stops="dayStopsOf(store.draft, day)" />
+        <ScenarioRainNotice :draft="store.draft" @applied="runCheck" /><!-- 시연 계정만: 비 예보를 일정 짤 때 알려 주고 반영 (③ 11/08) -->
       </template>
       <template v-if="error" #below>
         <p class="t-cap c-danger" style="padding: 12px 16px">{{ error }}</p>

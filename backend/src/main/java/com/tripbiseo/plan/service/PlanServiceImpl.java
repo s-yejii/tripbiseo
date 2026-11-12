@@ -18,7 +18,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.dev.DevService;
 import com.tripbiseo.common.exception.ApiException;
+import com.tripbiseo.common.external.FoundArea;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.live.dto.PlaceTagCount;
 import com.tripbiseo.plan.dto.AiConditions;
@@ -62,6 +64,7 @@ public class PlanServiceImpl implements PlanService {
     private static final List<String> DEFAULT_TRANSPORTS = List.of("subway", "bus", "walk");
     private static final List<String> KIND_CODES = List.of("food", "cafe", "bar", "tour", "culture", "shop"); // 대화로 더할 수 있는 종류
     private static final List<String> TAG_CODES = List.of("mood", "quiet", "value", "no_wait", "solo");       // 대화로 더할 수 있는 태그
+    private static final int MAX_REGION_WORDS = 3;        // 말로 정한 지역에서 중심을 찾는 낱말 수 (카카오 호출 수)
     private static final int MAX_MESSAGE_LENGTH = 300;
     private static final int MAX_TITLE_LENGTH = 60;
     private static final int MAX_PROMPT_CANDIDATES = 90;
@@ -74,9 +77,15 @@ public class PlanServiceImpl implements PlanService {
     private static final int LAST_MUST_START_MIN = 1260;  // 꼭 갈 곳은 늦어도 21:00 시작
     private static final int MUST_STAY_MIN = 90;
     private static final int FIXED_STAY_MIN = 120;
+    private static final String MIDDLE_DAY_START = "10:00"; // 여러 날 여행에서 첫날이 아닌 날의 시작 (PlanRuleMaker와 같음)
+    private static final String CALL_AHEAD_MARK = "연락 필수"; // 영업시간 원문에 이 말이 있으면 미리 연락해야 하는 곳
+    private static final int BOARDING_STAY_MIN = 30;     // 기차역·터미널·공항 고정 일정은 타러 가는 것뿐이라 30분 (11/06)
     private static final int MIN_STAY = 10;
     private static final int MAX_STAY = 600;
     private static final int MAX_NEEDS = 3;          // 칩에 없는 요청은 3개까지 (리뷰 확인이 요청마다 Gemini를 불러서)
+    private static final String WORKSHOP_NEED = "4명 이상 앉을 단체석"; // 누구랑 = 워크숍일 때 리뷰로 확인 (11/06)
+    private static final String KIDS_NEED = "아이와 가기 좋은 곳";        // 누구랑 = 아이와
+    private static final String MOOD_TAG = "mood";                     // 누구랑 = 연인이면 분위기 칩을 더함
     private static final int MAX_NEED_LENGTH = 20;
     private static final double WISH_BONUS = 2.0;    // 가능하면 갈 곳 점수 (태그 0.3·리뷰 확인 1.0보다 크게: 시간이 되면 먼저 들어가게)
     private static final double DONG_BONUS = 1.0; // 고른 동 안의 장소: 평점 차이보다 크게
@@ -84,6 +93,8 @@ public class PlanServiceImpl implements PlanService {
     private static final double ROAD_DETOUR = 1.3;   // 직선 거리 → 실제 길 (RouteClient와 같음)
     private static final int MIN_WALK_LIMIT = 5;     // 걷는 분 상한은 5~60분으로
     private static final int MAX_WALK_LIMIT = 60;
+    private static final int DEMO_STEP_MS = 900; // 시연 계정 일정 만들기: 진행 단계 하나를 보여 주는 시간
+    private static final int BOARDING_BUFFER_MIN = 15; // 기차·버스·비행기는 출발 15분 전 도착 (KTX 19:00 → 18:45, 11/06)
     private static final String MUST = "must";       // 일정 칸 중요도 (trip_stop.importance)
     private static final String MAYBE = "maybe";
 
@@ -96,6 +107,8 @@ public class PlanServiceImpl implements PlanService {
     private final PlanLimitChecker planLimitChecker;       // 끝 장소·도착 마감, 걷는 시간 상한 (11/04)
     private final PlanQuestionMaker planQuestionMaker;     // 대화의 다음 질문 (11/04)
     private final PlanWordGuesser planWordGuesser;         // Gemini가 안 될 때 낱말로만 조건 (11/04)
+    private final DevService devService;                   // 시연 계정인지 (11/08)
+    private final DemoScenario demoScenario;               // 시연 계정이면 이 시나리오 일정 (11/08)
 
     /** 사용자 말 → 여행 조건. 보낸 조건은 남기고 Gemini가 새로 뽑은 값만 덮어씀. Gemini 실패는 오류 그대로 (API.md) */
     @Override
@@ -181,8 +194,12 @@ public class PlanServiceImpl implements PlanService {
         if (conditions == null) {
             throw fail(400, "여행 조건이 없어요.");
         }
+        if (devService.isDemoAccount(memberId)) {
+            return makeDemoDraft(conditions, progress); // 시연 계정은 발표 시나리오 일정 (11/08 주형)
+        }
         boolean isMoved = moveToTomorrowIfLate(conditions);
         PlanGenerateResponse response = makeEmptyDraft(conditions);
+        addBoardingBuffer(conditions, response.getNotes());
         if (isMoved) {
             response.getNotes().add(makeNote("오늘은 늦어서 내일 일정으로 짰어요", null));
         }
@@ -207,6 +224,8 @@ public class PlanServiceImpl implements PlanService {
 
         List<AiDraftStop> filled = chooseStops(conditions, request.getMessages(), candidates, scores, reasons, days, response, finish, progress);
         addPickedStops(response, filled, candidates, reasons, days, baseLat, baseLng, conditions);
+        removeRepeatedStops(response.getStops()); // 같은 곳 두 번 (11/06)
+        removeAfterBoarding(response.getStops(), days); // KTX 탄 뒤 일정 (11/06)
         addKeptAndSort(conditions, response, days);
         planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
@@ -331,6 +350,7 @@ public class PlanServiceImpl implements PlanService {
         String aiText = aiService.isReady() ? "AI가 칸마다 장소 고르기" : "평점·거리로 장소 고르기 (AI 연결 안 됨)";
         progress.accept(makeProgress("ai", "now", 45, aiText, null));
         List<AiDraftStop> picks = pickStops(conditions, messages, candidates, reasons, days, response, makeLimitRule(conditions, finish));
+        addMissingMustPicks(conditions, picks, days); // Gemini가 꼭 갈 곳을 빠뜨리면 서버가 넣음 (11/06)
         progress.accept(makeProgress("ai", "done", 80, aiText, picks.size() + "칸 고름"));
 
         List<String> warnings = new ArrayList<>();
@@ -488,7 +508,7 @@ public class PlanServiceImpl implements PlanService {
     /** 일정에 그 이름이 들어간 칸이 있는지 ("한강" → "뚝섬한강공원"도 같은 곳으로 봄) */
     private boolean hasStopNamed(List<Stop> stops, String name) {
         for (Stop stop : stops) {
-            if (stop.getName() != null && (stop.getName().contains(name) || name.contains(stop.getName()))) {
+            if (isSameName(stop.getName(), name)) {
                 return true;
             }
         }
@@ -535,6 +555,29 @@ public class PlanServiceImpl implements PlanService {
         progress.accept(makeProgress("fixed", "done", 95, String.join(", ", names) + " 시간에 맞추기", null));
     }
 
+    /** 시연 계정: 진행 단계를 평소처럼 몇 초 보여 준 뒤 시나리오 일정(DemoScenario)을 돌려줌 */
+    private PlanGenerateResponse makeDemoDraft(PlanConditions conditions, Consumer<PlanProgress> progress) {
+        String[][] steps = {
+            { "candidates", "20", "장소 후보 찾기" },
+            { "reviews", "40", "리뷰로 단체석·분위기 확인" },
+            { "ai", "80", "AI가 일정 고르기" },
+            { "fixed", "95", "회식 18:30 · KTX 19:00 시간에 맞추기" },
+        };
+        for (String[] step : steps) {
+            waitDemoStep();
+            progress.accept(makeProgress(step[0], "done", Integer.parseInt(step[1]), step[2], null));
+        }
+        return demoScenario.makeDraft(conditions);
+    }
+
+    private void waitDemoStep() {
+        try {
+            Thread.sleep(DEMO_STEP_MS); // 로딩 화면이 한 번에 지나가지 않게
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // 멈추라는 신호는 그대로 남겨 둠
+        }
+    }
+
     private PlanProgress makeProgress(String step, String state, int percent, String text, String detail) {
         PlanProgress item = new PlanProgress();
         item.setStep(step);
@@ -572,7 +615,7 @@ public class PlanServiceImpl implements PlanService {
              + "흔한 말 예: \"카페는 별로 안 가고 싶어\" → avoidKinds [cafe] / \"술은 안 마셔\" → avoidKinds [bar] / \"쇼핑은 관심 없어\" → avoidKinds [shop] / "
              + "\"롯데월드는 가 봐서 빼 줘\" → avoidVisit [롯데월드] / \"사람 많은 곳은 싫어\" → needs [붐비지 않는 곳] / "
              + "\"매운 거 못 먹어\" → needs [안 매운 메뉴] / \"계단 많은 곳은 힘들어\" → needs [계단 적은 곳] / \"줄 서는 거 싫어\" → tags [no_wait].\n"
-             + "finish: 기차·비행기·버스를 타야 하거나 집에 가야 해서 여행이 끝나는 곳. name은 그 역·터미널·공항 이름, time은 거기 도착해야 하는 시각(출발 30분 전). finish는 fixed에 넣지 마.\n"
+             + "finish: 기차·비행기·버스를 타야 하거나 집에 가야 해서 여행이 끝나는 곳. name은 그 역·터미널·공항 이름, time은 거기 도착해야 하는 시각(출발 15분 전). finish는 fixed에 넣지 마.\n"
              + "maxWalkMin: 오래 걷기 싫다·다리·무릎이 불편하다고 하면 한 번에 걸을 수 있는 분. 숫자를 말하면 그 값, 아니면 15.";
     }
 
@@ -807,6 +850,35 @@ public class PlanServiceImpl implements PlanService {
         if (conditions.getTransports() == null || conditions.getTransports().isEmpty()) {
             conditions.setTransports(DEFAULT_TRANSPORTS);
         }
+        addCompanionNeeds(conditions);
+    }
+
+    /**
+     * 누구랑에 맞는 리뷰 확인 요청을 더함 (11/06). 리뷰에서 그 말이 보이는 곳이 점수를 더 받아요 (ReviewNeedChecker).
+     * 워크숍: 단체석 · 아이와: 아이와 가기 좋은 곳 · 연인: 분위기 칩
+     */
+    private void addCompanionNeeds(PlanConditions conditions) {
+        String companion = conditions.getCompanion();
+        if ("워크숍".equals(companion)) {
+            addNeed(conditions, WORKSHOP_NEED);
+        } else if ("아이와".equals(companion)) {
+            addNeed(conditions, KIDS_NEED);
+        } else if ("연인".equals(companion)) {
+            List<String> tags = conditions.getTags() == null ? new ArrayList<>() : new ArrayList<>(conditions.getTags());
+            if (!tags.contains(MOOD_TAG)) {
+                tags.add(MOOD_TAG);
+            }
+            conditions.setTags(tags);
+        }
+    }
+
+    /** 리뷰 확인 요청 하나 더하기 (같은 말이 있거나 3개가 차 있으면 그대로) */
+    private void addNeed(PlanConditions conditions, String need) {
+        List<String> needs = conditions.getNeeds() == null ? new ArrayList<>() : new ArrayList<>(conditions.getNeeds());
+        if (!needs.contains(need) && needs.size() < MAX_NEEDS) {
+            needs.add(need);
+        }
+        conditions.setNeeds(needs);
     }
 
     // ---------------------------------------------------------------- 조건 → 초안
@@ -853,8 +925,32 @@ public class PlanServiceImpl implements PlanService {
         }
         if (!isNearMe && conditions.getAreaLat() == null) {
             planCandidateFinder.addArea(candidates, region); // 지역 좌표 없이 이름만 말했을 때 (대화)
+            addRegionKinds(candidates, region, kinds); // 그 지역 중심에서 종류별 후보 + 볼거리 카카오 보충 (11/06)
         }
         return candidates;
+    }
+
+    /**
+     * 말로만 정한 지역("서울 영등포 여의도")의 낱말마다 카카오로 중심을 찾아 종류별 후보를 더함 (11/06).
+     * 이름으로만 찾으면 볼거리(공원·쇼핑몰)가 거의 없어 오후가 비어서, 지도에서 고른 구와 같은 방법을 씀. 못 찾으면 건너뜀
+     */
+    private void addRegionKinds(Map<String, Place> candidates, String region, List<String> kinds) {
+        int found = 0;
+        for (String word : region.split("[\\s,·/]+")) {
+            if (word.length() < 2 || word.equals("서울") || found >= MAX_REGION_WORDS) {
+                continue;
+            }
+            try {
+                List<FoundArea> areas = placeService.getAreaList(word);
+                if (!areas.isEmpty()) {
+                    FoundArea area = areas.get(0);
+                    planCandidateFinder.addKinds(candidates, area.getLat(), area.getLng(), "gu".equals(area.getType()) ? "gu" : "dong", kinds);
+                    found++;
+                }
+            } catch (ApiException e) { // 카카오가 안 되면 이름으로 찾은 후보만 씀
+                log.info("지역 중심을 찾지 못함: {}", word);
+            }
+        }
     }
 
     /**
@@ -905,7 +1001,9 @@ public class PlanServiceImpl implements PlanService {
              + limitRule
              + "- 앞 칸 장소와 주소(구·동)가 가까운 곳으로 이어서 동선이 짧게.\n"
              + "- 꼭 갈 곳과 시간 고정 일정은 slot을 null로, time은 고정 시각(꼭 갈 곳은 알맞은 시각)으로 넣어. 고정 일정의 day는 적힌 일차 그대로. 그 시간과 겹치는 칸은 비워.\n"
-             + "- reason은 왜 골랐는지 30자 이내. 후보 목록에 있는 정보(종류·평점·리뷰 근거·위치)만 근거로 써.\n"
+             + "- reason은 왜 골랐는지 30자 이내 해요체 한마디. 후보 목록에 있는 정보(종류·평점·리뷰 근거·위치)만 근거로 써.\n"
+             + "  '~입니다', '대표적인', '인기 있는', '즐길 수 있는' 같은 뻔한 말 말고 그곳만의 근거를 써 (예: \"리뷰에 단체석 넓다는 말이 많아요\", \"평점 4.8 · 다음 장소까지 걸어서 5분\").\n"
+             + "  시간 고정 일정은 reason을 비워 (예약 시각이 칸에 이미 보여서).\n"
              + "후보(id | 이름 | 종류 | 분류 | 평점(리뷰 수) | 리뷰 근거 | 주소):\n" + makeCandidateText(conditions, candidates, reasons)
              + "JSON만: {\"title\": \"여행 이름\", \"stops\": [{\"day\": 1, \"slot\": \"S1 또는 null\", \"id\": \"후보 id 또는 null\", "
              + "\"name\": \"장소 이름\", \"time\": \"HH:mm\", \"stay\": 머무는 분, \"fixed\": false, \"reason\": \"고른 이유\"}]}";
@@ -967,17 +1065,15 @@ public class PlanServiceImpl implements PlanService {
                     pick.setTime(fixed.getTime());
                     pick.setFixed(true);
                     pick.setSlot(null);
+                    pick.setReason(null); // 고정 일정은 "1일차 저녁 식사 고정 일정입니다" 같은 말 대신 칸의 예약 시각만 (11/07 문구 점검)
                 }
             }
         }
     }
 
-    /** 이름이 서로 포함되면 같은 곳 (2자 이상) */
+    /** 이름이 서로 포함되면 같은 곳 (2자 이상, 띄어쓰기 무시 11/06) */
     private boolean isSameName(String first, String second) {
-        if (first == null || second == null || first.length() < 2 || second.length() < 2) {
-            return false;
-        }
-        return first.contains(second) || second.contains(first);
+        return planCandidateFinder.isSameName(first, second);
     }
 
     /** 고정 일정이 몇째 날인지 (없거나 0 이하면 1일차) */
@@ -990,7 +1086,7 @@ public class PlanServiceImpl implements PlanService {
         for (AiDraftStop pick : picks) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId());
             String pickName = place != null ? place.getName() : pick.getName();
-            if (pickName != null && (pickName.contains(name) || name.contains(pickName))) {
+            if (isSameName(pickName, name)) {
                 return true;
             }
         }
@@ -1003,7 +1099,8 @@ public class PlanServiceImpl implements PlanService {
         int clock = conditions.getStartTime() == null ? FALLBACK_START_MIN : Geo.toMinutes(conditions.getStartTime());
         if (conditions.getFixed() != null) {
             for (FixedVisit fixed : conditions.getFixed()) {
-                AiDraftStop stop = makeDraftStop(fixed.getName(), fixed.getTime(), FIXED_STAY_MIN, true);
+                int stay = isBoardingPlace(fixed.getName()) ? BOARDING_STAY_MIN : FIXED_STAY_MIN;
+                AiDraftStop stop = makeDraftStop(fixed.getName(), fixed.getTime(), stay, true);
                 stop.setDay(dayOf(fixed));
                 stops.add(stop);
             }
@@ -1059,6 +1156,22 @@ public class PlanServiceImpl implements PlanService {
         Double nearLng = baseLng != null ? baseLng : first == null ? null : first.getLng();
         for (AiDraftStop pick : picked) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId()); // 후보 밖 id는 믿지 않음
+            if (place != null && !isSimilarName(pick.getName(), place.getName()) && !isNamedByUser(place.getName(), conditions)) {
+                place = null; // Gemini가 이름과 번호를 섞음 (11/06). 번호 쪽이 사용자가 말한 곳이 아니면 이름으로 다시 찾음
+            } else if (place != null && !isSimilarName(pick.getName(), place.getName())) {
+                pick.setName(place.getName()); // 번호 쪽이 사용자가 말한 곳이면 그 이름으로 ("63스퀘어" 이름 + 타임스퀘어 번호)
+            }
+            String userName = findUserName(pick.getName(), conditions);
+            if (userName != null && !isBoardingPlace(userName)) {
+                Place exact = findSameNamePlace(userName); // 사용자가 말한 곳은 이름이 똑같은 곳으로 ("타임스퀘어"가 그 안 식당 번호로 오던 문제, 11/06)
+                place = exact != null ? exact : place;
+            }
+            if (place == null && Boolean.TRUE.equals(pick.getFixed()) && isBoardingPlace(pick.getName())) {
+                place = findBoardingPlace(pick.getName(), nearLat, nearLng); // "서울역"이 "도마 서울역점" 식당으로 잡히지 않게 (11/06)
+            }
+            if (place == null) {
+                place = findSameNamePlace(pick.getName()); // 이름이 똑같은 곳이 있으면 그곳 (11/06)
+            }
             if (place == null) {
                 place = placeService.getPlaceByName(pick.getName(), nearLat, nearLng);
             }
@@ -1068,6 +1181,10 @@ public class PlanServiceImpl implements PlanService {
                 continue;
             }
             Stop stop = toDraftStop(pick, place, days);
+            if (place.getUseTime() != null && place.getUseTime().contains(CALL_AHEAD_MARK)) {
+                // 관광공사 정보에 "방문 전 연락 필수"인 곳은 미리 알려 줌 (11/07 점검: 삼해소주를 아무 안내 없이 넣었음)
+                response.getNotes().add(makeNote(place.getName() + "은(는) 방문 전에 연락이 필요해요", placeService.getNaverUrl(place.getName(), null)));
+            }
             stop.setMemo(makeMemo(pick.getReason(), reasons.get(place.getId())));
             stop.setImportance(isMustStop(pick, place, conditions, mustKindsLeft) ? MUST : MAYBE); // 여행 중 대안이 꼭은 안 줄임 (11/04)
             response.getStops().add(stop);
@@ -1111,6 +1228,188 @@ public class PlanServiceImpl implements PlanService {
         stop.setFixed(Boolean.TRUE.equals(pick.getFixed()));
         stop.setState("todo");
         return stop;
+    }
+
+    /**
+     * 시간 고정 일정 중 타는 곳(이름이 "역"으로 끝나거나 터미널·공항)은 출발 15분 전 도착으로 바꿈 (11/06).
+     * "KTX 19:00 서울역"이면 서울역 칸을 18:45로 넣어서, 18:45에 닿으면 정상이고 그보다 늦으면 여행 중에 늦음 알림이 떠요.
+     * 요청으로 받은 조건만 바꾸고 저장하지 않아서, 다시 만들어도 두 번 빠지지 않아요.
+     */
+    private void addBoardingBuffer(PlanConditions conditions, List<PlanNote> notes) {
+        if (conditions.getFixed() == null) {
+            return;
+        }
+        for (FixedVisit fixed : conditions.getFixed()) {
+            if (!isBoardingPlace(fixed.getName()) || fixed.getTime() == null) {
+                continue;
+            }
+            String departure = fixed.getTime();
+            fixed.setTime(Geo.toHhmm(Geo.toMinutes(departure) - BOARDING_BUFFER_MIN));
+            notes.add(makeNote(fixed.getName() + "은 " + departure + " 출발 " + BOARDING_BUFFER_MIN + "분 전인 " + fixed.getTime() + " 도착으로 맞췄어요", null));
+        }
+    }
+
+    /**
+     * 꼭 갈 곳 중 Gemini가 안 고른 곳을 마지막 날 시작 시각에 넣음 (칸 없이 → 겹치는 칸은 비우고, 겹치면 뒤로 밀림).
+     * "영등포 타임스퀘어"가 가끔 빠지던 문제 (11/06)
+     */
+    private void addMissingMustPicks(PlanConditions conditions, List<AiDraftStop> picks, int days) {
+        if (conditions.getMustVisit() == null) {
+            return;
+        }
+        String lastDayStart = days > 1 ? MIDDLE_DAY_START : (conditions.getStartTime() == null ? Geo.toHhmm(FALLBACK_START_MIN) : conditions.getStartTime());
+        for (String name : conditions.getMustVisit()) {
+            if (isPicked(name, picks)) {
+                continue;
+            }
+            AiDraftStop stop = makeDraftStop(name, lastDayStart, MUST_STAY_MIN, false);
+            stop.setDay(days);
+            picks.add(stop);
+        }
+    }
+
+    /** 이 이름이 Gemini가 고른 곳에 있나 */
+    private boolean isPicked(String name, List<AiDraftStop> picks) {
+        for (AiDraftStop pick : picks) {
+            if (isSimilarName(name, pick.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 같은 장소가 두 번 들어가면 앞(날·시각 순)의 것만 남김. 장소 번호가 없으면 이름으로 */
+    private void removeRepeatedStops(List<Stop> stops) {
+        stops.sort((first, second) -> first.getDay().equals(second.getDay())
+                ? first.getTime().compareTo(second.getTime()) : first.getDay() - second.getDay());
+        Set<String> seen = new HashSet<>();
+        List<Stop> repeated = new ArrayList<>();
+        for (Stop stop : stops) {
+            String key = stop.getPlaceId() != null ? stop.getPlaceId() : stop.getName().replace(" ", "");
+            if (!seen.add(key)) {
+                repeated.add(stop);
+            }
+        }
+        stops.removeAll(repeated);
+    }
+
+    /** 마지막 날 타는 곳(역·터미널·공항) 고정 일정 뒤에 오는 칸은 뺌 (KTX를 탄 뒤라 갈 수 없음) */
+    private void removeAfterBoarding(List<Stop> stops, int days) {
+        Integer boardingAt = null;
+        for (Stop stop : stops) {
+            if (stop.getDay() == days && Boolean.TRUE.equals(stop.getFixed()) && isBoardingPlace(stop.getName())) {
+                boardingAt = Geo.toMinutes(stop.getTime());
+                stop.setStay(BOARDING_STAY_MIN); // 타러 가는 것뿐이라 30분 (Gemini가 정한 머묾 대신)
+            }
+        }
+        if (boardingAt == null) {
+            return;
+        }
+        List<Stop> after = new ArrayList<>();
+        for (Stop stop : stops) {
+            if (stop.getDay() == days && !Boolean.TRUE.equals(stop.getFixed()) && Geo.toMinutes(stop.getTime()) > boardingAt) {
+                after.add(stop);
+            }
+        }
+        stops.removeAll(after);
+    }
+
+    /** 이 이름과 같은 곳으로 볼 만한 사용자가 말한 곳의 이름 (없으면 null) */
+    private String findUserName(String name, PlanConditions conditions) {
+        List<String> names = new ArrayList<>();
+        if (conditions.getMustVisit() != null) {
+            names.addAll(conditions.getMustVisit());
+        }
+        if (conditions.getFixed() != null) {
+            for (FixedVisit fixed : conditions.getFixed()) {
+                names.add(fixed.getName());
+            }
+        }
+        for (String userName : names) {
+            if (userName != null && isSimilarName(userName, name)) {
+                return userName;
+            }
+        }
+        return null;
+    }
+
+    /** 사용자가 말한 곳(꼭 갈 곳·가능하면 갈 곳·시간 고정)의 이름인지 */
+    private boolean isNamedByUser(String name, PlanConditions conditions) {
+        List<String> names = new ArrayList<>();
+        if (conditions.getMustVisit() != null) {
+            names.addAll(conditions.getMustVisit());
+        }
+        if (conditions.getWishVisit() != null) {
+            names.addAll(conditions.getWishVisit());
+        }
+        if (conditions.getFixed() != null) {
+            for (FixedVisit fixed : conditions.getFixed()) {
+                names.add(fixed.getName());
+            }
+        }
+        for (String userName : names) {
+            if (isSimilarName(userName, name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 두 이름이 같은 곳으로 볼 만한지: 띄어쓰기를 빼고 한쪽이 다른 쪽을 품음. 이름이 없으면 그냥 믿음 */
+    private boolean isSimilarName(String pickName, String placeName) {
+        if (pickName == null || pickName.isBlank() || placeName == null) {
+            return true;
+        }
+        String first = pickName.replace(" ", "");
+        String second = placeName.replace(" ", "");
+        return first.contains(second) || second.contains(first);
+    }
+
+    /**
+     * 이름이 똑같은 장소 (없으면 null). 이름으로 찾으면 가까운 곳을 먼저 골라서
+     * "영등포 타임스퀘어"가 그 안의 식당 "더플레이스 영등포 타임스퀘어점"으로 바뀌던 문제 (11/06)
+     */
+    private Place findSameNamePlace(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        Place place = placeService.getPlaceByName(name, null, null); // 위치 없이 찾으면 이름이 똑같은 곳이 먼저 옴
+        return place != null && name.trim().equals(place.getName()) ? place : null;
+    }
+
+    /**
+     * 타는 곳(역·터미널·공항) 고정 일정은 카카오 위치 검색에서 분류가 역·터미널·공항인 곳만 고름.
+     * 우리 장소 DB는 식당·카페 위주라 이름에 "서울역"이 들어간 가게가 먼저 잡혀서 (11/06). 못 찾으면 null
+     */
+    private Place findBoardingPlace(String name, Double lat, Double lng) {
+        List<com.tripbiseo.common.external.FoundLocation> found; // import 줄을 늘리지 않으려고 전체 이름 (다른 브랜치와 import 충돌 방지)
+        try {
+            found = placeService.getLocationList(name.replace("KTX", "").replace("SRT", "").trim(), lat, lng);
+        } catch (ApiException e) {
+            return null; // 카카오 키가 없거나 오류면 원래 방식으로
+        }
+        for (com.tripbiseo.common.external.FoundLocation location : found) {
+            String category = location.getCategory() == null ? "" : location.getCategory();
+            if (category.contains("역") || category.contains("터미널") || category.contains("공항") || category.contains("교통")) {
+                Place place = new Place();
+                place.setName(location.getName());
+                place.setCategory(category);
+                place.setAddress(location.getAddress());
+                place.setLat(location.getLat());
+                place.setLng(location.getLng());
+                return place;
+            }
+        }
+        return null;
+    }
+
+    /** 기차역·터미널·공항인지 (이름으로만 봄. "서울역", "광명역 KTX", "동서울터미널", "김포공항") */
+    private boolean isBoardingPlace(String name) {
+        if (name == null) {
+            return false;
+        }
+        String trimmed = name.replace("KTX", "").replace("SRT", "").trim();
+        return trimmed.endsWith("역") || trimmed.contains("터미널") || trimmed.contains("공항");
     }
 
     private PlanNote makeNote(String text, String url) {

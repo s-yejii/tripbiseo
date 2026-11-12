@@ -108,6 +108,35 @@ function pickMode(i, mode) {
   openLeg.value = null
   if (mode !== props.stops[i].leg.mode) emit('change-mode', i, mode)
 }
+
+const REVIEW_PART = /^리뷰 \d+개/ // 정규식: "리뷰 + 숫자 + 개"로 시작하는 조각을 찾음 (숫자가 매번 달라서 글자 비교로는 못 찾음)
+
+// 메모에서 리뷰 근거("분위기 좋아요 · 리뷰 10개 중 6개")를 빼고 남은 글. 남는 게 없으면 ''
+function memoText(memo) {
+  if (!memo) return ''
+  const kept = []
+  for (const part of memo.split(' · ')) {
+    if (REVIEW_PART.test(part)) {
+      kept.pop() // 바로 앞 조각이 태그 이름이라 같이 뺌
+    } else {
+      kept.push(part)
+    }
+  }
+  return kept.join(' · ')
+}
+
+// 앞 장소와 같은 건물인지 (메모에 "같은 건물" + 200m 안, 예: 더현대 서울 → 지하 1층 테디뵈르하우스). 이동 줄을 "같은 건물 · 걸어서 2분"으로 (11/08 주형)
+const SAME_BUILDING_M = 200
+const SAME_BUILDING_WALK_MIN = 2
+const METERS_PER_DEGREE = 111000
+function isSameBuilding(i) {
+  const before = props.stops[i - 1]
+  const stop = props.stops[i]
+  if (!before || !stop || before.lat == null || stop.lat == null) return false
+  if (!(stop.memo || '').includes('같은 건물')) return false // 일정 메모에 "같은 건물"이라고 적힌 곳만
+  const meters = Math.hypot(before.lat - stop.lat, (before.lng - stop.lng) * Math.cos((stop.lat * Math.PI) / 180)) * METERS_PER_DEGREE
+  return meters < SAME_BUILDING_M
+}
 </script>
 
 <template>
@@ -116,7 +145,9 @@ function pickMode(i, mode) {
       <!-- 앞 장소에서 오는 이동 -->
       <li v-if="stop.leg" class="leg">
         <span></span>
-        <span>
+        <span v-if="isSameBuilding(i)"><span class="legbtn legbtn--text"><i class="ic ic--s i-walk" aria-hidden="true"></i>같은 건물 · 걸어서 {{ SAME_BUILDING_WALK_MIN }}분</span></span>
+        <span v-else>
+          <span v-if="stop.leg.from" class="legfrom">{{ stop.leg.from }}에서</span>
           <button v-if="modeEditable" type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
             <i class="ic ic--s" :class="modes[stop.leg.mode].icon" aria-hidden="true"></i>{{ modes[stop.leg.mode].label }} {{ rideMinutes(stop.leg) }}분<b v-if="hasWalkPart(stop.leg)" class="legwalk">+도보 {{ stop.leg.walkMin }}분</b><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
@@ -152,7 +183,7 @@ function pickMode(i, mode) {
             <span class="stop__body">
               <span class="stop__name"><small v-if="stop.isAi" class="stop__ai">AI</small>{{ stop.name }}</span>
               <span class="stop__meta" :class="stop.metaCls"><i v-if="stop.metaIcon" class="ic ic--s" :class="stop.metaIcon" aria-hidden="true"></i>{{ stop.meta }}</span>
-              <span v-if="stop.memo" class="stop__memo">{{ stop.memo }}</span>
+              <span v-if="memoText(stop.memo)" class="stop__memo">{{ memoText(stop.memo) }}</span>
             </span>
             <span class="stop__side">
               <small v-if="stop.costText" class="stop__cost tn">{{ stop.costText }}</small>
@@ -195,6 +226,7 @@ function pickMode(i, mode) {
 .tl .tl-row.is-before .stop__card{background:var(--navy-soft);box-shadow:inset 0 4px 0 var(--navy)}
 .tl .tl-row.is-after .stop__card{background:var(--navy-soft);box-shadow:inset 0 -4px 0 var(--navy)}
 .tl .legwalk{color:var(--success);font-weight:700}
+.tl .legfrom{font-size:12px;color:var(--ink-muted);margin-right:6px}
 .tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>

@@ -3,7 +3,7 @@
 //   카카오 지도에 경로선을 그리고, GPS가 바뀔 때마다 경로선 위 내 위치로 진행률·남은 시간·다음 안내를 바꿔요.
 //   - 경로에서 60m 넘게 두 번 연속 벗어나면 지금 위치에서 길을 다시 찾아요 (30초에 한 번까지)
 //   - 20초마다 위치를 저장(POST /live/track)하고, 도착 150m 안이면 도착을 기록한 뒤 여행 중 화면으로 돌아가요
-//   - ?demo=1: 시연용 이동 (진짜 GPS 대신 받은 경로선을 따라 내 위치가 움직여요)
+//   - 가짜 GPS(개발자 모드, 시연 계정만): 진짜 GPS 대신 받은 경로선을 따라 내 위치가 움직여요 (11/06: ?demo=1 없앰)
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
@@ -15,6 +15,7 @@ import { distanceMeters, pathLength, pointAlongPath, snapToPath } from '@/utils/
 import { toMinutes, toTime } from '@/utils/time'
 import { goBack } from '@/utils/back'
 import { showToast } from '@/utils/toast'
+import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 
 const MODES = [
   { key: 'walk', label: '도보', icon: 'i-walk' },
@@ -40,7 +41,7 @@ const ROUTE_MAP_PADDING = { top: 120, right: 40, bottom: 444, left: 40 }
 const route = useRoute()
 const router = useRouter()
 const tripStore = useTripStore()
-const isDemo = ref(route.query.demo === '1')
+const isDemo = ref(isFakeGps())
 
 const phase = ref('loading') // loading / none / done / gps / gps-error / ready
 const message = ref('')
@@ -112,7 +113,7 @@ function watchGps() {
 function showDemo() {
   stopMoving()
   isDemo.value = true
-  router.replace('/live/route?demo=1')
+  setFakeGps(true)
   startDemo()
 }
 
@@ -244,7 +245,7 @@ async function arrive(lat, lng) {
   await saveTrack(lat, lng, null, true)
   await saveTrack(lat, lng, null, true)
   setTimeout(() => {
-    router.replace('/live' + (isDemo.value ? '?demo=1' : ''))
+    router.replace('/live')
     showToast(destination.value.name + '에 도착했어요 · 도착 시각을 기록했어요')
   }, 1200)
 }
@@ -435,7 +436,7 @@ const statusText = computed(() => {
           <h2 class="h-title">지금 위치를 받을 수 없어요</h2>
           <p class="t-cap">{{ message }}</p>
           <button type="button" class="btn btn--primary btn--lg" @click="retryGps">다시 시도</button>
-          <button type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
+          <button v-if="devMode.isOn" type="button" class="btn btn--secondary btn--lg" @click="showDemo">시연용 이동으로 보기</button>
         </section>
         <PageMessage v-else is-loading title="지금 위치를 찾는 중이에요" text="위치를 받으면 다음 장소까지 길을 찾아요" />
         </div>
@@ -446,7 +447,6 @@ const statusText = computed(() => {
 
         <header class="topbar topbar--float">
           <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/live')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
-          <span v-if="isDemo" class="badge badge--neutral" style="align-self: center">시연</span>
           <span class="card livebar"><b class="t-strong" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ originName }} → {{ destination.name }}</b></span>
         </header>
 

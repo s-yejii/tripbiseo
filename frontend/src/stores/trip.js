@@ -15,10 +15,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getTripList } from '@/api/trips'
+import { todayText } from '@/utils/dates'
 
+// 오늘 (개발자 모드면 시연 시계의 날짜, 11/09: 시연 계정은 발표일 11/10이 기본으로 잡히게)
 function today() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return todayText()
 }
 
 function emptyDraft() {

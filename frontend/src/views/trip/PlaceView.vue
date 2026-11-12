@@ -2,37 +2,60 @@
 // S12 장소 상세 (②): 사진, 별점, 보여 준 이유, 영업시간·브레이크 타임, 주소, 머무는 시간, 일정에 담기
 // 주소: /place?id=daelim (시연용 가짜 장소) 또는 /place?id={DB 장소 id} (서버 GET /api/places/{id})
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import AddToTripSheet from '@/components/trip/AddToTripSheet.vue'
 import { places } from '@/data/places'
 import { concertTrip } from '@/data/trips'
-import { getPlaceDetail } from '@/api/trips'
+import { getPlaceDetail, getPlacePhotos } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { imageFor } from '@/utils/mapView'
 import { goBack } from '@/utils/back'
-import { toDuration } from '@/utils/time'
 import { showToast } from '@/utils/toast'
+import { kindOf } from '@/utils/budget'
+
+// 종류별 보통 머무는 분 (PlanRuleMaker와 같은 값)
+const STAY_MIN_OF_KIND = { food: 70, cafe: 60, bar: 90 }
+const OTHER_STAY_MIN = 80
 
 const route = useRoute()
+const router = useRouter()
 const store = useTripStore()
 const isFake = !!places[route.query.id] || !route.query.id
 const id = places[route.query.id] ? route.query.id : 'daelim'
 const server = ref(null) // 서버 장소 상세 (화면이 쓰는 모양으로 바꾼 것)
 const place = computed(() => server.value || places[id])
-const inPlan = concertTrip.stops.some((stop) => stop.id === id)
+// 여행 상세에서 장소를 눌러 왔으면(?trip=) 이미 그 여행에 있는 실제 장소
+//   저장 전 일정 점검(?from=plan)에서 온 장소도 이미 일정에 있는 곳 (11/09 ② 찬기 OK)
+const isFromTrip = !isFake && (!!route.query.trip || route.query.from === 'plan')
+// 가짜 장소는 여기서 확인. 여행 상세에서 온 실제 장소는 담겨 있는 것으로 보고, 그 밖의 실제 장소는 담을 일정을 고르는 시트 안에서 일정마다 확인
+const inPlan = (isFake && concertTrip.stops.some((stop) => stop.id === id)) || isFromTrip
 const saved = ref(false)
+const isSheetOpen = ref(false) // "어디에 담을까요?" 시트
+
+// 진짜 사진 찾기. 실패해도 상세는 보여야 해서 여기서만 잡고 빈 목록으로
+async function findPhotos(placeId) {
+  try {
+    return await getPlacePhotos([placeId])
+  } catch {
+    return []
+  }
+}
 
 onMounted(async () => {
   if (isFake) return
   try {
-    const detail = await getPlaceDetail(route.query.id)
+    // 상세와 사진을 같이 불러서 기다리는 시간을 줄임
+    const [detail, photos] = await Promise.all([getPlaceDetail(route.query.id), findPhotos(route.query.id)])
+    const photo = photos[0] // 찾은 진짜 사진 첫 장 (없으면 undefined)
     const today = detail.hours.find((hours) => hours.today)
     server.value = {
       ...detail,
       cat: detail.category || '',
-      img: detail.imageUrl || imageFor(detail.category),
+      img: (photo && photo.imageUrl) || detail.imageUrl || imageFor(detail.category), // 찾은 사진 → DB 사진 → 카테고리 기본 그림
+      photoSite: photo ? photo.siteName : null, // 사진 출처 (블로그 이름). DB 사진이면 null
       rate: detail.rating ?? '-',
       hours: today ? today.text : detail.useTime,
-      dur: /카페|디저트/.test(detail.category || '') ? 40 : 60,
+      dur: STAY_MIN_OF_KIND[kindOf(detail.category)] || OTHER_STAY_MIN,
       outdoor: false,
     }
   } catch (e) {
@@ -65,9 +88,23 @@ function toggleSave() {
   showToast(saved.value ? '저장했어요' : '저장을 취소했어요')
 }
 function addToPlan() {
-  if (server.value) store.addDraftPlace(server.value)
-  showToast(place.value.name + '을(를) 동선에 맞춰 넣었어요')
-  goBack('/plan/check')
+  if (isFake) {
+    // 시연용 가짜 장소는 예전 동작 그대로 (일정 점검에서 들어와서 뒤로 가면 거기로 돌아감)
+    showToast(place.value.name + '을(를) 동선에 맞춰 넣었어요')
+    return goBack('/plan/check')
+  }
+  // 실제 장소: 시트의 "새 여행 만들기"
+  store.addDraftPlace(server.value)
+  store.draft.stops[store.draft.stops.length - 1].stay = server.value.dur // store는 늘 60분으로 넣어서 방금 넣은 칸(맨 끝)만 고침
+  showToast(place.value.name + '을(를) 새 여행에 넣었어요')
+  router.push('/plan/check') // goBack은 앱 안에서 왔으면 전 화면(홈 등)으로 가서, 담은 뒤엔 꼭 일정 점검으로
+}
+
+// [일정에 담기]: 가짜 장소는 지금처럼 바로 담고, 실제 장소는 어디에 담을지 고르는 시트를 엶
+function onAddClick() {
+  if (isFake) return addToPlan()
+  if (!server.value) return showToast('장소 정보를 불러오지 못했어요')
+  isSheetOpen.value = true
 }
 </script>
 
@@ -75,9 +112,9 @@ function addToPlan() {
   <div class="scr scr-Place">
     <div class="app app--white">
       <img :src="place.img" :alt="place.name + ' 사진'" class="pl-photo" />
-      <span class="badge tn pl-count">1 / 12</span>
+      <span v-if="place.photoSite" class="pl-credit">사진: {{ place.photoSite }}</span>
       <header class="topbar topbar--float">
-        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/plan/check')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn iconbtn--float" aria-label="뒤로가기" @click="goBack('/')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <span style="flex: 1"></span>
         <button type="button" class="iconbtn iconbtn--float" :class="{ 'is-bm': saved }" :aria-label="saved ? '저장 취소' : '저장'" :aria-pressed="saved" @click="toggleSave"><i class="ic i-bookmark" aria-hidden="true"></i></button>
         <button type="button" class="iconbtn iconbtn--float" aria-label="가게 링크 복사" title="가게 링크 복사" @click="copyText(naverLink, '가게 링크를 복사했어요')"><i class="ic i-link" aria-hidden="true"></i></button>
@@ -114,25 +151,24 @@ function addToPlan() {
             <span class="row__body"><span class="t-strong">{{ addressText }}</span><span v-if="isFake" class="row__meta">천호역 도보 8분</span></span>
             <button type="button" class="btn btn--ghost btn--sm" @click="copyText(addressText, '주소를 복사했어요')">복사</button>
           </div>
-          <div class="row">
-            <i class="ic i-timer muted" aria-hidden="true"></i>
-            <span class="row__body"><span class="t-strong tn">보통 {{ toDuration(place.dur) }} 머물러요</span></span>
-          </div>
+          <!-- "보통 N시간 머물러요"는 장소 종류별 기본값이라 근거가 약해서 화면에서 뺐어요 (11/09, 상재). place.dur는 일정에 담을 때 그대로 써요 -->
         </div>
       </div>
 
       <div class="cta cta--white">
-        <button type="button" class="btn btn--lg btn--block" :class="inPlan ? 'btn--secondary' : 'btn--primary'" :disabled="inPlan" @click="addToPlan">
-          <i class="ic" :class="inPlan ? 'i-check' : 'i-plus'" aria-hidden="true"></i>{{ inPlan ? '일정에 담겨 있어요' : '일정에 담기' }}
+        <button type="button" class="btn btn--lg btn--block" :class="inPlan ? 'btn--secondary' : 'btn--primary'" :disabled="inPlan" @click="onAddClick">
+          <i class="ic" :class="inPlan ? 'i-check' : 'i-plus'" aria-hidden="true"></i>{{ isFromTrip ? '이 일정에 담겨 있어요' : inPlan ? '일정에 담겨 있어요' : '일정에 담기' }}
         </button>
       </div>
+
+      <AddToTripSheet v-if="isSheetOpen" :place="server" @close="isSheetOpen = false" @new-trip="addToPlan" />
     </div>
   </div>
 </template>
 
 <style>
 .scr-Place .pl-photo{position:absolute;top:0;left:0;width:100%;height:300px;object-fit:cover}
-.scr-Place .pl-count{position:absolute;right:16px;top:260px;background:rgba(24,33,58,.7);color:#fff}
+.scr-Place .pl-credit{position:absolute;right:16px;top:268px;max-width:60%;padding:2px 8px;border-radius:8px;background:rgba(24,33,58,.7);color:#fff;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scr-Place .why{display:flex;gap:10px;padding:12px;border-radius:var(--radius-md);background:var(--navy-soft)}
 .scr-Place .why>span{display:flex;flex-direction:column;gap:6px}
 .scr-Place .why__tags{display:flex;flex-wrap:wrap;gap:6px}

@@ -39,6 +39,17 @@ export const useReplanStore = defineStore('replan', () => {
   const plan = ref(null) // 적용한 계산 결과 (칸마다 이동 분 moveMin, 바뀐 일정 화면이 씀)
   const appliedAt = ref(0)
   const mutedLate = ref(null) // "그냥 갈게요"를 누른 때 늦는 분 (10분 더 늦어지면 다시 알림)
+  const mutedFor = ref('') // 그 늦음이 어느 여행·예약 것인지 "여행id:예약이름" (11/09: 다른 여행·다른 예약까지 조용해지던 문제)
+  const MUTE_AGAIN_MIN = 10
+  // 이 여행·이 예약의 늦음을 "알고 가는 중"인지 (대안을 골랐거나 그냥 가기로 함, 10분 더 늦어지기 전까지)
+  function isMutedFor(id, fixedName, lateMin) {
+    return mutedLate.value !== null && mutedFor.value === id + ':' + fixedName && lateMin < mutedLate.value + MUTE_AGAIN_MIN
+  }
+  // 늦음을 알고 가기로 함 (대안 적용·그냥 갈게요)
+  function muteLate(lateMin) {
+    mutedLate.value = lateMin
+    mutedFor.value = tripId.value + ':' + (basisStop.value ? basisStop.value.name : '')
+  }
   const linkFit = ref(null) // 링크로 넣어 본 결과 { place, result } (POST /live/link-fit, 링크 추가 화면이 씀)
   const isLoading = ref(false)
   const error = ref('')
@@ -108,6 +119,7 @@ export const useReplanStore = defineStore('replan', () => {
     const ids = stops.value.map((stop) => stop.id)
     before.value = trip.value.stops.filter((stop) => ids.includes(stop.id))
     applied.value = await applyAlternative(tripId.value, alternative.key, alternative.stops, position.value.lat, position.value.lng)
+    muteLate(Math.max(0, -(alternative.slackMin || 0))) // 대안을 골랐으면 그만큼 늦는 건 알고 가는 것 → 10분 더 늦어질 때만 다시 알림 (11/08)
     plan.value = alternative
     tripStore.applied = applied.value
     appliedAt.value = Date.now()
@@ -145,7 +157,7 @@ export const useReplanStore = defineStore('replan', () => {
   }
 
   return {
-    tripId, position, trip, status, options, base, trimPlan, before, applied, plan, mutedLate, linkFit, isLoading, error,
+    tripId, position, trip, status, options, base, trimPlan, before, applied, plan, mutedLate, mutedFor, isMutedFor, muteLate, linkFit, isLoading, error,
     stops, lateMin, basisStop, currentStop, canUndo,
     load, findOption, preview, trimList, apply, undo,
   }

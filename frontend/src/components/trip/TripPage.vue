@@ -9,7 +9,9 @@
 //   reorderable: 목록 칸을 끌어 순서 바꾸기 → reorder 이벤트(원래 번호를 새 순서로 담은 목록) (11/04)
 //   지도: 점검 결과에 구간별 경로(trip.legs)가 있으면 진짜 길로, 없으면 장소끼리 점선
 import { computed, nextTick, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import BottomSheet from '@/components/common/BottomSheet.vue'
+import { isSameStay } from '@/utils/mapView'
 import TopBar from '@/components/common/TopBar.vue'
 import TripBudget from '@/components/trip/TripBudget.vue'
 import TripTimeline from '@/components/trip/TripTimeline.vue'
@@ -27,8 +29,10 @@ const props = defineProps({
   showBudget: { type: Boolean, default: false }, // 1인 예상 금액 줄 (일정 점검)
   simMe: { type: Object, default: null }, // 이동 미리보기의 점 { lat, lng }
   activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
+  tripId: { type: Number, default: null }, // 저장된 여행 번호. 있으면 장소 상세에 &trip=으로 넘겨 "이 일정에 담겨 있어요"로 보이게
 })
 const emit = defineEmits(['reorder', 'change-mode'])
+const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
 const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
 
 const selected = ref(null)
@@ -45,16 +49,26 @@ const FOCUS_RADIUS_M = 400 // 칸을 고르면 핀에서 이만큼(m)까지의 �
 const hasCoords = computed(() => props.trip.stops.length > 0 && props.trip.stops.every((stop) => stop.lat != null && stop.lng != null))
 const isKakao = computed(() => hasCoords.value && useRealMap.value)
 
-const mapPins = computed(() => props.trip.stops.map((stop, i) => ({
-  key: i,
-  index: i,
-  lat: stop.lat,
-  lng: stop.lng,
-  text: i + 1,
-  icon: stop.isStay ? 'i-home' : stop.fixed ? 'i-lock' : '', // 숙소는 집 모양 핀 (11/04)
-  cls: pinClass(stop, i),
-  label: (stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name,
-})))
+// 지도를 다시 맞출 때를 알리는 값: 그날 장소 목록이 바뀌면(일차 바꾸기·장소 넣고 빼기) 달라짐. 정렬해서 순서만 바꿀 땐 그대로
+const mapFitKey = computed(() => props.trip.stops.map((stop) => String(stop.id)).sort().join('|'))
+const mapPins = computed(() => {
+  const pins = []
+  props.trip.stops.forEach((stop, i) => {
+    // 같은 숙소가 여러 칸이면 핀은 처음 하나만 (11/09 ② 찬기 OK)
+    if (stop.isStay && props.trip.stops.slice(0, i).some((before) => before.isStay && isSameStay(before, stop))) return
+    pins.push({
+      key: i,
+      index: i,
+      lat: stop.lat,
+      lng: stop.lng,
+      text: i + 1,
+      icon: stop.isStay ? 'i-bed' : stop.fixed ? 'i-lock' : '', // 숙소는 침대 모양 핀 (11/09)
+      cls: pinClass(stop, i),
+      label: (stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name,
+    })
+  })
+  return pins
+})
 
 function pinClass(stop, i) {
   let cls = ''
@@ -67,11 +81,15 @@ function pinClass(stop, i) {
 
 // 카카오 지도 핀을 누름: 그 칸 쪽으로 옮긴 뒤, 옮긴 자리의 핀 위에 말풍선
 function pickPin(pin) {
-  select(pin.index)
-  isTipOnPin.value = selected.value !== null
+  // 이미 고른 핀(목록에서 눌러 확대한 핀)을 눌러도 전체 보기로 돌아가지 않고 말풍선만 띄워요
+  if (selected.value !== pin.index) select(pin.index)
+  isTipOnPin.value = true
   pickedPoint.value = { x: pin.x, y: pin.y }
   followPin()
 }
+
+// 지도 빈 곳을 누름: 말풍선만 닫아요 (고른 핀 강조와 확대는 그대로)
+function closeTip() { isTipOnPin.value = false; pickedPoint.value = null }
 
 // 지도가 움직일 때마다 말풍선을 고른 핀의 지금 화면 위치로 (핀을 눌러 띄운 말풍선만)
 function followPin() {
@@ -190,6 +208,11 @@ watch(() => props.activeStop, async (i) => {
   if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 })
 
+// 일차를 바꾸면(주소의 ?day= 가 바뀌면) 시트 안 목록을 맨 위로 → 다음 날도 첫 칸부터 보이게
+watch(() => route.query.day, () => {
+  if (scrollBox.value) scrollBox.value.scrollTop = 0
+})
+
 // 핀이나 목록을 누르면 같이 강조하고, 목록은 그 칸이 보이게 스크롤
 // 카카오 지도면 그 칸 핀을 가운데에 두고 앞뒤 경로가 보이게 확대, 고르기를 풀면 전체 보기로 (11/04)
 async function select(i) {
@@ -200,11 +223,18 @@ async function select(i) {
   const el = scrollBox.value.querySelector(`[data-stop="${i}"]`)
   if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
+// 예약 여유 표시 색: 늦으면 빨강, 10분 이하면 노랑, 넉넉하면 초록 (11/06: 여유가 마이너스인데 초록 체크로 뜨던 문제)
+const SLACK_TIGHT_MIN = 10 // 여행 중 알림(LiveAlertMaker)의 "여유가 얼마 없어요"와 같은 기준
+function slackBadge(slack) {
+  if (slack < 0) return { cls: 'badge--danger', icon: 'i-warning' }
+  if (slack <= SLACK_TIGHT_MIN) return { cls: 'badge--warning', icon: 'i-warning' }
+  return { cls: 'badge--success', icon: 'i-check' }
+}
 </script>
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" @pick="pickPin" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @map-click="closeTip" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -221,7 +251,7 @@ async function select(i) {
       :aria-label="(stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name"
       @click="select(i)"
     >
-      <i v-if="stop.isStay" class="ic ic--s i-home" aria-hidden="true" style="width: 13px; height: 13px"></i>
+      <i v-if="stop.isStay" class="ic ic--s i-bed" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <i v-else-if="stop.fixed" class="ic ic--s i-lock" aria-hidden="true" style="width: 13px; height: 13px"></i>
       <template v-else>{{ i + 1 }}</template>
     </button>
@@ -229,7 +259,7 @@ async function select(i) {
     <RouterLink
       v-if="tooltip"
       ref="tipBox"
-      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId : '/place'"
+      :to="tooltip.stop.placeId ? '/place?id=' + tooltip.stop.placeId + (tripId ? '&trip=' + tripId : '&from=plan') : '/place'"
       class="tooltip trip-tip"
       :class="{ 'is-below': tooltip.isBelow }"
       :style="{ left: tooltip.left + 'px', top: tooltip.y + 'px', '--arrow-x': tooltip.arrowX + 'px', transform: 'scale(' + tipScale + ')' }"
@@ -241,7 +271,7 @@ async function select(i) {
       <slot name="right" :selected="selected"></slot>
     </TopBar>
 
-    <BottomSheet class="sheet--peek trip-sheet" aria-labelledby="trip-title">
+    <BottomSheet class="sheet--peek trip-sheet" expandable aria-labelledby="trip-title">
       <div class="trip-head">
         <div style="flex: 1; min-width: 0">
           <h1 id="trip-title" class="h-title">{{ trip.title }}</h1>
@@ -249,7 +279,7 @@ async function select(i) {
             <span v-if="badge" class="badge" :class="badge.cls" style="height: 20px; margin-right: 6px">{{ badge.text }}</span>{{ subText }}
           </p>
         </div>
-        <span v-if="trip.slack !== undefined" class="badge badge--success tn"><i class="ic ic--s i-check" aria-hidden="true"></i>예약 여유 {{ trip.slack }}분</span>
+        <span v-if="trip.slack !== undefined" class="badge tn" :class="slackBadge(trip.slack).cls"><i class="ic ic--s" :class="slackBadge(trip.slack).icon" aria-hidden="true"></i>{{ trip.slack < 0 ? '예약에 ' + -trip.slack + '분 늦어요' : '예약 여유 ' + trip.slack + '분' }}</span>
       </div>
       <TripBudget v-if="showBudget && trip.stops.length" :stops="trip.stops" />
       <slot name="head"></slot>

@@ -40,7 +40,9 @@ onMounted(async () => {
   dropId.value = recommendedDropId()
 })
 
-const droppable = computed(() => replan.stops.filter((stop) => !stop.fixed && stop.importance !== 'must'))
+// 숙소는 빼지 않음 (11/08: 숙소 도착은 마감이 아니라 늦어지면 뒤로 밀릴 뿐)
+const isStay = (stop) => /숙소|호텔|숙박|모텔|게스트하우스/.test(stop.category || '') || /^(숙소|예약해 둔 숙소)/.test(stop.memo || '')
+const droppable = computed(() => replan.stops.filter((stop) => !stop.fixed && stop.importance !== 'must' && !isStay(stop)))
 const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '마지막 일정'))
 const dropStop = computed(() => replan.stops.find((stop) => stop.id === dropId.value) || null)
 

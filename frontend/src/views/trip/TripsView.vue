@@ -2,22 +2,25 @@
 // S04-b 내 여행 (②): 지금 여행 중 · 다가오는 여행 · 지난 여행
 // 서버(GET /api/trips)에서 내 여행을 읽어 status로 나눠요. 못 읽으면 오류 안내, 여행이 없으면 "여행 만들기" 카드.
 import { computed, onMounted, ref } from 'vue'
+import { useTripStore } from '@/stores/trip'
 import PhotoCard from '@/components/common/PhotoCard.vue'
 import TabBar from '@/components/common/TabBar.vue'
 import EmptyTripCard from '@/components/common/EmptyTripCard.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
 import { getArchivedTrips, getTripList } from '@/api/trips'
 import { daysLeft, toShortDate, tripDetailLink } from '@/utils/tripView'
+import { withoutPractice } from '@/utils/practice'
 
 const serverTrips = ref(null) // null: 아직 못 읽음
 const error = ref('')
 const archivedCount = ref(0) // 보관함 여행 수 (있을 때만 맨 아래 한 줄)
 onMounted(load)
+const store = useTripStore() // 새 여행 만들기를 누르면 하다 만 AI 일정 입력을 비워요
 
 async function load() {
   error.value = ''
   try {
-    serverTrips.value = await getTripList()
+    serverTrips.value = withoutPractice(await getTripList()) // 시연 연습 복사본은 숨김
     archivedCount.value = (await getArchivedTrips()).length
   } catch (e) {
     error.value = e.message
@@ -34,6 +37,8 @@ const done = computed(() => (serverTrips.value || []).filter((trip) => trip.stat
     <div class="app">
       <header class="topbar" style="padding: 0 8px 0 16px">
         <h1 class="topbar__title" style="font-size: 24px; line-height: 32px">내 여행</h1>
+        <!-- ⑤ 앨범으로 (11/06, ② 이찬기 동의) -->
+        <RouterLink to="/album" class="btn btn--secondary btn--sm"><i class="ic ic--s i-album" aria-hidden="true"></i>앨범</RouterLink>
       </header>
 
       <div class="scroll" style="bottom: 84px; gap: 20px; padding-top: 4px">
@@ -60,7 +65,7 @@ const done = computed(() => (serverTrips.value || []).filter((trip) => trip.stat
               <span class="row__body"><span class="row__title">{{ trip.title }}</span><span class="row__meta">{{ toShortDate(trip.startDate) }} · {{ trip.stopCount }}곳</span></span>
               <span class="badge badge--navy tn">{{ daysLeft(trip.startDate) > 0 ? 'D-' + daysLeft(trip.startDate) : '오늘' }}</span>
             </RouterLink>
-            <RouterLink to="/new" class="row tr-new">
+            <RouterLink to="/new" class="row tr-new" @click="store.resetPlan()">
               <span class="thumb tr-new__ic"><i class="ic i-plus" aria-hidden="true"></i></span>
               <span class="row__body"><span class="row__title">새 여행 만들기</span><span class="row__meta">AI로 짜거나 직접 골라요</span></span>
               <i class="ic i-next" aria-hidden="true"></i>

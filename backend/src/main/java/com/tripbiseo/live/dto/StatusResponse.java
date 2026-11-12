@@ -19,4 +19,5 @@ public class StatusResponse {
     private WeatherInfo weather;   // 예보가 없거나 실패하면 null
     private List<StatusStop> stops = new ArrayList<>();
     private NextRoute next;        // null 가능
+    private LiveAlert adjust;      // 최근 자동 일정 조정 안내 (위쪽 배너에 잠깐), null 가능 (11/08)
 }

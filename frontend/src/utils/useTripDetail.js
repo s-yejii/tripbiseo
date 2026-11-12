@@ -40,5 +40,17 @@ export function useTripDetail() {
     }
   }
 
-  return { saved, view, isLoading, error, load }
+  // 다른 날 보기 (여러 날 여행, 11/06): 그날 점검을 붙여 그날 칸으로 바꿈
+  async function loadDay(day) {
+    if (!saved.value) return
+    let check = null
+    try {
+      check = await checkPlan(saved.value, day)
+    } catch {
+      check = null
+    }
+    view.value = toViewTrip(saved.value, check, day)
+  }
+
+  return { saved, view, isLoading, error, load, loadDay }
 }

@@ -5,7 +5,6 @@ import { ref } from 'vue'
 import ReserveCaptureView from '@/views/plan/ReserveCaptureView.vue'
 import LiveDelayView from '@/views/live/LiveDelayView.vue'
 import AlternativesView from '@/views/live/AlternativesView.vue'
-import { showToast } from '@/utils/toast'
 
 const slides = [
   { line1: '예약 문자 하나로', line2: '하루 일정이 나와요', screen: ReserveCaptureView },
@@ -31,7 +30,7 @@ function onUp(e) {
 <template>
   <div class="scr scr-Onboarding">
     <div class="app app--white">
-      <button type="button" class="lang-chip" aria-label="English로 보기" @click="showToast('English 화면은 준비 중이에요')"><i class="ic ic--s i-chat" aria-hidden="true"></i>English</button>
+      <!-- 11/06: 언어 버튼은 마이 맨 아래(Language)로 옮김 -->
 
       <h1 class="h-display ob-title" aria-live="polite"><span class="c-navy">{{ slides[index].line1 }}</span><br />{{ slides[index].line2 }}</h1>
 

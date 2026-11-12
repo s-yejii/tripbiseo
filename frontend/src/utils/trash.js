@@ -3,7 +3,7 @@ import { restoreTrip } from '@/api/trips'
 import { showToast } from '@/utils/toast'
 
 export function showTrashToast(tripId, onUndo) {
-  showToast('휴지통으로 옮겼어요', {
+  showToast('여행 기록으로 옮겼어요', {
     actionText: '되돌리기',
     action: async () => {
       try {

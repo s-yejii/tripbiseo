@@ -50,7 +50,7 @@ function remove() {
     </template>
     <template v-else>
       <h2 id="sc-title" class="h-title">삭제할까요?</h2>
-      <p class="sc-trip tn"><b>{{ trip.title }}</b> · 휴지통으로 옮겨요</p>
+      <p class="sc-trip tn"><b>{{ trip.title }}</b> · 여행 기록으로 옮겨요</p>
       <div class="cta__row">
         <button type="button" class="btn btn--secondary btn--lg" style="flex: 1" :disabled="isWorking" @click="isAskingDelete = false">취소</button>
         <button type="button" class="btn btn--danger btn--lg" style="flex: 1" :disabled="isWorking" @click="remove">삭제하고 시작</button>

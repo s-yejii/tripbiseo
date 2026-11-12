@@ -1,6 +1,7 @@
 <script setup>
 // 앱 전체 틀: PC에서는 휴대폰 모양 안에, 폰에서는 화면 가득 보여 줘요
 import { onMounted, onUnmounted, ref } from 'vue'
+import { ensureDemoMode } from '@/utils/devMode'
 import { useRouter } from 'vue-router'
 import StatusBar from '@/components/common/StatusBar.vue'
 import ToastBox from '@/components/common/ToastBox.vue'
@@ -45,6 +46,7 @@ function fitPhone() {
 onMounted(() => {
   fitPhone()
   window.addEventListener('resize', fitPhone)
+  ensureDemoMode() // 이미 로그인된 시연 계정도 앱을 열면 시연 모드로 (③ 11/09)
 })
 onUnmounted(() => window.removeEventListener('resize', fitPhone))
 </script>

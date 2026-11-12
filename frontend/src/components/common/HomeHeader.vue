@@ -1,10 +1,10 @@
 <script setup>
-// 홈 화면 맨 위: 왼쪽 로고(여행어때) + 오른쪽 칸(slot: 알림 버튼이나 로그인 버튼)
+// 홈 화면 맨 위: 왼쪽 로고(착착트립) + 오른쪽 칸(slot: 알림 버튼이나 로그인 버튼)
 </script>
 
 <template>
   <header class="topbar" style="padding: 0 8px 0 16px">
-    <span class="home-logo"><img src="/img/logo-mark.svg" alt="" width="26" height="26" />여행어때</span>
+    <span class="home-logo"><img src="/img/logo-chakchak.png" alt="착착트립" height="30" /></span>
     <slot />
   </header>
 </template>

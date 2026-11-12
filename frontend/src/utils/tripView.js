@@ -2,6 +2,7 @@
 // 화면 모양은 원래 가짜 데이터(data/trips.js)와 같아요: time, name, dur, img, meta, imp, wx, fixed, leg, x, y
 import { imageFor, isStayStop, toMapPositions } from '@/utils/mapView'
 import { toDuration } from '@/utils/time'
+import { appNow } from '@/utils/devMode'
 
 const WEEK = ['일', '월', '화', '수', '목', '금', '토']
 const TRIP_MAP_BOX = { left: 30, top: 110, width: 330, height: 210 } // TripPage 지도 칸 (viewBox 390×344)
@@ -21,7 +22,7 @@ const DAY_MS = 86400000 // 하루(밀리초)
 
 // "2026-10-24" → 오늘부터 며칠 남았는지 (오늘 0, 지난 날은 음수)
 export function daysLeft(dateText) {
-  const today = new Date()
+  const today = appNow() // 개발자 모드면 시연 시계 (11/06)
   today.setHours(0, 0, 0, 0)
   return Math.round((new Date(dateText + 'T00:00:00') - today) / DAY_MS)
 }
@@ -132,11 +133,13 @@ function toViewStop(stop, position, memo = null) {
     lng: stop.lng,
     warn: !!stop.issue,
     // walkMin: 그중 걷는 시간 (대중교통이면 역·정류장까지·갈아탈 때, 11/04)
-    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walkMin: stop.leg.walkMinutes || 0 } : null,
+    leg: stop.leg ? { mode: MODE_OF_LEG[stop.leg.mode] || 'walk', min: stop.leg.minutes, walkMin: stop.leg.walkMinutes || 0, from: stop.leg.fromName || '' } : null,
     x: position.x,
     y: position.y,
   }
 }
+
+const FIXED_CHECK_SLACK_MIN = 10 // 예약까지 여유가 이보다 적어야 "미리 확인할 것"에 넣음
 
 // 점검 결과의 문제 줄 → "미리 확인할 것"
 function toChecks(check) {
@@ -144,7 +147,8 @@ function toChecks(check) {
   for (const stop of check.stops) {
     if (stop.issue) items.push({ kind: 'late', icon: 'i-warning', title: stop.name, desc: stop.issue })
   }
-  if (check.fixed) {
+  // 예약(시간 고정)은 빠듯하거나(여유 10분 미만) 늦을 때만 (11/09 주형: 여유 있는데 왜 말해줌?). 여유가 넉넉하면 넣지 않음
+  if (check.fixed && check.fixed.slack < FIXED_CHECK_SLACK_MIN) {
     const slack = check.fixed.slack
     items.push({
       kind: slack < 0 ? 'late' : 'event',

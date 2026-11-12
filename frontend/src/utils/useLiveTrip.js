@@ -13,7 +13,8 @@ import { useTripStore } from '@/stores/trip'
 const STATUS_INTERVAL_MS = 30000 // 지금 상황 다시 계산 간격
 const TRACK_MIN_GAP_MS = 20000 // GPS 저장 최소 간격
 const DEMO_STEP_MS = 4000 // 시연 모드: 한 걸음 간격
-const DEMO_STEPS_PER_STOP = 3 // 시연 모드: 장소 사이를 몇 걸음에 가는지 (도착 판정은 두 번 연속이라 장소마다 2번 머묾)
+const DEMO_STEPS_PER_STOP = 3 // 시연 모드: 장소 사이를 몇 걸음에 가는지
+const DEMO_STAY_POINTS = 4 // 시연 모드: 장소마다 찍는 점 수 (서버는 최근 4점이 멈춰 있어야 도착으로 봄)
 
 export function useLiveTrip() {
   const store = useTripStore()
@@ -31,7 +32,8 @@ export function useLiveTrip() {
   let lastTrackAt = 0
 
   // 진행 중인 여행이 있으면 시작 (없으면 phase가 none)
-  async function start(isDemo = false) {
+  // isNoGps: 시연 계정 일정대로 흐르기 — 진짜 GPS를 켜지 않고 DemoDrive가 placeAt으로 위치를 정함 (11/09)
+  async function start(isDemo = false, isNoGps = false) {
     phase.value = 'loading'
     const id = await findOngoingTripId()
     if (!id) {
@@ -43,7 +45,7 @@ export function useLiveTrip() {
     phase.value = 'gps'
     if (isDemo) {
       await startDemo()
-    } else {
+    } else if (!isNoGps) {
       watchGps()
     }
     statusTimer = setInterval(refresh, STATUS_INTERVAL_MS)
@@ -125,7 +127,7 @@ export function useLiveTrip() {
     )
   }
 
-  // 시연용 가짜 GPS: 오늘 남은 장소를 차례로 지나감 (장소마다 2번 찍어서 도착 판정)
+  // 시연용 가짜 GPS: 오늘 남은 장소를 차례로 지나감 (장소마다 4번 찍어서 도착 판정)
   async function startDemo() {
     const route = await makeDemoRoute()
     if (!route.length) return
@@ -145,7 +147,9 @@ export function useLiveTrip() {
       const first = await getLiveStatus(tripId.value, 37.5665, 126.978) // 서울시청 (아무 곳이나 한 번)
       const stops = first.stops.filter((stop) => stop.lat != null && stop.reach !== 'done')
       for (let i = 0; i < stops.length; i++) {
-        route.push({ lat: stops[i].lat, lng: stops[i].lng }, { lat: stops[i].lat, lng: stops[i].lng })
+        for (let k = 0; k < DEMO_STAY_POINTS; k++) {
+          route.push({ lat: stops[i].lat, lng: stops[i].lng })
+        }
         const next = stops[i + 1]
         if (!next) break
         for (let k = 1; k < DEMO_STEPS_PER_STOP; k++) {
@@ -167,5 +171,22 @@ export function useLiveTrip() {
     statusTimer = setInterval(refresh, STATUS_INTERVAL_MS)
   }
 
-  return { tripId, status, trip, position, error, phase, gpsError, start, stop, refresh, retryGps }
+  // 시연 장면 (개발자 모드, 11/06): 진짜 GPS를 멈추고 그 자리로 옮김. isArrive면 도착 판정에 필요한 점을 다 찍음
+  async function placeAt(lat, lng, isArrive = false) {
+    if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId)
+    watchId = null
+    clearInterval(demoTimer)
+    if (isArrive) {
+      for (let i = 0; i < DEMO_STAY_POINTS - 1; i++) await sendTrack(tripId.value, lat, lng, 10)
+    }
+    await moveTo(lat, lng, 10, true)
+  }
+
+  // 지도 위 내 위치만 옮김 (장소 사이를 걸어가는 모습, 저장 안 함)
+  function showAt(lat, lng) {
+    position.value = { lat, lng }
+    store.position = position.value
+  }
+
+  return { tripId, status, trip, position, error, phase, gpsError, start, stop, refresh, retryGps, placeAt, showAt }
 }

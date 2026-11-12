@@ -1,0 +1,29 @@
+# 착착트립 DB를 도커로 띄우기 (11/12 ④ 신예지)
+#   처음:            docker compose up -d db   → db/*.sql을 docker/db-init/00_init.sql 순서대로 자동 실행 (처음 한 번, 몇 분)
+#   진행 보기:       docker compose logs -f db
+#   다시 처음부터:   docker compose down -v    (도커 DB의 데이터가 전부 지워져요)
+#   포트 5433: 내 PC에 설치된 PostgreSQL(5432)과 같이 쓰려고. Spring은 application-local.properties에서 5433으로 바꿔요
+services:
+  db:
+    image: postgis/postgis:17-3.5          # PostgreSQL 17 + PostGIS 3.5
+    container_name: tripbiseo-db
+    environment:
+      POSTGRES_DB: tripbiseo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?.env 파일에 DB_PASSWORD를 적어 주세요}
+      TZ: Asia/Seoul                       # 90·95번이 '오늘' 날짜로 데이터를 만들어서 한국 시간으로
+      PGTZ: Asia/Seoul
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data   # DB 데이터 (컨테이너를 지워도 남음)
+      - ./db:/db:ro                        # 우리 SQL 파일 (읽기만)
+      - ./docker/db-init:/docker-entrypoint-initdb.d:ro   # 처음 켤 때 실행할 순서
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tripbiseo"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db-data:

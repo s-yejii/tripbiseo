@@ -2,7 +2,9 @@ package com.tripbiseo.trip.service;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,6 +31,8 @@ public class OpeningHours {
     private static final Pattern RANGE = Pattern.compile("(\\d{1,2}:\\d{2})\\s*[-~]\\s*(\\d{1,2}:\\d{2})");
     // 날짜가 붙은 요일 표기 "금(10/9)"의 "(10/9)" 부분 (그대로 두면 '/'로 나눌 때 깨짐)
     private static final Pattern DATE_NOTE = Pattern.compile("\\(\\s*\\d{1,2}\\s*/\\s*\\d{1,2}\\s*\\)");
+    // 날짜 칸 표시. 지우지 않고 표시로 바꿔야 나중에 "그날 하루만의 시간"인 칸을 알아볼 수 있음
+    private static final String DATE_MARK = "@";
 
     /** 요일별 영업시간 목록. 정보가 없으면 [] */
     public List<DayHours> getDayHoursList(Place place, LocalDate today) {
@@ -43,7 +47,7 @@ public class OpeningHours {
             list.add(toDayHours("매일", useTime, true));
             return list;
         }
-        String body = DATE_NOTE.matcher(useTime.substring(start + 4)).replaceAll("").replace(")", "");
+        String body = DATE_NOTE.matcher(useTime.substring(start + 4)).replaceAll(DATE_MARK).replace(")", "");
         for (String part : body.split("/")) {
             String text = part.trim();
             if (text.length() < 2) {
@@ -51,9 +55,13 @@ public class OpeningHours {
             }
             String day = text.startsWith("매일") ? "매일" : text.substring(0, 1);
             boolean isToday = day.equals(todayName) || day.equals("매일");
-            list.add(toDayHours(day, text.substring(day.length()).trim(), isToday));
+            String dayText = text.substring(day.length()).trim();
+            if (dayText.startsWith(DATE_MARK)) {
+                dayText = null; // 공휴일 하루만의 시간이라 평소 시간은 모름 (자리는 남겨 요일 순서 유지)
+            }
+            list.add(toDayHours(day, dayText, isToday));
         }
-        return list;
+        return fillDatedDays(list);
     }
 
     /** 지금 영업 중인지. 오늘 휴무면 false, 정보가 없으면 null */
@@ -97,6 +105,49 @@ public class OpeningHours {
     }
 
     // ---------------------------------------------------------------- 도우미
+
+    /** 날짜 칸(글이 null)을 다른 요일에 가장 많이 나온 시간으로 채움. 채울 글이 없거나 같은 요일 평소 칸이 있으면 뺌 */
+    private List<DayHours> fillDatedDays(List<DayHours> list) {
+        String commonText = findCommonText(list);
+        List<DayHours> result = new ArrayList<>();
+        for (DayHours hours : list) {
+            if (hours.getText() != null) {
+                result.add(hours);
+            } else if (commonText != null && !hasUsualDay(list, hours.getDay())) {
+                hours.setText(commonText); // 같은 칸 객체에 글만 넣어서 isToday는 그대로
+                result.add(hours);
+            }
+        }
+        return result;
+    }
+
+    /** 날짜 없는 칸 중 가장 많이 나온 영업시간 글. 휴무·시간 없는 글은 세지 않음. 없으면 null */
+    private String findCommonText(List<DayHours> list) {
+        Map<String, Integer> counts = new HashMap<>();
+        String commonText = null;
+        for (DayHours hours : list) {
+            String text = hours.getText();
+            if (text == null || text.contains("휴무") || !RANGE.matcher(text).find()) {
+                continue;
+            }
+            int count = counts.getOrDefault(text, 0) + 1;
+            counts.put(text, count);
+            if (commonText == null || count > counts.get(commonText)) {
+                commonText = text; // 횟수가 같으면 먼저 나온 요일 글을 그대로 둠
+            }
+        }
+        return commonText;
+    }
+
+    /** 그 요일에 날짜 없는 평소 칸이 있는지 (있으면 날짜 칸은 필요 없음) */
+    private boolean hasUsualDay(List<DayHours> list, String day) {
+        for (DayHours hours : list) {
+            if (hours.getText() != null && hours.getDay().equals(day)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** 그 날 그 시각에 열려 있나. 정보가 없으면 null */
     private Boolean isOpenAt(Place place, LocalDate date, int minutes) {

@@ -11,17 +11,19 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
-// 네이버 지도 길찾기 주소: /p/directions/{경도},{위도},{이름},,/{경도},{위도},{이름},,/{walk|transit|car}
+// 네이버 지도 길찾기 주소: /p/directions/{출발}/{도착}/{경유지}/{walk|transit|car}
+//   출발·도착 = {경도},{위도},{이름},, (11/06: 경유지 자리 "-"가 빠져 있으면 네이버가 출발·도착 칸을 비워 둬서 넣음)
+//   이름이 비면 네이버가 좌표로만 보여 줘서, 이름이 없을 땐 "출발지"·"도착지"를 넣어요
 function toNaverUrl() {
   const mode = props.leg.mode === 'walk' ? 'walk' : props.leg.mode === 'taxi' ? 'car' : 'transit'
-  const point = (place) => place.lng + ',' + place.lat + ',' + encodeURIComponent(place.name) + ',,'
-  return 'https://map.naver.com/p/directions/' + point(props.from) + '/' + point(props.to) + '/' + mode
+  const point = (place, fallback) => place.lng + ',' + place.lat + ',' + encodeURIComponent(place.name || fallback) + ',,'
+  return 'https://map.naver.com/p/directions/' + point(props.from, '출발지') + '/' + point(props.to, '도착지') + '/-/' + mode
 }
 
 function openNaverMap() {
   window.open(toNaverUrl(), '_blank', 'noopener')
   emit('close')
-  showToast('네이버 지도가 열려요 · 여행어때는 도착만 확인해요')
+  showToast('네이버 지도가 열려요 · 착착트립는 도착만 확인해요')
 }
 </script>
 
@@ -45,7 +47,7 @@ function openNaverMap() {
       <li><span class="seg-dot seg-dot--to"></span><img class="thumb" :src="to.img" alt="" /><span><span class="t-cap">도착</span><b class="t-strong">{{ to.name }}</b></span></li>
     </ol>
     <p class="t-cap" style="display: flex; gap: 6px; align-items: flex-start; margin: 0">
-      <i class="ic ic--s i-info c-navy" aria-hidden="true" style="margin-top: 2px"></i>길 안내는 네이버 지도가 하고, 여행어때는 도착만 확인해서 다음 일정 시간을 맞춰요
+      <i class="ic ic--s i-info c-navy" aria-hidden="true" style="margin-top: 2px"></i>길 안내는 네이버 지도가 하고, 착착트립는 도착만 확인해서 다음 일정 시간을 맞춰요
     </p>
     <div class="seg-cta">
       <button type="button" class="btn btn--primary btn--lg btn--block" @click="openNaverMap"><i class="ic i-route" aria-hidden="true"></i>네이버 지도로 길찾기</button>

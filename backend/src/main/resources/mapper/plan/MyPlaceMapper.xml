@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- ③ 내 장소. 식당·카페·놀거리는 ② PlaceMapper의 종류 코드(kindCase)를 그대로 써서 나눠요 -->
+<mapper namespace="com.tripbiseo.plan.mapper.MyPlaceMapper">
+
+  <select id="selectMyPlaceList" resultType="com.tripbiseo.plan.dto.MyPlace">
+    SELECT m.my_place_id AS id, p.id AS place_id, p.name, p.biz_type AS category,
+           CASE <include refid="com.tripbiseo.trip.mapper.PlaceMapper.kindCase"/>
+             WHEN 'food' THEN '식당' WHEN 'bar' THEN '식당' WHEN 'cafe' THEN '카페' ELSE '놀거리' END AS "group",
+           p.address, p.latitude AS lat, p.longitude AS lng, p.rating, p.review_count, p.image_url,
+           m.from_name, TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI') AS created_at
+    FROM my_place m
+    JOIN retrip_place p ON p.id = m.place_id
+    WHERE m.member_id = #{memberId}
+    ORDER BY m.created_at DESC, m.my_place_id DESC
+  </select>
+
+  <select id="selectPlaceIdByName" resultType="string">
+    SELECT id FROM retrip_place WHERE name = #{name}
+    ORDER BY COALESCE(review_count, 0) DESC, id
+    LIMIT 1
+  </select>
+
+  <select id="countPlace" resultType="int">
+    SELECT COUNT(*) FROM retrip_place WHERE id = #{placeId}
+  </select>
+
+  <insert id="insertMyPlace">
+    INSERT INTO my_place (member_id, place_id, from_name)
+    VALUES (#{memberId}, #{placeId}, #{fromName})
+    ON CONFLICT (member_id, place_id) DO NOTHING
+  </insert>
+
+  <delete id="deleteMyPlace">
+    DELETE FROM my_place WHERE member_id = #{memberId} AND place_id = #{placeId}
+  </delete>
+</mapper>

@@ -1,4 +1,4 @@
-# 여행어때 API 명세
+# 착착트립 API 명세
 
 우리 팀 API의 **기준** 문서예요. API를 만들거나 고치기 전에 이 파일을 먼저 보고, 바꿀 때는 `CLAUDE.md`의 API 규칙을 따라요.
 
@@ -86,6 +86,7 @@
 | `GET /api/places/areas` | 어디로 가요? 서울 구·동 찾기 (카카오) | plan/PlaceSearchView (`?mode=area`) | 있음 |
 | `GET /api/places/locations/hubs` | 출발지 추천: 근처 지하철역·구청·시청 (카카오) | plan/PlaceSearchView (`?mode=origin`) | 있음 |
 | `GET /api/places/locations` · `/locations/here` | 어디서 출발해요? · 꼭 지킬 시간(예약한 곳) 역·건물·가게·주소 찾기 · 현재 위치 주소 (카카오) | plan/PlaceSearchView (`?mode=origin`, `?mode=fixed`) | 있음 |
+| `GET /api/places/locations/stays` | 숙소 위치 찍기: 숙소(호텔·모텔·게스트하우스 등)만 찾기, 없으면 주소 (카카오) | plan/StayPinView | 있음 |
 | `GET /api/places/{id}` | 장소 상세 (영업시간·리뷰) | trip/PlaceView | 있음 |
 | (주소 미정) | 챙길 것 목록 | trip/TripDetailView (PackList) | 확인 필요 |
 
@@ -101,14 +102,47 @@
 | `POST /api/plans/capture/stay` | 숙소 예약 캡처 → 숙소 이름·주소·체크인·체크아웃 + 위치 | plan/StayPinView | 있음 |
 | `GET /api/plans/places` | 직접 고르기 지도: 종류별 장소 (들를 곳은 카카오 보충) | trip/PlanManualView | 있음 |
 | `GET /api/plans/areas` | 추천 지역 (종류마다 리뷰가 많은 서울 구) | plan/PlanAiView | 있음 |
+| `GET·POST /api/my/places` · `DELETE /api/my/places/{placeId}` | 내 장소 (친구 소식에서 저장, 식당·카페·놀거리) | plan/MyPlacesView, member/MyView (SavePlaceButton) | 있음 (11/06) |
 | `GET /api/plans/links/recommended` | 추천 게시물 목록 (파일 기반, 지금은 비어 있음) | plan/PlanAiView | 있음 |
 | `POST /api/plans/dong-types` | 한 구의 행정동 특색 (동 지도 색칠) | plan/DongPicker | 있음 |
 | `POST /api/plans/route-options` | [동선 최적화] 이동 시간이 짧은 순서 후보 최대 5개 | trip/TripDetailView, trip/PlanEditView | 있음 |
 | `POST /api/plans/route-order` | [동선 정리] 하루 일정의 새 순서 (최근접 이웃 + 2-opt). AI 일정과 같은 함수 | trip/PlanManualView | 있음 |
 | `POST /api/plans/links` | 인스타·유튜브·네이버(블로그·지도) 링크 → 장소 추출 | plan/PlanAiView (WishLinks) | 있음 |
+| `GET /api/plans/weather` | 여행 날짜 날씨(기온·습도·하늘·비 시작 시각) + 기온별 옷차림. 기상청 단기예보라 3일 뒤까지 | trip/PlanCheckView (TripWeather) | 있음 (11/06) |
 | (주소 미정) | 숙소 핀 | plan/StayPinView | 확인 필요 |
+| `GET /api/dev/status` | [개발자 모드] 시연 계정인지 + 시연 시계 상태 | member/MyView (VersionTap), live/DevDot | 있음 (11/06) |
+| `POST /api/dev/clock` · `POST /api/dev/clock/forward` · `POST /api/dev/clock/speed` · `DELETE /api/dev/clock` | [개발자 모드] 시연 시계 맞추기 · 빨리 감기 · 진짜 시각으로 (시연 계정만) | live/DevDot | 있음 (11/06) |
+| `GET /api/dev/scenario` | [개발자 모드] AI 일정 화면에 미리 채울 발표 시나리오 출발지·예약(KTX)·숙소 (시연 계정만, 값은 `plan/service/DemoScenario.java`) | plan/PlanAiView | 있음 (11/08) |
 
-### ④ 여행 중 판별 (live)
+#### 개발자 모드 · 시연 시계 (11/06, ③)
+발표 시연 계정만 쓰는 시계예요. 시연 계정은 환경변수 `DEMO_ACCOUNTS`(아이디를 쉼표로, `application-local.properties`)로 정하고 코드·DB에는 적지 않아요.
+시계를 맞추면 **그 계정의 요청을 처리하는 동안만** 서버의 `Geo.now()`가 그 시각이 돼요 (도착 판정·지연 계산·알림이 모두 따라감). 다른 계정은 진짜 시각 그대로이고, 서버를 다시 켜면 진짜 시각으로 돌아가요.
+화면: 마이 맨 아래 "버전 1.0.0"을 5번 연달아 누르면 `GET /api/dev/status`로 확인해서 켜지고, 여행 중 화면의 반투명 점(DevDot)에서 써요. 가짜 GPS는 화면 쪽 기능이라 API가 없어요.
+
+| 메서드 · 주소 | 요청 | 하는 일 |
+|---|---|---|
+| `GET /api/dev/status` | 없음 | 시연 계정인지 + 지금 시연 시계 |
+| `POST /api/dev/clock` | `{ "date": "2026-11-07", "time": "18:05" }` (date를 비우면 오늘) | 그 시각으로 맞춤 |
+| `POST /api/dev/clock/forward` | `{ "minutes": 15 }` (1~720) | 그만큼 빨리 감기 |
+| `POST /api/dev/clock/speed` | `{ "speed": 60 }` (0~600, 0이면 멈춤) | 시연 시계 배속: 진짜 1초에 speed초씩 흐름. 응답 `speed` 칸 (11/08) |
+| `DELETE /api/dev/clock` | 없음 | 진짜 시각으로 |
+| `POST /api/dev/rain` | `{ "from": "13:00" }` | 시연 비 예보 넣기: 그 계정은 기상청 대신 "오늘 13:00부터 비(강수확률 80%)"로 봄 (돌발 ②) |
+| `DELETE /api/dev/rain` | 없음 | 시연 비 예보 빼기 (진짜 예보로) |
+| `GET /api/dev/scenario` | 없음 | `{ originName, originAddress, originLat, originLng, fixed: [{ name, time, day }], stayName, stayAddress, stayLat, stayLng, stayCheckInTime, stayCheckOutTime }` (시연 계정 아니면 403). 시연 계정은 `POST /api/plans/generate`도 고른 조건과 상관없이 이 시나리오 일정(날짜만 고른 날)을 돌려줘요 |
+
+**응답** (네 개 모두 같음)
+```json
+{ "allowed": true, "now": "2026-11-07T18:05", "offsetMinutes": 1558, "rainFrom": "13:00" }
+```
+- `allowed`: 시연 계정이면 true. false면 화면은 개발자 모드를 열지 않음
+- `now`: 서버가 이 계정에 대해 지금으로 보는 시각 (분까지), `offsetMinutes`: 진짜 시각과의 차이 (0이면 진짜 시각)
+- `rainFrom`: 시연 비 시작 시각, 안 넣었으면 null
+
+**오류** 401 "로그인이 필요해요." · 403 "시연 계정만 쓸 수 있어요." · 400 "날짜는 2026-11-07, 시각은 18:05처럼 보내 주세요." · 400 "빨리 감기는 1분부터 720분까지 돼요." · 400 "비 시작 시각은 13:00처럼 보내 주세요."
+
+---
+
+## ④ 여행 중 판별 (live)
 
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
@@ -116,7 +150,8 @@
 | `POST /api/trips/{id}/live/status` | 지금 상황 다시 계산 (알림·여유·날씨) | live/LiveView, live/LiveDelayView | 있음 |
 | `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView (AI 채팅 AskPanel) | 있음 |
-| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 | live/LiveView (AI 채팅 AskPanel) | 있음 |
+| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 (`replaceStopId`면 그 칸 자리에) | live/LiveView (AI 채팅 AskPanel), live/SimilarPlaceView | 있음 |
+| `POST /api/trips/{id}/live/skip` | 못 가게 된 일정 빼고 다음 장소로 (11/12) | live/LiveView (놓침 카드) | 있음 |
 | `POST /api/trips/{id}/live/link-fit` | 링크로 찾은 장소를 남은 일정에 넣어 보기 (저장 안 함) | live/LiveView (LinkAddSheet), live/LinkFitView | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `POST /api/trips/{id}/live/apply` | 고른 대안을 일정에 반영 | live/AltTrimView, live/AltDropView, live/AltSwapView → live/AppliedView | 있음 |
@@ -130,9 +165,17 @@
 | 메서드 · 주소 | 하는 일 | 호출 화면 | 상태 |
 |---|---|---|---|
 | `GET /api/trips/{id}/retro` | 회고: 계획 vs 실제 + GPS 선 | after/RetroView | 있음 |
-| `GET·POST /api/trips/{id}/payments` | 장소 핀에 결제 금액·누가 냈는지 적기 | after/PayMemoView, member/LockPayView | 확인 필요 |
+| `GET·POST /api/trips/{id}/payments` | 결제 내역 목록·하나 저장 (일정 칸은 결제 시각으로 자동, 낸 사람 `payer`) | after/RetroView (11/07), 나중에 after/PayMemoView, member/LockPayView | 있음 (11/07) |
+| `PUT /api/trips/{id}/payments/{paymentId}/payer` | 결제의 낸 사람 바꾸기 (정산용) | after/RetroView | 있음 (11/07) |
+| `DELETE /api/trips/{id}/payments/{paymentId}` | 결제 하나 지우기 | after/RetroView | 있음 (11/07) |
+| `PUT /api/trips/{id}/companions/{companionId}/share` | 더치페이 낼 돈 직접 정하기 (null이면 자동) | after/RetroView | 있음 (11/07) |
+| `GET·POST /api/trips/{id}/companions`, `PUT·DELETE /api/trips/{id}/companions/{companionId}` | 같이 간 사람 목록·추가·이름 바꾸기·빼기 (정산의 낸 사람) | after/RetroView | 있음 (11/07) |
+| `GET /api/trips/{id}/card-transactions` | 카드 승인내역 (CODEF 연결, 샌드박스·키 없음이면 다녀온 곳으로 만든 목업) | after/RetroView | 있음 (11/07) |
 | `GET·POST·PUT /api/cards` | 결제 카드 등록·기본 카드 | after/CardAddView, member/MyView | 확인 필요 |
-| `GET·POST /api/trips/{id}/photos` | 여행 앨범 사진 | after/AlbumView | 확인 필요 |
+| `GET /api/albums` | 앨범: 내 지난 여행별 사진 앞 8장 + 개수 | after/AlbumView | 있음 (11/06) |
+| `GET /api/trips/{id}/photos` | 한 여행의 사진·영상 전체 (찍은 순) | after/RetroView, after/AlbumView(더보기) | 있음 (11/06) |
+| `POST /api/photos` | 사진·영상 여러 개 올리기 → 찍은 시각으로 여행·장소 자동 분류 | after/AlbumView | 있음 (11/06) |
+| `GET /api/photos/{photoId}/file` | 사진·영상 파일 (`<img>`·`<video>` 주소) | after/AlbumView, after/RetroView | 있음 (11/06) |
 | `GET /api/route` | 길 안내: 경로선 + 단계별 안내 (도보·버스·지하철·택시) | after/RouteGuideView | 있음 |
 | `GET /api/amenities/nearby?kind=` | 근처 화장실·쓰레기통 | after/RouteGuideView, live/LiveView (AmenityChips) | 확인 필요 |
 | `POST /api/trips/{id}/visits` | 일정에 없던 곳 "들렀어요" 기록 | live/LiveView (VisitedPin), member/LockStayView | 확인 필요 |
@@ -755,6 +798,26 @@
 
 **오류** 404 "이 위치의 주소를 찾지 못했어요." · 502·503 `/areas`와 같아요
 
+### `GET /api/places/locations/stays`
+숙소 위치 찍기에서 숙소만 찾아요 (카카오 로컬, 숙박 분류 `AD5`). `/locations`는 역·학교·영화관까지 섞여 나와서 따로 만들었어요. 저장하지 않아요. · 로그인 필요 · 화면: plan/StayPinView (11/08 추가)
+
+**요청** 쿼리 `q` (1~40자)
+
+키워드 검색 + 숙박 분류만(최대 15개) → 결과가 없으면 주소 검색 (주소를 친 경우)
+
+**응답**
+```json
+[ { "name": "OO호텔 홍대", "address": "서울 마포구 …", "category": "호텔", "lat": 37.55, "lng": 126.92 } ]
+```
+| 필드 | 설명 |
+|---|---|
+| address | 도로명 주소, 없으면 지번 주소 |
+| category | 카카오 분류의 마지막 칸 (예: 호텔, 모텔, 게스트하우스). 주소 검색으로 찾았으면 `주소` |
+
+`distance`는 없어요.
+
+**오류** `/areas`와 같아요
+
 ### `GET /api/places/locations/hubs`
 "어디서 출발해요?" 추천이에요. 좌표 근처 지하철역 최대 4곳(3km 안)과 가까운 구청(10km 안)·시청(20km 안) 1곳씩을 가까운 순으로 줘요 (카카오 로컬). 좌표는 카카오에만 보내요. 저장하지 않아요. · 로그인 필요 · 화면: plan/PlaceSearchView `?mode=origin` (11/04 추가)
 
@@ -945,6 +1008,7 @@
 | messages | string[] | | 사용자가 한 말 목록 (Gemini 참고용) |
 | conditions.keptStops | Stop[] | | 직접 고르기에서 담은 곳 (11/04). 순서·시각 그대로 두고 빈 시간만 채워요. 후보에서는 빠지고, 담은 식사가 있는 시간대엔 식사를 또 안 넣어요 |
 | conditions.startTime, endTime | string | | 하루 시작·끝 `HH:mm` (11/04). 있으면 첫 칸이 시작 시각, 마지막 칸이 끝 시각 안에 끝나고, 식사 칸은 점심 11:30~13:30·저녁 17:30~19:30에만 시작. 없으면 예전처럼 정해 둔 칸 |
+| conditions.companion | string | | 누구랑 (11/06): `혼자`·`친구`·`연인`·`가족`·`아이와`·`워크숍`. 시작·끝 시간이 있을 때 칸마다 머무는 분을 바꿈(워크숍 밥 +30·카페 +20, 친구 밥·카페 +10, 연인 카페 +20·밥 +10, 가족 밥 +10, 아이와 −10, 혼자 밥 −20·카페 −10, 40분 아래로는 안 줄임). "어디 위주로"에서 고른 맛집·카페는 +15. 워크숍은 needs에 "4명 이상 앉을 단체석", 아이와는 "아이와 가기 좋은 곳", 연인은 tags에 `mood`를 더함 |
 | lat, lng | number | | 지금 GPS. region이 "내 위치·여기·근처"이거나 비어 있으면 그 주변 2km에서 후보를 고름 |
 
 **응답**
@@ -977,6 +1041,28 @@
 
 ---
 
+### `GET /api/my/places` · `POST /api/my/places` · `DELETE /api/my/places/{placeId}` (11/06)
+내 장소: 친구 소식·장소 상세에서 "저장"한 곳 · 로그인 필요 · 화면: plan/MyPlacesView(`/my/places`), 저장 버튼 components/plan/SavePlaceButton
+
+**GET 응답** 최근 저장 순
+```json
+[
+  { "id": 1, "placeId": "naver-1866981775", "name": "로라멘", "category": "일본식라면", "group": "식당",
+    "address": "서울 영등포구 도림로131길 17", "lat": 37.514, "lng": 126.89, "rating": 4.5, "reviewCount": 1456,
+    "imageUrl": null, "fromName": "민지", "createdAt": "2026-11-06 16:12" }
+]
+```
+- `group`: 식당(음식점·술집) · 카페 · 놀거리(관광지·문화시설·쇼핑 등). 저장하지 않고 장소 분류로 정해요
+
+**POST 요청** `{ "placeId": "naver-1866981775" }` 또는 `{ "name": "로라멘", "fromName": "민지" }`
+- `placeId`가 없으면 이름이 똑같은 장소 중 리뷰가 가장 많은 곳 (친구 소식은 이름만 있어서)
+- 응답: 위 목록의 한 줄. 이미 저장한 곳이면 그대로 돌려줘요 (두 번 눌러도 하나)
+- 오류: 400 "저장할 장소를 골라 주세요." · 404 "○○을(를) 찾지 못했어요." · 400 "내 장소는 200곳까지 저장할 수 있어요."
+
+**DELETE** `{ "ok": true }` (내 것만 지워져요. 없는 곳이어도 ok)
+
+---
+
 ### `POST /api/plans/generate/stream`
 `/generate`와 같은 일을 하면서, 단계가 끝날 때마다 진행 알림을 보내요 (11/04). · 로그인 필요 · 화면: plan/GeneratingView
 
@@ -1000,6 +1086,30 @@
 | fixed | 95 | 18:30 광명역 시간에 맞추기 | (`fixed`가 없으면 이 단계 없음) |
 
 로그인 안 했으면 알림 없이 401 JSON (`/generate`와 같음).
+
+### `GET /api/plans/weather` (11/06)
+
+여행 날짜마다 날씨와 옷차림. 기상청 단기예보(`KMA_SERVICE_KEY`)를 써요. 예보는 오늘부터 3일 뒤까지라 그 뒤 날짜는 숫자 없이 안내만 해요.
+
+- 요청: `?lat=37.5264&lng=126.9336&startDate=2026-11-07&endDate=2026-11-08` (endDate 없으면 하루, 최대 7일)
+- 응답: 날짜마다 한 줄
+
+```json
+[
+  { "date": "2026-11-07", "available": true, "message": null,
+    "minTemp": 5, "maxTemp": 16, "dayTemp": 11, "humidity": 70,
+    "sky": "비", "maxPop": 70, "rainFrom": "13:00",
+    "outfit": "자켓 · 트렌치코트 · 니트 · 청바지",
+    "outfitNote": "일교차 11도라 겉옷 하나 더 · 우산 챙기기",
+    "source": "기상청 단기예보" },
+  { "date": "2026-11-12", "available": false, "message": "11/12 날씨는 3일 전부터 보여요", "source": "기상청 단기예보" }
+]
+```
+
+- `dayTemp`: 낮(9~21시) 평균 기온. 옷차림은 흔히 쓰는 기온별 옷차림 표(28° 이상 민소매 … 4° 이하 패딩)로 골라요.
+- `minTemp`·`maxTemp`: 기상청 최저·최고(TMN·TMX). 오늘이라 그 칸이 지났으면 남은 시간 기온 중 낮은·높은 값.
+- `rainFrom`: 낮에 비·눈(PTY ≠ 0)이거나 강수확률 60% 이상인 첫 시각. 없으면 null.
+- 오류: 날짜 범위가 이상하면 400, 기상청 키가 없으면 503, 기상청 오류 502.
 
 ## ④ 여행 중 판별 (live)
 
@@ -1037,7 +1147,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | now | string | 지금 시각 |
 | currentStopId | number (null 가능) | 지금 있는 일정 칸 id (도착했고 아직 출발 안 함, 또는 150m 안) |
 | alert | object (null 가능) | 화면 맨 위 알림 1개 `{key, level, title, text, repeat}` |
-| alert.key | string | 중복 알림 방지 키. 앞부분: `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
+| alert.key | string | 중복 알림 방지 키. 앞부분: `lost-` 식당·카페 예약에 가장 빠른 방법으로도 못 닿음 (11/12) / `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
 | alert.level | string | `danger` / `warn` |
 | alert.repeat | boolean (없을 수 있음) | `leave-` 알림에만 `true` |
 | leave | object (null 가능) | 출발 시각 ±10분 안일 때만 `{stopId, name, leaveAt, minutesLeft, to, atStop}`. `stopId`는 지금 있는 칸 또는 다음 칸 id. `minutesLeft`는 −10~10(음수=지남), `to`는 다음 장소 이름(null 가능), `atStop`이 `true`면 지금 있는 곳에서 출발 |
@@ -1052,6 +1162,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | stops[].closeAt, closedReason, closingSoon | | 영업 정보 일부 |
 | stops[].importance | string | 중요도 `must`/`maybe`/`drop` (11/03 추가) |
 | stops[].moveMin, moveMode, moveMeters | number, string, number | 남은 칸만: 앞(지금 위치·앞 칸)에서 오는 이동 분·수단(`walk`/`transit`/`car`)·거리(m). 아니면 `null`. 여행 중 화면 카드 사이 이동 칩 (11/03 추가) |
+| stops[].meal | boolean | 남은 칸 중 장소 종류(`kind`)가 식당·카페·술집(`food`/`cafe`/`bar`)이면 `true`, 아니면 `false`. "못 가게 됐어요" 버튼에 씀 (11/12 추가) |
 | next | object (null 가능) | 내 위치 → 다음 남은 일정 `{id, minutes, coords, source}` |
 
 ```json
@@ -1071,11 +1182,12 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 | 순서 | key | 언제 | level |
 |---|---|---|---|
+| 0 | `lost-{고정 칸}` | 식당·카페·술집 고정 일정에 늦는데(`fixed.slackMin` < 0), 가장 빠른 방법(택시·지하철 갈아타기·대중교통 중 가장 짧은 것)으로 지금 바로 가도 예약 시각을 넘김 (유예 0분). `title`은 가게 이름. 가장 빠른 방법은 늦는 분이 10분 바뀔 때마다만 다시 계산 (11/12) | danger |
 | 1 | `overdue-{칸}-{더 머문 분÷5}` | 지금 칸에서 떠날 시각(도착 + 머묾)이 지남 | danger |
 | 2 | `closed-{칸}` / `closed-{칸}-short` | 남은 칸이 도착할 때 닫힘·휴무 / 열려 있지만 닫을 때까지 남은 분 < 머무는 시간 | danger / warn |
 | 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0 | danger |
 | 4 | `leave-{칸}-{남은 분}` | `leave`가 있음 (출발 ±10분). `repeat: true` | 남은 분 > 0이면 warn, 아니면 danger |
-| 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 칸 (고정 일정 제외) | warn |
+| 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 고정(예약) 칸. 느슨한 칸은 시간이 밀릴 뿐이라 안 봄 (11/12: 코드에 맞춰 고침, 예전 문구 "고정 일정 제외"는 틀렸음) | warn |
 | 6 | `tight-{고정 칸}` | 고정 일정 여유 ≤ 10분 | warn |
 | 7 | `next-{칸}-{늦는 분÷10}` | 다음 칸에 10분 넘게 늦게 도착 | warn |
 | 8 | `rain-{비 시작 HHmm}` | 다음 경로에 비·눈 소식이 있고 그때 야외에 있을 칸이 있음 (`weather.outdoor`). 예보가 바뀌어 비 시작 시각이 달라지면 다시 울림 | warn |
@@ -1093,13 +1205,27 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 | kind | 같이 오는 필드 | 뜻 |
 |---|---|---|
-| `"ask-radius"` | `category`(기본 "카페"), `tags`(원하는 분위기, 없으면 `[]`) | 추천 요청 → 화면이 반경을 묻고 `/live/recommend`에 `category`·`tags`를 그대로 넘겨 호출 |
+| `"places"` | `found` | 추천 요청 → 말을 SQL로 바꿔 바로 찾은 결과 (Text-to-SQL, 11/08). 아래 표 |
+| `"ask-radius"` | `category`(기본 "카페"), `tags`(원하는 분위기, 없으면 `[]`) | 추천 요청인데 AI로 못 찾았을 때 → 화면이 반경을 묻고 `/live/recommend`에 `category`·`tags`를 그대로 넘겨 호출 |
 | `"alternatives"` | `data` | 일정 바꾸기 요청 → `data`는 `/live/alternatives` 응답 전체 (reason `"request"`) |
 | `"text"` | `text` | 그 밖의 질문에 대한 답 |
 
 **오류** 400 "메시지를 1~300자로 입력해 주세요." · 공통 오류 · (alternatives로 가면) 400 "오늘 남은 일정이 없어요."
 
 > 분류는 낱말 규칙이 먼저예요. 한 종류만 걸리면 Gemini를 부르지 않고, 애매할 때만 Gemini(JSON, 정해진 값 중에서만)를 불러요. Gemini가 실패하면 질문(text)으로 보고 오류는 내지 않아요.
+
+**`found` (kind `"places"`)**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| message | string | 안내 한 줄 ("4곳을 찾았어요", 표에 없는 조건이면 "가격 정보가 없어서 …"처럼 이유) |
+| explain | string | 어떻게 찾았는지 한 줄 (Gemini가 씀, 없으면 null) |
+| sql | string | AI가 쓴 SQL. 빈칸(`:route`·`:me`·`:next`·`:slack`) 그대로라 좌표 없음. "이렇게 찾았어요"에 보여 줌 |
+| slack | number | 다음 일정까지 지금 여유(분), 남은 일정이 없으면 null |
+| band | string | 지도에 그릴 가는 길 띠 (경로 양옆 190m, GeoJSON). 가는 길로 찾지 않았으면 null |
+| places | array | 찾은 곳 (최대 10, AI SQL이 정한 순서). `id`, `name`, `kind`, `category`, `lat`, `lng`, `rating`(보정 평점), `reviewCount`, `detourMinutes`(가는 길에서 몇 분 더, 없으면 null), `joinLat`·`joinLng`(가는 길 위 가장 가까운 점), `closeAt`, `closingSoon`, `slackAfter`(30분 머물고 남는 여유, 계산 못 하면 null). 지금 닫힌 곳은 빠짐 |
+
+> Text-to-SQL: Gemini가 SQL을 쓰고(좌표 없이 빈칸만) → `SqlChecker`(JSqlParser)가 SELECT 하나·허용한 뷰(`ask_place`·`ask_review`)·함수·상한·LIMIT 10을 검사(떨어지면 이유를 붙여 한 번 더) → 읽기 전용 트랜잭션에서 `ask_reader` 계정 + 3초 제한으로 실행해요 (`db/18_ask_place.sql`). 가는 길(`:route`)은 다음 칸까지 걸어갈 때만 써요. Gemini 실패·검사 두 번 탈락·DB 3초 초과면 `"ask-radius"`로 돌아가요.
 
 > `text` 답: 자주 하는 질문(다음 일정·여유·날씨)은 정해진 문장으로, 그 밖은 Gemini가 **서버가 계산한 오늘 상황(live/status)만 근거로** 답해요. 답에 근거에 없는 시각·분이 있으면 버리고 기본 문장으로 바꿔요. 좌표는 Gemini에 보내지 않아요.
 
@@ -1116,6 +1242,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | radius | number | 필수 | 반경(m) 100~3000 |
 | category | string | | 장소 종류. 식당·맛집·밥 등이면 음식점 전체(카페·디저트 제외), 술집이면 주점·호프·이자카야 등, 그 밖은 분류에 그 말이 들어간 곳 |
 | tags | string[] | | 원하는 분위기 `혼밥` / `조용` / `분위기` / `데이트` / `가성비` / `웨이팅없음` (assist의 `tags`를 그대로). 있는 곳에 점수를 더함 |
+| similarTo | string | | 놓친 장소 id (11/12). 있으면 그 장소와 업종(`biz_type` 낱말, 예: "일식,초밥")이 하나라도 겹치는 곳만 남기고, 이미 일정에 있는 곳은 빼요. 같은 브랜드 다른 지점(이름에서 끝의 "○○점"을 뗀 이름이 같은 곳)을 맨 앞으로. 머무는 시간은 놓친 칸 그대로로 영업을 확인 |
 
 **응답**
 ```json
@@ -1128,18 +1255,29 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 > 리뷰 태그 인정: 그 장소 리뷰 중 2개 이상이면서 (3개 이상 또는 20% 이상). 원하는 `tags`가 없으면 그 장소에 있는 태그를 2개까지 보여 줘요.
 
-**오류** 400 "radius 값이 필요해요." · 공통 오류 · 400 "반경은 100m~3km예요."
+**오류** 400 "radius 값이 필요해요." · 공통 오류 · 400 "반경은 100m~3km예요." · 404 "장소를 찾을 수 없어요." (`similarTo`가 없는 장소)
 
 ### `POST /api/trips/{id}/live/insert`
 추천 장소를 바로 다음 일정으로 넣어요. · 로그인 필요 · 화면: live/LiveView (AskPanel의 "일정에 넣기")
 
-**요청** `placeId`(장소 카드의 `id`), `lat`, `lng`
+**요청** `placeId`(장소 카드의 `id`), `lat`, `lng`, `replaceStopId`(선택, 11/12: 놓친 예약 칸 id)
 
-**동작** 새 칸(카페면 40분, 아니면 60분)을 넣고 남은 일정 시각을 다시 계산해 저장. 고정 일정에 늦으면 그 앞 칸 머무는 시간을 최대 절반까지 줄임.
+**동작** 새 칸(카페면 40분, 아니면 60분)을 넣고 남은 일정 시각을 다시 계산해 저장. 고정 일정에 늦으면 그 앞 칸 머무는 시간을 최대 절반까지 줄임. `replaceStopId`가 있으면 맨 앞 대신 그 칸 자리에 넣고, 그 칸은 `skipped`가 돼요.
 
 **응답** `{ "trip": Trip, "message": "카페OO을(를) 다음 일정으로 넣었어요. 세종문화회관에는 12분 여유가 있어요." }`
 
-**오류** 공통 오류 · 404 "장소를 찾을 수 없어요."
+**오류** 공통 오류 · 404 "장소를 찾을 수 없어요." · 400 "바꿀 일정을 찾을 수 없어요." (`replaceStopId`가 남은 칸이 아님)
+
+### `POST /api/trips/{id}/live/skip`
+못 가게 된 일정(놓친 예약 등) 하나를 빼고, 남은 일정을 앞으로 당겨 다시 계산해 저장해요. · 로그인 필요 · 화면: live/LiveView (놓침 카드의 "빼고 다음 장소로") · 11/12 추가
+
+**요청** `stopId`(뺄 칸 id, 필수), `lat`, `lng`(지금 위치)
+
+**동작** 그 칸은 `skipped`. 남은 칸은 `/live/apply`와 같은 방식으로 시각을 다시 계산해 저장 (고정 일정 시각은 그대로). 뒤에 남은 칸이 없으면 빼기만 해요.
+
+**응답** `{ "trip": Trip, "message": "스시OO을(를) 빼고 남은 일정을 다시 계산했어요." }`
+
+**오류** 공통 오류 · 400 "바꿀 일정을 찾을 수 없어요." (`stopId`가 남은 칸이 아님)
 
 ### `POST /api/trips/{id}/live/link-fit`
 여행 중 인스타 링크로 찾은 장소들을 남은 일정에 넣어 봐요. 한 곳씩 칸 사이마다 넣어 보고 방해가 가장 적은 자리를 골라요. **저장하지 않아요** — 고른 일정은 `/live/apply`로 저장해요. Gemini는 쓰지 않아요. · 로그인 필요 · 화면: live/LiveView (LinkAddSheet), live/LinkFitView · 11/04 추가
@@ -1278,6 +1416,73 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 
 **오류** 400 "출발·도착 좌표가 필요해요." · 400 "이동 수단은 walk·bus·subway·car 중 하나예요."
 
+### `GET /api/trips/{id}/payments`
+한 여행의 결제 내역, 결제 순. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{id, stopId, day, paidAt, storeName, amount, method, source, memo, payer}]`
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| stopId | number (null 가능) | 결제 시각에 실제로 있던 일정 칸 (실제 도착 ≤ 결제 < 떠남). `null`이면 이동 중·계획 밖 |
+| day | number | 결제 날짜 − 시작 날짜 + 1 |
+| paidAt | string | `HH:mm` |
+| method | string | `card` / `cash` |
+| source | string | `manual`(직접 입력) / `card`(카드 내역 가져옴) / `capture`(나중에) |
+| payer | string | 낸 사람: `나` / `동행 1` / `동행 2` … (정산용, 11/07). 기본 `나` |
+
+**오류** 404 "여행을 찾을 수 없어요." (남의 여행 포함)
+
+### `POST /api/trips/{id}/payments`
+결제 하나 저장. 일정 칸(`stopId`)은 서버가 결제 시각으로 붙여요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{paidAt: "2026-11-04T11:35", storeName, amount, method?, source?, memo?, payer?}` — `payer` 없으면 `나` — `method` 없거나 모르는 값이면 `card`, `source` 없거나 모르는 값이면 `manual`
+
+**응답** 저장한 결제 하나 (위 목록과 같은 모양)
+
+**오류** 400 "가게 이름을 적어 주세요." · 400 "가게 이름은 100자까지예요." · 400 "금액은 1원 이상이에요." · 400 "메모는 200자까지예요." · 400 "결제 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 400 "여행 기간 안의 결제만 넣을 수 있어요." · 404 "여행을 찾을 수 없어요."
+
+### `PUT /api/trips/{id}/payments/{paymentId}/payer`
+결제의 낸 사람 바꾸기. 정산(1인당 금액, 누가 누구에게)은 화면에서 계산해요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{payer: "동행 1"}` · **응답** 바꾼 결제 하나 (목록과 같은 모양)
+
+**오류** 400 "낸 사람을 골라 주세요." · 400 "낸 사람 이름은 20자까지예요." · 404 "여행을 찾을 수 없어요." · 404 "결제를 찾을 수 없어요." (이 여행 결제가 아님)
+
+### `GET /api/trips/{id}/companions`
+같이 간 사람 목록, 보이는 순서대로. **처음 부르면** 여행 인원(`people`)만큼 `나`, `동행 1` … 을 만들어 저장해요. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{id, tripId, name, friendMemberId, sortNo, shareAmount}]` — `sortNo` 0이 `나`. `friendMemberId`는 친구 기능(①)이 생기면 친구 회원 번호, 지금은 `null`
+
+### `POST /api/trips/{id}/companions`
+같이 간 사람 추가 (맨 뒤). **요청** `{name}` · **응답** 바뀐 목록
+
+### `PUT /api/trips/{id}/companions/{companionId}`
+이름 바꾸기. 그 사람이 낸 결제의 `payer`도 같이 바꿔요. **요청** `{name}` · **응답** 바뀐 목록
+
+### `DELETE /api/trips/{id}/companions/{companionId}`
+같이 간 사람 빼기. 그 사람이 낸 결제는 `나`가 낸 것으로 바꿔요. `나`는 못 빼요. **응답** 바뀐 목록
+
+**오류 (넷 공통)** 400 "이름을 적어 주세요." · 400 "이름은 20자까지예요." · 400 "같은 이름이 있어요." · 400 "'나'는 이름을 바꿀 수 없어요." · 400 "'나'는 뺄 수 없어요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
+
+### `DELETE /api/trips/{id}/payments/{paymentId}`
+결제 하나 지우기. · 로그인 필요 · 화면: after/RetroView (11/07) · 응답 없음(200)
+
+**오류** 404 "결제를 찾을 수 없어요." (이 여행 결제가 아님) · 404 "여행을 찾을 수 없어요."
+
+### `PUT /api/trips/{id}/companions/{companionId}/share`
+더치페이 낼 돈 직접 정하기. 정산 계산은 화면에서: 정한 사람은 그 금액, 나머지 사람은 (합계 − 정한 금액들)을 똑같이 나눠요(10원 단위, 남는 돈은 자동 중 첫 사람). · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**요청** `{amount: 20000}` (0 이상) 또는 `{amount: null}` (자동으로 되돌리기) · **응답** 바뀐 같이 간 사람 목록
+
+**오류** 400 "금액은 0원 이상이에요." · 404 "같이 간 사람을 찾을 수 없어요." · 404 "여행을 찾을 수 없어요."
+
+### `GET /api/trips/{id}/card-transactions`
+카드 승인내역. **지금은 목업**: 실제로 다녀온 곳마다 (도착 + 20분, 분류로 정한 금액), 계획 없이 머문 곳마다 (도착 + 20분, 9,800원), 숙소로 보이는 곳은 (도착 + 5분, 89,000원). CODEF 개인카드 승인내역(`/v1/kr/card/p/account/approval-list`)과 연결함(11/07): `CODEF_SERVICE_TYPE`이 `demo`·`product`이고 카드사 연결(connectedId)이 있으면 **진짜 내역**(정상 승인만, 부분취소는 뺀 금액, 여행 기간 안만), `sandbox`면 연결만 확인하고(샌드박스는 값이 `****`로 가려져 옴) 목업, 키가 없으면 목업. 카드사 연결이 없는데 데모 키면 400 "카드사를 먼저 연결해 주세요." CODEF 실패는 502. · 로그인 필요 · 화면: after/RetroView (11/07)
+
+**응답** `[{approvalDate: "20261104", approvalTime: "113500", paidAt: "2026-11-04T11:35", day, storeName, amount, imported}]` 결제 시각 순. `approvalDate`·`approvalTime`은 CODEF 승인내역의 `resUsedDate`·`resUsedTime` 모양, `paidAt`은 가져올 때 POST에 그대로 씀. `imported`: 같은 날·시각·가게·금액이 이미 결제 내역에 있으면 `true`
+
+**오류** 404 "여행을 찾을 수 없어요."
+
 ### `GET /api/trips/{id}/retro`
 회고: 계획과 실제를 비교하고 GPS 선을 줘요. · 로그인 필요 · 화면: after/RetroView
 
@@ -1288,12 +1493,19 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | id, title, startDate, endDate | | 여행 정보 |
+| people | number | 여행 인원 (정산 1인당 금액, 11/07 추가) |
 | visited | number | 실제 도착 기록(`arrivedAt`)이 있는 일정 칸 수 |
 | stops[] | object[] | 모든 일정 칸 (skipped 포함): `id, day, name, category, lat, lng, time, stay, state` + 아래 |
 | stops[].actualArrive | string (null 가능) | 실제 도착 시각 `HH:mm`. 안 갔으면 `null` |
 | stops[].actualStay | number (null 가능) | 실제 머문 분. 출발 기록이 없으면 `null` |
 | track[] | object[] | GPS 점 (기록 순) `{lat, lng, day, time}`. `day` = 기록 날짜 − 시작 날짜 + 1 |
 | movedMeters | number | 이동 거리(m). GPS 점 사이 거리를 기록 순서대로 더한 값. 탈것으로 이동한 거리도 포함. 점이 2개 미만이면 `0` |
+| extraStops[] | object[] | 계획 없이 머문 곳 (11/07 추가). GPS로 찾음, 없으면 `[]`. `{day, name, lat, lng, arrive, stay, kind}` |
+| extraStops[].arrive, stay | string, number | 온 시각 `HH:mm`, 머문 분 |
+| extraStops[].kind | string | `visit`(들른 곳) / `lodging`(숙소로 보이는 곳: 자정을 넘겨 머묾) |
+| extraStops[].name | string (null 가능) | 근처 장소 이름 (② `getNearbyPlaceList`): 들른 곳은 80m 안 가장 가까운 곳, 숙소로 보이는 곳은 150m 안 숙박(STAY). 못 찾으면 `null` |
+
+> 머문 곳 찾기 (11/07): GPS 점을 앞에서부터, 덩어리 첫 점에서 **100m** 안에 연달아 있는 점끼리 묶어요. 머문 분 = 덩어리를 벗어난 첫 점 시각 − 첫 점 시각 (날짜까지 넣어 계산해서 밤을 넘겨도 맞음). **15분** 이상이고, 같은 날 계획 장소에서 **150m** 밖이고, 그 시각에 같은 날 계획 장소의 실제 도착 ~ 떠남 기록 안이 아니면 머문 곳이에요. 마지막 덩어리는 끝을 몰라서 빼요. 넓은 곳(궁궐·공원)에 계획 없이 가면 여러 조각으로 나올 수 있어서, 이름을 붙인 뒤 바로 앞 조각과 이름·종류가 같고 30분 안에 이어지면 하나로 합쳐요.
 
 ```json
 { "id": 12, "title": "서울 하루", "startDate": "2026-10-20", "endDate": "2026-10-20", "visited": 1,
@@ -1303,6 +1515,68 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ```
 
 **오류** 404 "여행을 찾을 수 없어요."
+
+### 사진·영상 공통: Photo
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| id | number | 사진 번호 |
+| stopId | number (null 가능) | 찍은 일정 칸. `null`이면 이동 중에 찍은 것 |
+| mediaType | string | `photo` / `video` |
+| url | string | 파일 주소 `/api/photos/{id}/file` |
+| durationSec | number (null 가능) | 영상 길이(초). 사진이면 `null` |
+| day | number | 몇째 날 (찍은 날짜 − 시작 날짜 + 1) |
+| takenAt | string | 찍은 시각 `HH:mm` |
+
+### `GET /api/albums`
+앨범: 내 지난 여행(`status`가 `done`, 휴지통 제외)을 최근 순으로, 여행마다 사진 앞 8장. · 로그인 필요 · 화면: after/AlbumView · 11/06 추가
+
+**응답** 배열
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| tripId, title, startDate, endDate | | 여행 정보 |
+| placeCount | number | 일정 칸 수 (건너뛴 곳 빼고) |
+| photoCount, videoCount | number | 사진·영상 수 |
+| photos[] | Photo[] | 찍은 순 앞 8개. 없으면 `[]` |
+
+```json
+[ { "tripId": 12, "title": "종로 하루 여행", "startDate": "2026-11-01", "endDate": "2026-11-01",
+    "placeCount": 3, "photoCount": 8, "videoCount": 1,
+    "photos": [ { "id": 5, "stopId": 101, "mediaType": "video", "url": "/api/photos/5/file", "durationSec": 12, "day": 1, "takenAt": "10:20" } ] } ]
+```
+
+### `GET /api/trips/{id}/photos`
+한 여행의 사진·영상 전체 (찍은 순). · 로그인 필요 · 화면: after/RetroView, after/AlbumView · 11/06 추가
+
+**응답** Photo 배열 · **오류** 404 "여행을 찾을 수 없어요."
+
+### `POST /api/photos`
+사진·영상 여러 개를 한 번에 올려요. 찍은 시각으로 여행과 일정 칸을 찾아 분류해요. · 로그인 필요 · 화면: after/AlbumView · 11/06 추가
+
+**요청** `multipart/form-data`
+
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| files | O | 파일 여러 개 (JPG·PNG·WEBP·HEIC 사진, MP4·MOV 영상) |
+| takenAts | O | 파일 순서대로 찍은 시각 `yyyy-MM-ddTHH:mm` (브라우저가 읽은 파일 수정 시각) |
+| durations | O | 파일 순서대로 영상 길이(초). 사진은 `0` |
+| tripId | | 있으면 이 여행에 넣어요(이날 사진 불러오기). 없으면 찍은 날짜가 기간 안에 드는 내 여행을 찾아요 |
+
+**분류 규칙**
+1. 여행: `tripId`가 있으면 그 여행, 없으면 찍은 날짜가 `startDate ~ endDate` 안인 내 여행. 못 찾은 파일은 저장하지 않고 `unmatchedCount`에 세요.
+2. 일정 칸: 그날(`day`)의 칸 중 `시작 ≤ 찍은 시각 < 끝`인 칸. 시작·끝은 실제 도착·출발 시각, 없으면 계획 시각(`time`, `time + stay`). 맞는 칸이 없으면 `stopId = null`(이동 중).
+
+**응답** `{ "savedCount": 9, "unmatchedCount": 1 }`
+
+**오류** 400 "사진이나 영상을 올려 주세요." · 400 "사진·영상 파일만 올릴 수 있어요." · 400 "파일은 100MB까지예요." · 400 "찍은 시각 개수가 파일 개수와 달라요." · 400 "날짜 형태를 잘못가져왔어요. 찍은 시각은 yyyy-MM-ddTHH:mm 모양이에요." · 500 "파일을 저장하지 못했어요." · 404 "여행을 찾을 수 없어요."
+
+> 파일은 서버 폴더(`PHOTO_DIR`, 기본 `uploads/photos`)에 새 이름으로 저장하고, DB `photo`에는 이름만 넣어요.
+
+### `GET /api/photos/{photoId}/file`
+사진·영상 파일 자체. 내 여행의 사진만 줘요. · 로그인 필요 · 11/06 추가
+
+**응답** 파일 (Content-Type `image/jpeg`, `video/mp4` 등) · **오류** 404 "사진을 찾을 수 없어요."
 
 ---
 
@@ -1324,7 +1598,7 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 | `POST /api/plans/generate` (③) | ② PlanCheckView → `POST /api/trips` | 초안 Stop·`transports`가 ②의 저장 규칙과 맞아야 함 (조건에 transports가 없으면 `[]`로 와서 저장 400) |
 | `POST /api/plans/check` (②) | ③ 일정 생성 후 점검 | 응답 `legs[].mode`는 `walk/transit/car`라 Stop.mode(`taxi`)와 다름 |
 | `POST /api/trips/{id}/live/recommend` (④) | 응답 항목이 ②의 장소 카드 + 영업 정보 | ②가 장소 카드·영업 정보 모양을 바꾸면 ④ 화면이 바뀜 |
-| `POST /api/trips/{id}/live/insert`·`/status`·`/alternatives`·`/apply` (④) | 안에서 ②의 Trip·Stop을 읽고 고침 | Stop `state`·`fixed`·`arrivedAt` 뜻이 바뀌면 알림·대안이 달라짐 |
+| `POST /api/trips/{id}/live/insert`·`/skip`·`/status`·`/alternatives`·`/apply` (④) | 안에서 ②의 Trip·Stop을 읽고 고침 | Stop `state`·`fixed`·`arrivedAt` 뜻이 바뀌면 알림·대안이 달라짐 |
 
 ---
 

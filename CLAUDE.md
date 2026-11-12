@@ -1,4 +1,4 @@
-# 트립비서 (여행어때) — Claude 작업 규칙
+# 트립비서 (착착트립) — Claude 작업 규칙
 
 - 답변·질문·설명은 한국어로 한다.
 
@@ -52,6 +52,7 @@
 - 패키지는 기능별: `com.tripbiseo.{member|trip|plan|live|after}` 아래 `controller`, `service`, `mapper`, `dto`. 공통은 `common`, 설정은 `config`.
 - **Service는 인터페이스 + Impl**로 만든다 (`TripService` + `TripServiceImpl`). Controller, DTO에는 인터페이스를 만들지 않는다. 인터페이스 하나에 Impl 하나.
 - SQL은 Mapper 인터페이스 + `resources/mapper/{기능}/*.xml`에 쓴다. Java 코드 안에 SQL 문자열을 쓰지 않는다.
+  - 예외 (④ AI에게 묻기, 11/08): `mapper/live/PlaceAskMapper.xml`의 `${sql}` 한 곳만 Gemini가 쓴 SQL을 그대로 넣는다. `SqlChecker`(JSqlParser) 검사를 통과한 SELECT만 들어오고, 읽기 전용 트랜잭션에서 `ask_reader` 계정(뷰 `ask_place`·`ask_review`만 읽기) + 3초 제한으로 실행한다. 값은 `#{}`로만 넣는다. 다른 곳에서는 `${}`를 쓰지 않는다.
 - DTO는 Lombok `@Data`를 쓴다.
 - 이름 규칙
 

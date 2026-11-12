@@ -41,6 +41,8 @@
     <if test="lat != null and lng != null">, ST_Distance(geom, <include refid="basePoint"/>) AS distance</if>
     FROM retrip_place
     WHERE name ILIKE '%' || #{keyword} || '%' OR biz_type ILIKE '%' || #{kind} || '%'
+    <!-- 11/09 ③(찬기 OK): 띄어쓰기 없이 쳐도 찾게 ("문래골목집" → "문래 골목집") -->
+    OR REPLACE(name, ' ', '') ILIKE '%' || REPLACE(#{keyword}, ' ', '') || '%'
     <!-- 11/03 묶음 말: "카페"·"술집"은 분류 정규식(~), "음식점"·"식당"·"맛집"은 카페·술집이 아닌 음식점 전부 -->
     <if test="groupPattern != null">OR biz_type ~ #{groupPattern}</if>
     <if test="isFood">OR (content_type_id = '39' AND COALESCE(biz_type, '') !~ #{notFoodPattern})</if>
@@ -91,6 +93,7 @@
     SELECT <include refid="placeColumns"/>
     FROM retrip_place
     WHERE name = #{name} OR name ILIKE '%' || #{name} || '%' OR (char_length(name) &gt;= 3 AND #{name} ILIKE '%' || name || '%')
+       OR REPLACE(name, ' ', '') = REPLACE(#{name}, ' ', '') <!-- 11/09: 띄어쓰기만 다른 같은 이름 -->
     ORDER BY (name = #{name}) DESC, COALESCE(review_count, 0) DESC
     LIMIT 5
   </select>

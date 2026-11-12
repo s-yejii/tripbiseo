@@ -14,7 +14,7 @@ import TopBar from '@/components/common/TopBar.vue'
 import { generatePlanStream } from '@/api/trips'
 import { useTripStore } from '@/stores/trip'
 import { daysBetween } from '@/utils/dates'
-import { isStayStop } from '@/utils/mapView'
+import { isSameStay, isStayStop } from '@/utils/mapView'
 import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
 
@@ -27,7 +27,7 @@ const MAP_PADDING = { top: 40, right: 30, bottom: 30, left: 30 }
 
 const router = useRouter()
 const store = useTripStore()
-const conditions = store.planConditions // 대화로 모은 조건 (없으면 원하는 것 말하기로 돌려보냄)
+const conditions = store.planConditions // 여행 정보 단계에서 모은 조건 (없으면 여행 정보 입력으로)
 
 const steps = ref([]) // 서버가 보낸 단계 [{ step, state(now·done), percent, text, detail }] 받은 순서대로
 const percent = ref(0)
@@ -56,10 +56,13 @@ const mapBadge = computed(() => {
 const mapPins = computed(() => {
   if (draft.value) {
     const pins = []
+    const stays = [] // 이미 핀을 꽂은 숙소
     for (const stop of draft.value.stops) {
       if (stop.lat == null || stop.lng == null) continue
-      const isStay = isStayStop(stop) // 숙소는 집 모양 핀
-      const icon = isStay ? 'i-home' : stop.fixed ? 'i-lock' : ''
+      const isStay = isStayStop(stop) // 숙소는 침대 모양 핀, 같은 숙소는 하나만 (11/09)
+      if (isStay && stays.some((before) => isSameStay(before, stop))) continue
+      if (isStay) stays.push(stop)
+      const icon = isStay ? 'i-bed' : stop.fixed ? 'i-lock' : ''
       const cls = isStay ? 'pin--stay' : stop.fixed ? 'pin--fixed' : ''
       pins.push({ key: pins.length, lat: stop.lat, lng: stop.lng, text: pins.length + 1, icon, cls, label: stop.name })
     }
@@ -71,8 +74,8 @@ const mapPins = computed(() => {
 
 onMounted(() => {
   if (!conditions) {
-    showToast('여행 조건이 없어요. 원하는 것부터 말해 주세요')
-    router.replace('/plan/chat')
+    showToast('여행 조건이 없어요. 여행 정보부터 골라 주세요')
+    router.replace('/plan/info')
     return
   }
   timer = setInterval(creep, CREEP_MS)
@@ -135,7 +138,7 @@ function waitAtHome() {
 <template>
   <div class="scr scr-Generating">
     <div class="app">
-      <TopBar title="일정 만들기" back="/plan/chat"><span class="topbar__side">4 / 4</span></TopBar>
+      <TopBar title="일정 만들기" back="/plan/info"><span class="topbar__side">4 / 4</span></TopBar>
 
       <!-- 지도: 만드는 동안은 고른 지역, 다 만들면 실제 일정 핀 -->
       <div class="gen-map">
