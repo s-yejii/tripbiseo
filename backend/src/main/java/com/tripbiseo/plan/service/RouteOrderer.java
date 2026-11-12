@@ -45,6 +45,9 @@ public class RouteOrderer {
     private static final int DINNER_END_MIN = 19 * 60 + 30;
     private static final int BAR_FROM_MIN = 17 * 60 + 30;
     private static final int MAX_OPTIONS = 5;       // 동선 후보 수
+    // 밥집이 아닌 분류 (이 말이 들어가면 끼니 칸에 안 옴, 11/12)
+    private static final java.util.regex.Pattern NOT_MEAL = java.util.regex.Pattern.compile(
+            "카페|커피|디저트|베이커리|아이스크림|관광|공원|산책|문화|전시|미술|박물|쇼핑|백화점|시장|거리|골목|숙소|호텔|레포츠");
     private static final int CHECK_OPTIONS = 20;    // 거리로 먼저 추린 뒤 시간을 잴 후보 수
     private static final int MAX_LIST_STOPS = 8;    // 옮길 칸이 이보다 많으면 순서를 다 세어 보지 않음
     private static final List<String> DEFAULT_TRANSPORTS = List.of("subway", "bus", "walk");
@@ -108,7 +111,7 @@ public class RouteOrderer {
 
     /** 하루 일정을 새 순서로 바꿈: 시각·머무는 분은 자리에 그대로, 장소만 바뀜 */
     public List<Stop> sortDay(List<Stop> stops, double[] start, LocalDate date) {
-        List<Integer> order = getOrder(stops, start, date);
+        List<Integer> order = keepMealSlots(stops, getOrder(stops, start, date));
         logChange(stops, order, start);
         List<Stop> sorted = new ArrayList<>();
         List<String> times = new ArrayList<>();
@@ -141,6 +144,46 @@ public class RouteOrderer {
     }
 
     // ---------------------------------------------------------------- 도우미
+
+    /**
+     * 순서를 바꿔도 밥 칸에는 밥집, 밥 아닌 칸에는 밥 아닌 곳이 오게 (11/12).
+     * 시각 칸은 그대로 두고 장소만 바꾸다 보니 11:50 카페 → 13:20 라멘처럼 점심 칸과 카페 칸이 뒤바뀌었어요.
+     * 고정(예약) 칸은 제자리, 나머지는 새 순서 안에서 밥집끼리·나머지끼리 차례대로 자리를 채움
+     */
+    private List<Integer> keepMealSlots(List<Stop> stops, List<Integer> order) {
+        List<Integer> foods = new ArrayList<>();
+        List<Integer> others = new ArrayList<>();
+        for (int index : order) {
+            if (Boolean.TRUE.equals(stops.get(index).getFixed())) {
+                continue; // 예약 칸은 자기 자리 그대로
+            }
+            if (isMeal(stops.get(index))) {
+                foods.add(index);
+            } else {
+                others.add(index);
+            }
+        }
+        List<Integer> result = new ArrayList<>();
+        int foodNext = 0;
+        int otherNext = 0;
+        for (int place = 0; place < stops.size(); place++) {
+            Stop original = stops.get(place);
+            if (Boolean.TRUE.equals(original.getFixed())) {
+                result.add(place);
+            } else if (isMeal(original)) {
+                result.add(foods.get(foodNext++));
+            } else {
+                result.add(others.get(otherNext++));
+            }
+        }
+        return result;
+    }
+
+    /** 밥집인지 (분류에 카페·관광·쇼핑·숙소 같은 말이 없으면 밥집으로 봄) */
+    private boolean isMeal(Stop stop) {
+        String category = stop.getCategory() == null ? "" : stop.getCategory();
+        return !NOT_MEAL.matcher(category).find();
+    }
 
     /** 이동 시간 어림값: 구간마다 수단을 고르고 거리로 계산 (외부 길찾기 안 부름) */
     private int minutesOf(List<Stop> stops, List<Integer> order, double[] start, List<String> transports) {
