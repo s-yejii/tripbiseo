@@ -93,3 +93,11 @@ ON CONFLICT (name) DO NOTHING;
 UPDATE place_area SET place_id = 'tour-1059479'
 WHERE name = '여의도한강공원' AND place_id IS NULL
   AND EXISTS (SELECT 1 FROM retrip_place WHERE id = 'tour-1059479');
+
+-- ---------------------------------------------------------------- 경계 모양 검사 (11/12 ④ 신예지)
+--  깨진 경계(선이 꼬임·고리가 안 닫힘·구멍이 밖으로 나감)는 도착 판정이 틀리거나 오류가 나서 아예 못 들어오게 해요
+--  ST_IsValid는 geometry에서만 돼서 검사할 때만 ::geometry로 바꿔요 (저장된 값은 그대로)
+--  PostgreSQL은 제약에 IF NOT EXISTS가 없어서, 다시 실행해도 되게 지웠다가 다시 걸어요
+--  걸기 전에 지금 경계 확인: SELECT name, ST_IsValid(boundary::geometry) FROM place_area;  (깨졌으면 ST_IsValidReason으로 이유 보기)
+ALTER TABLE place_area DROP CONSTRAINT IF EXISTS place_area_boundary_valid;
+ALTER TABLE place_area ADD CONSTRAINT place_area_boundary_valid CHECK (ST_IsValid(boundary::geometry));
