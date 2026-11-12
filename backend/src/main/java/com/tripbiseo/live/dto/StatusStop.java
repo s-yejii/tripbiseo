@@ -23,4 +23,5 @@ public class StatusStop {
     private Integer moveMin;      // 남은 칸만: 앞에서(지금 위치·앞 칸) 오는 이동 분, 아니면 null
     private String moveMode;      // 남은 칸만: walk / transit / car
     private Integer moveMeters;   // 남은 칸만: 이동 거리(m)
+    private Boolean meal;         // 남은 칸만: 식당·카페·술집이면 true ("못 가게 됐어요" 버튼, 11/12). 이름은 옆 칸 fixed와 같은 방식
 }
