@@ -1162,7 +1162,7 @@ function toggleMapType() {
               </ul>
             </div>
           </div>
-          <p v-if="dayPayments.length === 0" class="t-cap">이 날 결제 내역이 없어요</p>
+          <p v-if="dayPayments.length === 0" class="t-cap">결제 내역이 없어요</p>
           <ul v-else class="retro-paylist">
             <li v-for="payment in dayPayments" :key="payment.id">
               <span class="tn retro-paylist__time">{{ payment.paidAt }}</span>
@@ -1262,10 +1262,10 @@ function toggleMapType() {
       <div v-if="payForm !== null" class="retro-cards" role="dialog" aria-modal="true" aria-label="결제 적기" @click.self="payForm = null">
         <div class="retro-cards__box">
           <div class="retro-cards__head">
-            <b>{{ payForm.source === 'capture' ? '영수증에서 읽은 결제' : '결제 직접 추가' }}</b>
+            <b>{{ payForm.source === 'capture' ? '영수증 내역' : '결제 내역 직접 추가' }}</b>
             <button type="button" class="iconbtn" aria-label="닫기" @click="payForm = null"><i class="ic i-close" aria-hidden="true"></i></button>
           </div>
-          <p v-if="payForm.source === 'capture'" class="t-cap">잘못 읽은 곳이 있으면 고친 뒤 저장해 주세요</p>
+          <p v-if="payForm.source === 'capture'" class="t-cap">오류 시 직접 수정해 주세요.</p>
           <label class="retro-payform__row"><span class="t-cap">가게 이름</span><input v-model="payForm.storeName" type="text" placeholder="예: 산청숯불가든" /></label>
           <label class="retro-payform__row"><span class="t-cap">금액(원)</span><input :value="toCommaText(payForm.amount)" type="text" inputmode="numeric" placeholder="예: 150,000" @input="setPayAmount" /></label>
           <label class="retro-payform__row"><span class="t-cap">결제 시각</span><input v-model="payForm.paidAt" type="datetime-local" /></label>
