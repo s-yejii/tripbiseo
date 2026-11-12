@@ -132,7 +132,7 @@ public class PlanController {
     @PostMapping("/capture")
     public CaptureResponse readCapture(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
         byte[] bytes = image == null ? null : image.getBytes();
-        return captureService.readCapture(bytes, image == null ? null : image.getContentType());
+        return captureService.readCapture(loginUser.id(), bytes, image == null ? null : image.getContentType());
     }
 
     /** 숙소 예약 캡처 사진 → 숙소 이름·주소·체크인·체크아웃 + 위치 (숙소 후보, 저장 안 함) */
@@ -146,7 +146,7 @@ public class PlanController {
     @PostMapping("/capture/receipt")
     public ReceiptResponse readReceipt(@RequestParam(value = "image", required = false) MultipartFile image) throws IOException {
         byte[] bytes = image == null ? null : image.getBytes();
-        return captureService.readReceipt(bytes, image == null ? null : image.getContentType());
+        return captureService.readReceipt(loginUser.id(), bytes, image == null ? null : image.getContentType());
     }
 
     /** 가고 싶은 곳 추천 게시물 */
