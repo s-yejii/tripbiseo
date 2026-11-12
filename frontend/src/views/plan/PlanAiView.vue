@@ -329,10 +329,11 @@ onMounted(() => {
   const isPicked = (step.value.id === 'where' && store.planArea) || (step.value.id === 'from' && store.planOrigin)
   if (isPicked) moveStep(1)
 })
-// 시연 계정(개발자 모드): 발표 이야기대로 출발지(가마산로 242)·이미 잡은 KTX·숙소를 미리 채워 둠 (11/08 주형)
+// 시연 계정(개발자 모드): 발표 이야기대로 출발지(11/12 종로3가역)를 미리 채워 둠 (11/08 주형)
 //   값은 서버 plan/service/DemoScenario.java 한 곳에 있어요. 사용자가 이미 고른 칸은 안 덮어써요
 const scenario = ref(null)
-const BOARDING_EARLY_MIN = 30 // 시나리오(DEMO.md): KTX 30분 전 서울역 도착
+const BOARDING_EARLY_MIN = 30 // 마지막 날 예약이 역·터미널이면 30분 전 도착
+const MEAL_AFTER_MIN = 90 // 마지막 날 예약이 식당이면 먹고 끝 (11/12 촬영 시나리오: 스시도 12:30 → 14:00 해산)
 onMounted(async () => {
   if (!devMode.isOn) return
   try {
@@ -342,20 +343,21 @@ onMounted(async () => {
   }
   const setup = scenario.value
   if (!store.planOrigin) store.planOrigin = { name: setup.originName, address: setup.originAddress, category: '출발지', lat: setup.originLat, lng: setup.originLng }
-  // 예약(문래 골목집 회식·서울역 KTX)은 미리 넣지 않음. 발표자가 "예약한 곳" 단계에서 장소 검색으로 직접 넣어요 (11/09 상재 제보)
+  // 예약(산청숯불가든 회식·스시도)은 미리 넣지 않음. 발표자가 "예약한 곳" 단계에서 장소 검색으로 직접 넣어요 (11/09 상재 제보)
 })
 // 숙소는 미리 넣지 않음 (11/08 주형: 시연에서 숙소 단계에서 직접 찾아 넣는 모습을 보여 줌)
 
 // "시간 추천": 추천 시작·끝 시각으로 맞춤 (지금은 기본값, 통계가 오면 utils/timeRecommend.js만 바꿈)
 function useRecommendedTime() {
-  // 시연 계정: 시나리오 시각으로 (11/08 주형). 시작은 첫날(가마산로 출발 15:00), 끝은 마지막 날(KTX 15분 전 도착)
-  //   값은 서버 DemoScenario.java 한 곳 (startTime, fixed KTX). 시작·끝은 PlanRuleMaker가 첫날·마지막 날에만 써요
+  // 시연 계정: 시나리오 시각으로 (11/08 주형). 시작은 첫날(11/12 종로3가 11:30), 끝은 마지막 날 예약 기준
+  //   값은 서버 DemoScenario.java 한 곳 (startTime, fixed). 시작·끝은 PlanRuleMaker가 첫날·마지막 날에만 써요
   if (scenario.value) {
-    const train = scenario.value.fixed.find((item) => item.day > 1) || scenario.value.fixed[0] // 마지막 날 KTX
-    const end = toTime(toMinutes(train.time) - BOARDING_EARLY_MIN)
+    const last = scenario.value.fixed.find((item) => item.day > 1) || scenario.value.fixed[0] // 마지막 날 예약
+    const isBoarding = /역$|터미널|공항/.test(last.name)
+    const end = toTime(toMinutes(last.time) + (isBoarding ? -BOARDING_EARLY_MIN : MEAL_AFTER_MIN))
     store.planFromTime = scenario.value.startTime
     store.planToTime = end
-    showToast('추천 시간 ' + scenario.value.startTime + '~' + end + '로 맞췄어요') // 11/09: 일반 계정과 같은 문구 (아직 안 넣은 KTX·서울역을 미리 말하지 않음)
+    showToast('추천 시간 ' + scenario.value.startTime + '~' + end + '로 맞췄어요') // 11/09: 일반 계정과 같은 문구 (아직 안 넣은 예약을 미리 말하지 않음)
     return
   }
   // 오늘 여행이면 지금 이후로 맞추고 날짜는 그대로 (하루가 거의 끝났을 때만 내일로, 11/09)

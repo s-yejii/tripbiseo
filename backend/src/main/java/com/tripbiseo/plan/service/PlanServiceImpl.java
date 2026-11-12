@@ -564,7 +564,7 @@ public class PlanServiceImpl implements PlanService {
             { "candidates", "20", "장소 후보 찾기" },
             { "reviews", "40", "리뷰로 단체석·분위기 확인" },
             { "ai", "80", "AI가 일정 고르기" },
-            { "fixed", "95", "회식 18:30 · KTX 19:00 시간에 맞추기" },
+            { "fixed", "95", "1일차 19:00 회식 · 2일차 12:30 스시도 시간에 맞추기" }, // 11/12 촬영 시나리오
         };
         for (String[] step : steps) {
             waitDemoStep();
