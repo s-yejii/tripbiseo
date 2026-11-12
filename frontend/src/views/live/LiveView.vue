@@ -60,6 +60,7 @@ const status = computed(() => live.status.value)
 const isReady = computed(() => live.phase.value === 'ready' && status.value !== null)
 
 const selected = ref(null) // 고른 카드·핀 (칸 id)
+const cardFocus = ref(null) // 지도 핀을 눌렀을 때 { no: 칸 id, at: 누른 시각 } → 아래 카드 줄이 그 카드를 가운데로 (11/12)
 const previewId = ref(null) // 지도가 잠깐 보여 주는 칸 (이름표)
 const info = ref(null) // 정보창을 연 다녀온 곳 { id, x, y }
 const segCard = ref(null) // 이동 칩을 누른 카드
@@ -375,7 +376,9 @@ function onPickPin(pin) {
     return
   }
   const stop = stops.value.find((item) => item.id === pin.id)
-  if (stop) pickStop(stop, pin)
+  if (!stop) return
+  cardFocus.value = { no: stop.id, at: Date.now() } // 아래 카드 줄도 이 장소 카드를 가운데로 (11/12)
+  pickStop(stop, pin)
 }
 
 // ------------------------------------------------------------ 시트 위 큰 글자
@@ -803,7 +806,7 @@ function restartMoving() {
             </div>
 
             <button v-if="selectedMealFixed && !isLostOpen" type="button" class="btn btn--secondary btn--md" style="align-self: flex-start" @click="manualLostId = selectedMealFixed.id">못 가게 됐어요</button>
-            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
+            <LiveCards :cards="cards" :selected="selected" :auto-focus="devMode.isOn" :focus="cardFocus" @pick="pickCard" @seg="segCard = $event" @scrolled="onCardScrolled" />
 
             <p v-if="status.weather" class="t-cap live-event"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ status.weather.time }}부터 비</p>
           </BottomSheet>

@@ -9,6 +9,7 @@ const props = defineProps({
   cards: { type: Array, required: true },
   selected: { type: Number, default: 0 },
   autoFocus: { type: Boolean, default: false }, // 시연 계정(11/09): 지금 장소·다음 갈 곳이 바뀌면 그 카드로 자동으로 넘김
+  focus: { type: Object, default: null },       // 지도 핀을 눌렀을 때 { no, at }: 그 카드를 가운데로 (11/12). at은 같은 핀을 다시 눌러도 바뀌게 하는 값
 })
 const emit = defineEmits(['pick', 'seg', 'scrolled'])
 
@@ -132,16 +133,30 @@ const focusNo = computed(() => {
 watch(focusNo, async (no, oldNo) => {
   if (!props.autoFocus || no == null || no === oldNo || drag) return
   await nextTick() // 카드 모양(지금·다녀옴)이 화면에 바뀐 뒤에 위치를 재요
+  centerCard(no, () => {
+    // 도착한 곳이면 지도 핀 강조도 그 카드로. 이동 중(다음 갈 곳)은 지도가 내 위치를 따라가니 알리지 않음
+    if (props.cards.some((card) => card.no === no && card.state === 'now')) emit('scrolled', no)
+  })
+})
+
+// 지도 핀을 누르면 그 카드를 가운데로 (11/12). 선택(selected)은 손으로 넘길 때도 바뀌어서, 그걸 보면 넘기는 중에 끌려가요 → 핀 신호만 봄
+watch(() => props.focus, async (focus) => {
+  if (!focus || drag) return
+  await nextTick()
+  centerCard(focus.no, null)
+})
+
+// 카드 하나를 부드럽게 가운데로. 움직이는 동안은 사용자가 넘긴 걸로 보지 않고(3초 뒤 돌아가기 안 함), 끝나면 done을 불러요
+function centerCard(no, done) {
   const el = box.value && box.value.querySelector('.hcard[data-no="' + no + '"]')
   if (!el) return
-  isReturning = true // 코드로 넘기는 동안은 사용자가 넘긴 걸로 보지 않음
+  isReturning = true
   box.value.scrollTo({ left: el.offsetLeft - (box.value.clientWidth - el.offsetWidth) / 2, behavior: 'smooth' })
   setTimeout(() => {
     isReturning = false
-    // 도착한 곳이면 지도 핀 강조도 그 카드로. 이동 중(다음 갈 곳)은 지도가 내 위치를 따라가니 알리지 않음
-    if (props.cards.some((card) => card.no === no && card.state === 'now')) emit('scrolled', no)
+    if (done) done()
   }, RETURN_SCROLL_MS)
-})
+}
 
 // 처음 열 때 지금 있는 곳 카드를 가운데로
 onMounted(() => {
