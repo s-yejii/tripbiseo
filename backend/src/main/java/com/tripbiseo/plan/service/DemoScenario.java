@@ -20,7 +20,7 @@ import com.tripbiseo.trip.dto.Stop;
  * 시연 계정(DEMO_ACCOUNTS)이 AI 일정을 만들면 고른 조건과 상관없이 이 일정이 나와요. 날짜만 사용자가 고른 날.
  * 11/12 최종 촬영 시나리오(아카데미 동기 5명 서울 1박 2일)로 바꿈. 시나리오를 바꾸려면 아래 STOPS 표만 고치면 돼요.
  *   출발: 종로3가역 11:30 → 1일차: 남도분식 → 동백양과점 → 르메르디앙 명동 체크인 → 남산 → 19:00 산청숯불가든 을지로 회식(고정) → 숙소
- *   2일차: 숙소 11:00 체크아웃 → 12:30 스시도(고정) → 해산. 돌발: 늦잠 → 숙소에서 나갈 시각이 지나도 그대로 → 스시도 지각
+ *   2일차: 숙소 11:00 체크아웃 → 12:30 스시도(고정) → 해산 → 16:00 동서울터미널 버스(고정, 앱 쓰는 사람만). 돌발: 늦잠 → 숙소에서 나갈 시각이 지나도 그대로 → 스시도 지각
  *   (예전 영등포 워크숍·KTX 시나리오는 docs/DEMO.md 11/06)
  */
 @Component
@@ -42,6 +42,10 @@ public class DemoScenario {
     private static final String DINNER_TIME = "19:00"; // 1일차 회식 예약
     private static final String LUNCH_NAME = "스시도";
     private static final String LUNCH_TIME = "12:30"; // 2일차 점심 예약 (늦잠으로 지각하는 곳)
+    private static final String BUS_NAME = "동서울종합터미널";
+    private static final String BUS_TIME = "16:00"; // 2일차 고속버스 예약 (앱 쓰는 사람이 지방 집으로, 11/12 최종 시나리오)
+    private static final double BUS_LAT = 37.5343935; // DB에 터미널이 없어 같은 건물(강변역로 50) 가게 좌표 (11/12)
+    private static final double BUS_LNG = 127.0940622;
     private static final String STAY_NAME = "르메르디앙 서울 명동";
     private static final String STAY_ADDRESS = "서울 중구 명동8나길 38";
     private static final double STAY_LAT = 37.5616;   // DB에 숙소가 없어 같은 건물 식당 좌표 (11/12)
@@ -59,7 +63,8 @@ public class DemoScenario {
     //   1일차: 11:30 종로3가역 모임 → 남도분식 → 동백양과점 → 15:00 숙소 체크인 → 남산순환나들길 → 팔각정(17:30까지)
     //          → 17:30~19:00은 일부러 비워 둠 (대중교통으로 내려와 시간이 남아 AI로 카페 찾는 장면) → 19:00 회식 → 숙소
     //          (21:00 편의점은 DB에 편의점이 없어 안 넣음, 지도 "근처 찾기"로 보여 줄 장면)
-    //   2일차: 11:00 체크아웃 예정 → 늦잠·레이트 체크아웃 12:00 → 12:30 스시도 지각 (B안은 여행 중 화면에서). 점심 뒤 해산
+    //   2일차: 11:00 체크아웃 예정 → 늦잠·레이트 체크아웃 12:00 → 12:30 스시도 지각 (B안 산고 스시바 방이본점 14:00은 여행 중 대안 화면에서). 점심 뒤 해산
+    //          → 16:00 동서울종합터미널 버스(고정). 동서울터미널도 DB에 없어 같은 건물 좌표를 씀
     //   르메르디앙 서울 명동은 DB에 없어 장소 번호 없이 같은 건물(라팔레트 파리, 명동8나길 38) 좌표를 씀
     //   이동(PlanTravelTime 어림): 역→남도분식 7분, 동백양과점→숙소 17분, 숙소→나들길 15분, 나들길→팔각정 7분, 팔각정→을지로 18분, 회식→숙소 15분, 숙소→스시도 65분
     private static final Object[][] STOPS = {
@@ -72,6 +77,7 @@ public class DemoScenario {
         { 1, "21:30", STAY_NAME, null, "숙소", STAY_LAT, STAY_LNG, 30, false, "숙소 · 다음 날 여기서 출발", null },
         { 2, "10:00", STAY_NAME, null, "숙소", STAY_LAT, STAY_LNG, 60, false, "체크아웃 11:00 · 지하철로 강남", null },
         { 2, "12:30", "스시도", "naver-1008521969", "일식당", 37.4952278, 127.0850148, 90, true, "점심 예약 5명 · 숙소에서 대중교통 약 65분 · 점심 뒤 해산", null },
+        { 2, BUS_TIME, BUS_NAME, null, "버스터미널", BUS_LAT, BUS_LNG, 30, true, "고속버스 16:00 출발 · 넘기면 놓침 · 스시도에서 대중교통 약 31분", null },
     };
 
     // 비 예보(시연 고정): 2일차 13:00부터 비 → 일정 짤 때 알려 주고 [반영하기]를 누르면 2일차를 이 순서로 (11/08 주형: 날씨는 돌발 아님)
@@ -105,6 +111,7 @@ public class DemoScenario {
         }
         response.getNotes().add(makeNote("1일차 19:00 산청숯불가든 을지로 회식은 예약 시각 그대로 고정했어요"));
         response.getNotes().add(makeNote("2일차 12:30 스시도 점심 예약 시각을 고정했어요"));
+        response.getNotes().add(makeNote("2일차 16:00 동서울종합터미널 버스 출발 시각을 고정했어요 (넘기면 놓쳐요)"));
         return response;
     }
 
@@ -125,6 +132,11 @@ public class DemoScenario {
         dinner.setTime(DINNER_TIME);
         dinner.setDay(1);
         setup.getFixed().add(dinner);
+        FixedVisit bus = new FixedVisit(); // 2일차 고속버스 예약 (마지막 날 끝 시각 기준)
+        bus.setName(BUS_NAME);
+        bus.setTime(BUS_TIME);
+        bus.setDay(NIGHTS + 1);
+        setup.getFixed().add(bus);
         setup.setStayName(STAY_NAME);
         setup.setStayAddress(STAY_ADDRESS);
         setup.setStayLat(STAY_LAT);
