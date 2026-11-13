@@ -12,6 +12,7 @@ import { readAlarms, readStyle, saveAlarms } from '@/utils/mySettings'
 import SavePlaceButton from '@/components/plan/SavePlaceButton.vue'
 import DevDot from '@/components/live/DevDot.vue'
 import { turnOffDevMode } from '@/utils/devMode'
+import { clearAllChats } from '@/utils/askChat'
 import { showToast } from '@/utils/toast'
 import { friendNews } from '@/data/friendNews'
 import { useTripStore } from '@/stores/trip'
@@ -117,6 +118,7 @@ function setMainCard(index) {
 async function logout() {
   await post('/auth/logout')
   turnOffDevMode() // 다른 사람이 이 브라우저로 로그인해도 개발자 모드가 남지 않게
+  clearAllChats() // AI에게 묻기 대화도 전부 지워서 다음 사람에게 안 보이게 (④ 요청, 11/13)
   router.replace('/login')
 }
 
