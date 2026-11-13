@@ -79,6 +79,7 @@ public class PlanServiceImpl implements PlanService {
     private static final int LAST_MUST_START_MIN = 1260;  // 꼭 갈 곳은 늦어도 21:00 시작
     private static final int MUST_STAY_MIN = 90;
     private static final int FIXED_STAY_MIN = 120;
+    private static final String UNLOCATED_MEMO = "위치 확인 필요 · 지도 위치는 여행 지역 가운데예요"; // 위치를 못 찾은 예약 칸 (11/13)
     private static final String AI_FAIL_NOTE = "AI가 답하지 않아 고른 종류·평점·거리로 일정을 짰어요"; // AI 대신 규칙으로 짠 안내 (오류 원문은 안 보임)
     private static final String CALL_AHEAD_MARK = "연락 필수"; // 영업시간 원문에 이 말이 있으면 미리 연락해야 하는 곳
     private static final int BOARDING_STAY_MIN = 30;     // 기차역·터미널·공항 고정 일정은 타러 가는 것뿐이라 30분 (11/06)
@@ -1201,6 +1202,14 @@ public class PlanServiceImpl implements PlanService {
             if (place == null) {
                 place = placeService.getPlaceByName(pick.getName(), nearLat, nearLng);
             }
+            if (place == null && Boolean.TRUE.equals(pick.getFixed()) && hasText(pick.getName()) && nearLat != null && nearLng != null) {
+                // 11/13: 예약(고정)은 위치를 못 찾아도 빼지 않고 읽은 이름·시각 그대로 둠 (예전엔 빠져서 그 자리가 4시간 넘게 비었어요)
+                double centerLat = conditions.getAreaLat() != null ? conditions.getAreaLat() : nearLat; // 고른 지역 가운데, 없으면 첫 후보 근처
+                double centerLng = conditions.getAreaLng() != null ? conditions.getAreaLng() : nearLng;
+                response.getStops().add(toUnlocatedFixedStop(pick, days, centerLat, centerLng));
+                response.getNotes().add(makeNote(pick.getName() + "의 위치를 찾지 못했어요 · 시각은 그대로 두었으니 위치를 확인해 주세요", placeService.getNaverUrl(pick.getName(), null)));
+                continue;
+            }
             if (place == null) {
                 String name = pick.getName() == null ? "" : pick.getName();
                 response.getNotes().add(makeNote(name + "의 위치를 찾지 못해 뺐어요", placeService.getNaverUrl(name, null)));
@@ -1264,6 +1273,22 @@ public class PlanServiceImpl implements PlanService {
     }
 
     /** 초안 칸 (②의 저장 규칙: day 1~기간, time HH:mm, stay 10~600) */
+    /**
+     * 위치를 못 찾은 예약 칸: 이름·시각은 그대로, 좌표는 여행 지역 가운데로 두고 메모로 "위치 확인 필요".
+     * (일정 저장 표 trip_stop은 좌표가 꼭 있어야 해서 비워 둘 수 없어요. 사용자가 일정 점검·편집에서 진짜 위치로 바꾸면 돼요)
+     */
+    Stop toUnlocatedFixedStop(AiDraftStop pick, int days, double areaLat, double areaLng) {
+        Place unknown = new Place();
+        unknown.setName(pick.getName());
+        unknown.setCategory("예약");
+        unknown.setLat(areaLat);
+        unknown.setLng(areaLng);
+        Stop stop = toDraftStop(pick, unknown, days);
+        stop.setFixed(true);
+        stop.setMemo(UNLOCATED_MEMO);
+        return stop;
+    }
+
     private Stop toDraftStop(AiDraftStop pick, Place place, int days) {
         Stop stop = new Stop();
         int day = pick.getDay() == null ? 1 : pick.getDay();
