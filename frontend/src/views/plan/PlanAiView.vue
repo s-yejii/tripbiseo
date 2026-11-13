@@ -1,3 +1,8 @@
+<script>
+// 새로고침 뒤 되살리기는 페이지를 연 뒤 한 번만 (이 화면을 다시 들어와도 또 되살리지 않게)
+let isRestoreChecked = false
+</script>
+
 <script setup>
 // S06 여행 정보 입력 (③): 한 화면에 하나씩 묻고 "이전"·"다음"으로 넘겨요 (11/04: 긴 스크롤 → 단계별, 11/06: 건너뛰기 버튼 없앰)
 // 주소: /plan/info (AI로 짜기) · /plan/info?method=me (직접 고르기)
@@ -54,6 +59,41 @@ const route = useRoute()
 const router = useRouter()
 const byMe = route.query.method === 'me'
 const store = useTripStore()
+
+// 11/13: 새로고침해도 고른 값이 남게. 고를 때마다 이 탭에만 저장(sessionStorage)하고,
+//   이 화면(또는 만드는 중 화면)을 새로고침했을 때만 되살려요. 새 여행을 시작할 때는 되살리지 않아요
+const SAVE_KEY = 'tripbiseo.planInfo'
+const SAVED_FIELDS = ['planArea', 'planAreas', 'planStartDate', 'planEndDate', 'planFromTime', 'planToTime', 'planOrigin', 'planStays',
+  'planKinds', 'planTags', 'planPeople', 'planCompanion', 'planMoves', 'planStep', 'planConditions']
+restoreAfterReload()
+watch(() => SAVED_FIELDS.map((field) => store[field]), savePlanInfo, { deep: true })
+
+function savePlanInfo() {
+  const data = {}
+  for (const field of SAVED_FIELDS) data[field] = store[field]
+  try {
+    sessionStorage.setItem(SAVE_KEY, JSON.stringify(data))
+  } catch (e) {
+    // 저장이 막힌 브라우저면 그냥 넘어감 (새로고침하면 처음부터)
+  }
+}
+
+function restoreAfterReload() {
+  if (isRestoreChecked) return
+  isRestoreChecked = true
+  const page = performance.getEntriesByType('navigation')[0] // 이 페이지를 처음 연 방법 (새로고침이면 type이 'reload')
+  if (!page || page.type !== 'reload') return
+  if (!page.name.includes('/plan/info') && !page.name.includes('/plan/generating')) return
+  try {
+    const data = JSON.parse(sessionStorage.getItem(SAVE_KEY))
+    if (!data) return
+    for (const field of SAVED_FIELDS) {
+      if (field in data) store[field] = data[field]
+    }
+  } catch (e) {
+    // 저장한 값이 깨졌으면 처음부터
+  }
+}
 
 const step = computed(() => STEPS[store.planStep] || STEPS[0])
 const isLast = computed(() => store.planStep === STEPS.length - 1)
@@ -250,9 +290,12 @@ function dayTileOf(day) {
   return { title: nights.value ? index + 1 + '일차' : '당일', date: toMonthDay(addDays(store.planStartDate, index)) }
 }
 // 꼭 지킬 시간 빼기 (일정 만들기 조건과 직접 고르기 초안에서 같이)
-function removeFixed(name) {
-  store.planConditions = { ...store.planConditions, fixed: fixedList.value.filter((item) => item.name !== name) }
-  store.draft.stops = store.draft.stops.filter((stop) => !(stop.fixed && stop.name === name))
+// 예약 하나만 빼기 (11/13: 이름으로만 지워서 같은 이름 예약이 둘이면 X 하나에 둘 다 빠지던 문제)
+function removeFixed(index) {
+  const target = fixedList.value[index]
+  store.planConditions = { ...store.planConditions, fixed: fixedList.value.filter((item, i) => i !== index) }
+  const stopIndex = store.draft.stops.findIndex((stop) => stop.fixed && stop.name === target.name && stop.time === target.time)
+  if (stopIndex >= 0) store.draft.stops.splice(stopIndex, 1)
 }
 // 칩 켜고 끄기 (코드 목록에 넣거나 빼기)
 function toggleCode(list, code) {
@@ -297,7 +340,18 @@ function moveStep(direction) {
   let next = store.planStep + direction
   if (STEPS[next] && STEPS[next].id === 'dong' && !store.planAreas.length) next += direction
   store.planStep = next
+  // 11/13: 단계를 주소(?step=)에도 적어서 폰·브라우저 뒤로가기가 앞 단계로 가게. 앞으로 갈 때만 기록을 쌓고, 뒤로 갈 때는 바꾸기만
+  const query = { ...route.query, step: String(next) }
+  if (direction > 0) router.push({ query })
+  else router.replace({ query })
 }
+
+// 브라우저 뒤로·앞으로로 주소의 단계가 바뀌면 화면 단계도 맞춤
+watch(() => route.query.step, (value) => {
+  if (route.path !== '/plan/info') return
+  const stepIndex = Number(value || 0)
+  if (stepIndex !== store.planStep) store.planStep = stepIndex
+})
 
 // 다음 칸으로 (이미 고른 지역 칸은 건너뜀). 마지막 칸이면 바로 일정 만들기로
 // (11/06: 단계에서 다 물어봐서 "원하는 것 말하기" 대화 화면은 흐름에서 뺌. 화면 파일·주소는 남겨 둠)
@@ -382,7 +436,7 @@ function useRecommendedTime() {
   <div class="scr scr-PlanAI">
     <div class="app" :class="{ 'pa-app--kind': step.id === 'kind' }">
       <header class="topbar">
-        <button type="button" class="iconbtn" aria-label="내 여행으로" @click="router.push('/trips')"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
+        <button type="button" class="iconbtn" aria-label="이전 단계로" @click="goPrev"><i class="ic ic--l i-back" aria-hidden="true"></i></button>
         <div class="pa-bar" role="progressbar" :aria-valuenow="store.planStep + 1" aria-valuemin="1" :aria-valuemax="STEPS.length"><span :style="{ width: progress }"></span></div>
         <span class="topbar__side tn">{{ store.planStep + 1 }} / {{ STEPS.length }}</span>
       </header>
@@ -502,11 +556,11 @@ function useRecommendedTime() {
             <ChoiceCard to="/plan/search?mode=fixed" icon="i-search" title="장소 검색" desc="식당·공연 이름으로" />
             <ChoiceCard to="/plan/capture" icon="i-camera" title="예약 캡처" desc="예약 문자·화면으로" />
           </div>
-          <div v-for="item in fixedList" :key="item.name" class="stop is-fixed" style="grid-template-columns: 1fr">
+          <div v-for="(item, index) in fixedList" :key="item.name + item.day + item.time" class="stop is-fixed" style="grid-template-columns: 1fr">
             <div class="stop__card">
               <span class="day-tile"><b>{{ dayTileOf(item.day).title }}</b><span>{{ dayTileOf(item.day).date }}</span></span>
               <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><b class="c-navy tn">{{ item.time }}</b> · 시간 고정</span></span>
-              <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(item.name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
+              <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(index)"><i class="ic i-close muted" aria-hidden="true"></i></button>
             </div>
           </div>
           <button v-if="!fixedList.length" type="button" class="textlink" style="align-self: center" @click="goNext">예약 없어요</button>

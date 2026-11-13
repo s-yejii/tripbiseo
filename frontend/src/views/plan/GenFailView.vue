@@ -32,7 +32,7 @@ function next() {
 <template>
   <div class="scr scr-GenFail">
     <div class="app">
-      <TopBar title="일정 만들기" back="/plan/info"><span class="topbar__side">4 / 4</span></TopBar>
+      <TopBar title="일정 만들기" back="/plan/info" /><!-- 11/13: 여행 정보는 11단계라 "4 / 4"를 뺌 -->
 
       <div class="scroll" style="padding-top: 8px; gap: 16px; bottom: 102px">
         <span class="ico-tile ico-tile--warn" style="width: 48px; height: 48px"><i class="ic ic--l i-warning" aria-hidden="true"></i></span>

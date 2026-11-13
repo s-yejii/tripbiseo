@@ -1,11 +1,36 @@
 <script setup>
 // S05 새 여행 · 방법 고르기 (③): AI가 짜 주기 / 지도에서 직접 고르기 / 무계획(곧 나와요)
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import TopBar from '@/components/common/TopBar.vue'
 import { useTripStore } from '@/stores/trip'
 import { showToast } from '@/utils/toast'
 
-useTripStore().replanFrom = null // 새 여행 고르기로 오면 다시 짜기는 그만둔 것 (저장할 때 옛 여행을 묻지 않게)
+const store = useTripStore()
+const router = useRouter()
+store.replanFrom = null // 새 여행 고르기로 오면 다시 짜기는 그만둔 것 (저장할 때 옛 여행을 묻지 않게)
+
+// 11/13: 홈에서 기다리다 완성됐는데 토스트(6초)를 놓쳤으면 여기서 다시 열기
+const READY_DRAFT_KEY = 'tripbiseo.readyDraft' // GeneratingView와 같은 이름
+const hasReadyDraft = ref(isReadyDraft())
+
+function isReadyDraft() {
+  try {
+    return sessionStorage.getItem(READY_DRAFT_KEY) === '1' && !!store.draft?.stops?.length
+  } catch (e) {
+    return false
+  }
+}
+
+// 완성된 초안을 일정 점검 화면으로 열기
+function openReadyDraft() {
+  try {
+    sessionStorage.removeItem(READY_DRAFT_KEY)
+  } catch (e) {
+    // 저장이 막힌 브라우저면 할 일 없음
+  }
+  router.push('/plan/check')
+}
 
 const notify = ref(false) // 무계획 여행 나오면 알림 받기
 
@@ -21,6 +46,14 @@ function toggleNotify() {
       <TopBar title="새 여행" back="/" />
 
       <div class="scroll" style="padding-top: 4px; gap: 14px; bottom: 24px">
+        <button v-if="hasReadyDraft" type="button" class="nt-opt nt-ready" @click="openReadyDraft">
+          <span class="ico-tile"><i class="ic ic--l i-check" aria-hidden="true"></i></span>
+          <span class="nt-opt__b">
+            <span class="nt-opt__t"><b>만들어 둔 일정이 완성됐어요</b></span>
+            <span class="nt-opt__d">{{ store.draft.title }} · 눌러서 완성본 보기</span>
+          </span>
+          <i class="ic i-next subtle" aria-hidden="true"></i>
+        </button>
         <h2 class="h-display" style="margin: 0 0 4px">어떻게 시작할까요?</h2>
 
         <div role="list" style="display: flex; flex-direction: column; gap: 10px">
@@ -65,6 +98,7 @@ function toggleNotify() {
 .scr-NewTrip .nt-opt{display:flex;align-items:center;gap:14px;padding:18px 16px;border-radius:var(--radius-lg);background:var(--surface-raised);border:1px solid var(--line);text-decoration:none;color:var(--ink);cursor:pointer;text-align:left;font:inherit;width:100%}
 .scr-NewTrip .nt-opt:hover{border-color:var(--navy)}
 .scr-NewTrip .nt-opt .ico-tile{width:48px;height:48px;flex:none}
+.scr-NewTrip .nt-ready{border-color:var(--navy);background:var(--surface)}
 .scr-NewTrip .nt-opt__b{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .scr-NewTrip .nt-opt__t{display:flex;align-items:center;gap:6px}
 .scr-NewTrip .nt-opt__t b{font-size:17px;line-height:24px}
