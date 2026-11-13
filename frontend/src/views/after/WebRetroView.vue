@@ -659,7 +659,6 @@ const settlement = computed(() => {
 const settleMessage = ref('')      // 정산 칸 아래 한 줄 알림 (웹 화면에는 앱의 토스트가 없어서)
 const personEdit = ref(null)       // 이름 칸 { id, name }. id가 null이면 새 사람
 const shareEdit = ref(null)        // 낼 돈 칸 { id, amount(글자) }
-const askingRemoveId = ref(null)   // "뺄까요?"를 띄운 사람
 const askingDeleteId = ref(null)   // "지울까요?"를 띄운 결제
 const isSettleBusy = ref(false)
 
@@ -706,13 +705,12 @@ function savePerson() {
   })
 }
 
-// 사람 빼기. 그 사람이 낸 결제는 서버가 '나'로 바꿈
+// 사람 빼기: ✕를 누르면 묻지 않고 바로 뺌. 그 사람이 낸 결제는 서버가 '나'로 바꿈
 function removePerson(person) {
   runSettle(async () => {
     companions.value = await del('/trips/' + route.query.id + '/companions/' + person.id)
     await reloadPayments()
-    askingRemoveId.value = null
-    settleMessage.value = person.name + '을(를) 정산에서 뺐어요'
+    settleMessage.value = person.name + "을(를) 정산에서 뺐어요. 이 사람이 낸 결제는 '나'로 바뀌었어요"
   })
 }
 
@@ -874,13 +872,6 @@ function savePayment() {
 
 function isOnlyPayerChanged(old, body) {
   return old.storeName === body.storeName && old.amount === body.amount
-}
-
-function companionById(id) {
-  for (const companion of companions.value) {
-    if (companion.id === id) return companion
-  }
-  return null
 }
 
 // 보낼 사람이 받을 사람에게 차례로 보내기 (앱 회고 toTransfers와 같음)
@@ -2487,7 +2478,7 @@ watch(shownPhotos, drawPhotoMarkers)
         <div class="wr-chips">
           <span v-for="companion in companions" :key="companion.id" class="wr-chip">
             <button type="button" class="wr-chip__name" :disabled="companion.sortNo === 0" @click="startRenamePerson({ id: companion.id, name: companion.name, isMe: companion.sortNo === 0 })">{{ companion.name }}</button>
-            <button v-if="companion.sortNo !== 0" type="button" class="wr-chip__x" :aria-label="companion.name + ' 빼기'" @click="askingRemoveId = companion.id">✕</button>
+            <button v-if="companion.sortNo !== 0" type="button" class="wr-chip__x" :aria-label="companion.name + ' 빼기'" @click="removePerson(companion)">✕</button>
           </span>
           <button type="button" class="wr-chip wr-chip--add" @click="startAddPerson">＋ 사람 추가</button>
         </div>
@@ -2496,11 +2487,6 @@ watch(shownPhotos, drawPhotoMarkers)
           <button type="submit" class="wr-btn wr-btn--main" :disabled="isSettleBusy || personEdit.name.trim() === ''">저장</button>
           <button type="button" class="wr-btn" @click="personEdit = null">취소</button>
         </form>
-        <div v-if="askingRemoveId !== null && companionById(askingRemoveId)" class="wr-ask">
-          <span><b>{{ companionById(askingRemoveId).name }}</b>을(를) 정산에서 뺄까요? 이 사람이 낸 결제는 '나'로 바뀌어요.</span>
-          <button type="button" class="wr-btn" @click="askingRemoveId = null">취소</button>
-          <button type="button" class="wr-btn wr-btn--danger" :disabled="isSettleBusy" @click="removePerson(companionById(askingRemoveId))">빼기</button>
-        </div>
 
         <h3 class="wr-sub">나눠 내기 <small>{{ settleDay === 0 ? '낼 돈을 누르면 직접 정해요' : '그날 쓴 돈을 똑같이 나눠요' }}</small></h3>
         <p v-if="!settlement" class="wr-empty">같이 간 사람이 2명 이상이고 결제가 있으면 나눠 계산해요.</p>
