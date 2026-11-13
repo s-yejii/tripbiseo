@@ -25,6 +25,7 @@ const props = defineProps({
   ring: { type: Object, default: null }, // 반경 원 { lat, lng, radius(m) } (근처 찾기)
   band: { type: Array, default: () => [] }, // 반투명 띠 테두리들 [[[위도, 경도], ...], ...] (AI에게 묻기: 가는 길 양옆, 11/08)
   links: { type: Array, default: () => [] }, // 얇은 점선들 [{ from: [위도, 경도], to: [위도, 경도] }] (AI에게 묻기: 가는 길 → 가게, 11/08)
+  preview: { type: Array, default: () => [] }, // 바뀔 경로 미리 보기 [[위도, 경도], ...] (여행 중 화면 넣을 자리 고르기, 11/13). 지금 경로(남색)와 다르게 코랄색
   follow: { type: Boolean, default: false }, // 길 안내: 처음부터 내 위치를 크게 확대해서 가운데에 두고, 내 위치가 바뀌면 지도가 따라감
   smooth: { type: Boolean, default: false }, // 시연 계정 여행 중 (11/09): 미끄러지는 이동·점선 따라가기·부드러운 따라가기 시작·따라가는 동안 다른 이동·끌기 막기. false면 원래 동작
   heading: { type: Number, default: null }, // 진행 방향(도, 북=0·시계 방향). 있으면 내 위치 점에 화살표를 그 방향으로 (11/09). null이면 점만
@@ -100,7 +101,7 @@ onUnmounted(() => {
 })
 
 // 핀(상태·선택)·선·원이 바뀌면 전부 다시 그림
-watch(() => [props.pins, props.path, props.paths, props.ring, props.band, props.links], draw, { deep: true })
+watch(() => [props.pins, props.path, props.paths, props.ring, props.band, props.links, props.preview], draw, { deep: true })
 watch(() => props.fitKey, () => {
   hasFitted = false
   draw()
@@ -191,6 +192,7 @@ function draw() {
   if (props.ring) addRing(props.ring)
   for (const ring of props.band) addBand(ring)
   for (const link of props.links) addLink(link)
+  if (props.preview.length > 1) addPreview(props.preview)
 
   if (props.me) {
     const mePosition = new kakao.maps.LatLng(props.me.lat, props.me.lng)
@@ -452,6 +454,16 @@ function addBand(ring) {
   overlays.push(polygon)
 }
 
+function addPreview(coords) {
+  // 바뀔 경로 미리 보기: 코랄 실선 + 흰 테두리 (지금 경로 남색과 구분)
+  const points = coords.map((point) => new kakao.maps.LatLng(point[0], point[1]))
+  const under = new kakao.maps.Polyline({ path: points, strokeWeight: 8, strokeColor: '#FFFFFF', strokeOpacity: 0.95, strokeStyle: 'solid' })
+  const line = new kakao.maps.Polyline({ path: points, strokeWeight: 5, strokeColor: '#E8603F', strokeOpacity: 1, strokeStyle: 'solid' })
+  under.setMap(map)
+  line.setMap(map)
+  overlays.push(under, line)
+}
+
 function addLink(link) {
   // 가는 길 위 가장 가까운 점 → 가게: 얼마나 돌아가는지 보이게 얇은 점선
   const line = new kakao.maps.Polyline({
@@ -566,6 +578,17 @@ function sendCenter() {
   emit('center', { lat: center.getLat(), lng: center.getLng() })
 }
 
+// 이 점들([[위도, 경도], ...])이 여백 안에 다 보이게 화면을 맞춤 (바뀔 경로 미리 보기, 11/13). pad가 없으면 padding
+function fitPoints(points, pad = props.padding) {
+  if (!map || points.length === 0 || (props.smooth && props.follow)) return
+  hasFitted = true // 맞춘 화면을 핀 다시 그리기가 덮어쓰지 않게
+  isMovingByCode = true
+  const bounds = new kakao.maps.LatLngBounds()
+  for (const point of points) bounds.extend(new kakao.maps.LatLng(point[0], point[1]))
+  map.setBounds(bounds, pad.top, pad.right, pad.bottom, pad.left)
+  isMovingByCode = false
+}
+
 // 위도·경도가 지금 지도 칸의 어디(px)인지 (지도가 아직 없으면 null)
 function pointOf(lat, lng) {
   return map ? toScreenPoint(lat, lng) : null
@@ -617,7 +640,7 @@ function getLevel() {
   return map ? map.getLevel() : null
 }
 
-defineExpose({ focusMe, fitAll, pointOf, moveTo, focusAround, flyTo, getLevel })
+defineExpose({ focusMe, fitAll, pointOf, moveTo, focusAround, flyTo, getLevel, fitPoints })
 
 // 내 위치가 지도 칸의 어디(px)인지 알려 줌 → 화장실 칩·AI 패널이 내 위치 옆에 붙어요
 function sendMePoint() {
