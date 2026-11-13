@@ -168,7 +168,7 @@ function waitAtHome() {
 <template>
   <div class="scr scr-Generating">
     <div class="app">
-      <TopBar title="일정 만들기" back="/plan/info"><span class="topbar__side">4 / 4</span></TopBar>
+      <TopBar title="일정 만들기" back="/plan/info" /><!-- 11/13: 여행 정보는 11단계라 "4 / 4"를 뺌 -->
 
       <!-- 지도: 만드는 동안은 고른 지역, 다 만들면 실제 일정 핀 -->
       <div class="gen-map">
