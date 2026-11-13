@@ -59,6 +59,10 @@ public class PlanCandidateFinder {
     private static final int GOOD_SIGHT_ENOUGH = 3;
     // 동네 이름만 있는 곳 ("명동", "삼청동"): 관광 정보에 동네 자체가 장소로 들어 있어서, 일정 칸에 "명동 70분"이 들어가던 문제 (11/13)
     //   "익선동 한옥거리"·"인사동길"처럼 뒤에 말이 더 붙은 곳은 그대로
+    // 먹자골목("남대문 갈치조림골목", "신당동 떡볶이타운"): 관광 정보에 관광지로 들어 있어서 볼거리 칸에 들어가면
+    //   점심 바로 앞뒤로 밥을 두 번 먹는 일정이 됐어요 (11/13). 이런 곳은 밥집으로 봄
+    private static final Pattern FOOD_STREET = Pattern.compile("(떡볶이|갈치|족발|순대|곱창|냉면|칼국수|닭한마리|생선|빈대떡|전골목|맛골목|먹자).*(골목|타운|거리)");
+    private static final String FOOD_KIND = "food";
     private static final Pattern AREA_NAME_ONLY = Pattern.compile("^[가-힣]{1,4}(동|구|가)$");
     private static final int MAX_SHAPE_LENGTH = 50000; // 동 경계 글자 길이 상한
     private static final int DONG_PLACE_LIMIT = 40;    // 동 하나에서 가져올 장소 수
@@ -440,6 +444,9 @@ public class PlanCandidateFinder {
             if (place.getName() != null && AREA_NAME_ONLY.matcher(place.getName()).matches()) {
                 continue; // 동네 이름은 장소가 아님
             }
+            if (TOUR_KIND.equals(place.getKind()) && place.getName() != null && FOOD_STREET.matcher(place.getName()).find()) {
+                place.setKind(FOOD_KIND); // 먹자골목은 밥집 칸으로
+            }
             if (place.getId() != null && !candidates.containsKey(place.getId())) {
                 candidates.put(place.getId(), place);
                 added++;
