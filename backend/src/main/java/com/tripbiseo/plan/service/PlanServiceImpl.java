@@ -913,6 +913,10 @@ public class PlanServiceImpl implements PlanService {
             addDongNote(conditions, notes);
         } else if (conditions.getAreaLat() != null) {
             planCandidateFinder.addKinds(candidates, conditions.getAreaLat(), conditions.getAreaLng(), conditions.getAreaType(), kinds);
+            String guName = guNameOf(region);
+            if ("gu".equals(conditions.getAreaType()) && guName != null) {
+                planCandidateFinder.keepInGu(candidates, guName); // 고른 구 밖 가게는 뺌 (꼭 갈 곳·예약은 이 뒤에 더해져서 안 빠짐)
+            }
         } else if (baseLat != null && baseLng != null) {
             planCandidateFinder.addKinds(candidates, baseLat, baseLng, "dong", kinds);
             planCandidateFinder.addNearMe(candidates, baseLat, baseLng);
@@ -936,6 +940,13 @@ public class PlanServiceImpl implements PlanService {
             addRegionKinds(candidates, region, kinds); // 그 지역 중심에서 종류별 후보 + 볼거리 카카오 보충 (11/06)
         }
         return candidates;
+    }
+
+    /** 지역 글자에서 구 이름 ("서울 중구" → "중구"). 구가 아니면 null */
+    private String guNameOf(String region) {
+        String[] words = region.trim().split("\s+");
+        String last = words[words.length - 1];
+        return last.endsWith("구") && last.length() >= 2 ? last : null;
     }
 
     /**
