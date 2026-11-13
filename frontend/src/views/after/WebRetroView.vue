@@ -2,13 +2,15 @@
 // W19 웹 회고 (⑤, 11/09 중간발표 피드백: "사용자는 앱, 자세한 건 웹")
 // 앱 회고와 같은 API(retro·payments·companions)를 읽어서 PC 화면에 크게 보여 줘요
 //  - 3D 서울 지도(건물, 산은 음영으로) 위에 다녀온 동네(행정동)가 머문 시간만큼 솟아오름
-//  - 실제 경로(GPS, 파랑) vs 계획 경로(장소 순서, 회색 점선)
+//  - 실제 경로(GPS, 파랑)
 //  - 내비게이션처럼 카메라가 이동 경로를 따라가며 재생 (위에서 보기 / 거리 시점)
 //  - 다녀온 장소의 건물은 일정 분류(음식점·카페·쇼핑·숙소 등)별 색
 //  - 오른쪽: 계획 vs 실제 표, 비용, 정산 (11/11: 정산은 여기서도 고쳐요 — 앱과 같은 API)
 //  - (11/10) 사진: 찍은 시각·장소에 맞춰 지도에 놓고, 재생 중 그 시각을 지나면 띄움
 //  - (11/10) 해: 재생 시각의 해 높이로 하늘 색·밝기·건물 빛 방향이 바뀜 (11/11 일출·일몰 시각 카드는 뺌)
 //  - (11/11) 오른쪽 메모 카드: 여행 메모·날짜별 메모 + 핀에서 고른 장소의 메모·별점 (이 브라우저에 저장)
+//  - (11/11) 풍경 분석: GPS를 구간으로 묶고 DEM·주변 장소를 겹쳐 구간 성격을 분류 (landscape/*, RetroLandscapeCard)
+//  - (11/11) 3D 지형(DEM)은 3D에서 늘 켬. 내비(거리 시점) 재생 때만 끔
 //  - (11/11) 오른쪽 사진 카드: 따로 있던 메모·사진 페이지(/web/journal)를 지우고 올리기·앨범·꾸미기·대표 사진을 여기로 (RetroPhotoCard)
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -21,6 +23,14 @@ import { toTime, toMinutes, toDuration, toWon } from '@/utils/time'
 import { sunPosition, sunPhase, skyAt, koreanDate } from '@/utils/sun'
 import { loadJournal, editedOriginalIds, makeDelayedSave, toggleStopRating } from '@/utils/webJournal'
 import RetroPhotoCard from '@/components/after/web/RetroPhotoCard.vue'
+import RetroLandscapeCard from '@/components/after/web/RetroLandscapeCard.vue'
+import RetroUnityMap from '@/components/after/web/RetroUnityMap.vue' // 유니티로 만든 실감 3D 지도 (11/13)
+import { makeTripMap } from '@/components/after/web/landscape/unityTrip'
+import { analyzeLandscape } from '@/components/after/web/landscape/analyze'
+import { makeGreenReader, sunStateOf } from '@/components/after/web/landscape/sunlight'
+import { middleOf } from '@/components/after/web/landscape/segments'
+import { findStays } from '@/components/after/web/landscape/dbscan'
+import { elevationNow } from '@/components/after/web/landscape/terrain'
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty' // OpenFreeMap 지도 (OpenStreetMap 기반, 건물 높이 있음)
 const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png' // 지형 높이 그림 (AWS 공개 데이터)
@@ -34,9 +44,7 @@ const VISIT_BASE_M = 120         // 다녀온 동네 기둥 기본 높이(m)
 const VISIT_PER_MINUTE_M = 1.3   // 머문 1분마다 더하는 높이(m)
 const VISIT_MAX_MINUTES = 300    // 5시간 넘게 머물러도 높이는 여기까지
 const PASS_HEIGHT_M = 30         // 지나가기만 한 동네 높이(m)
-const OVERVIEW_PITCH = 55
 const NAV_ZOOM = 15.2            // 내비 재생 확대 (너무 가까우면 화면이 빨리 흘러서 어지러움)
-const NAV_PITCH = 45
 const PLAY_MOVE_SECONDS = 40     // 1배속에서 이동 구간에 쓰는 시간(초). 여기에 머문 곳에서 멈추는 시간이 더해짐
 const STAY_RADIUS_M = 60         // 이 반경 안에 오래 있으면 "머문 곳" (GPS는 가만히 있어도 흔들림)
 const STAY_MIN_MINUTES = 8       // 이만큼 이상 그 반경에 있어야 머문 곳으로 봄
@@ -49,39 +57,32 @@ const TURN_SMOOTH_SECONDS = 1    // 방향을 따라가는 부드러움 (클수�
 const CENTER_SMOOTH_SECONDS = 0.25 // 카메라 위치를 따라가는 부드러움
 const START_FLY_MS = 1500        // 처음부터 재생할 때 출발점으로 날아가는 시간
 const VIEW_CHANGE_MS = 1000      // 위에서 ↔ 거리 시점을 바꿀 때 카메라가 옮겨 가는 시간
-const STREET_EYE_M = 12          // 거리 시점: 카메라 높이(m)
-const STREET_BACK_M = 40         // 거리 시점: 내 위치에서 이만큼 뒤에서 봄(m)
-const STREET_PITCH = 84          // 거리 시점: 기울기 (90이면 수평)
-const STREET_SPEED = 40          // 거리 시점: 1배속 이동 속도(초당 m)
-const STREET_LOOK_AHEAD_M = 100  // 거리 시점: 경로를 따라 이만큼 앞을 바라봄 (모퉁이에서 늦지 않게)
+const STREET_EYE_M = 2.4         // 거리 시점(1인칭): 눈높이(m). 사람보다 조금 높아야 길이 보임
+const STREET_BACK_M = 3          // 거리 시점: 내 위치에서 이만큼 뒤 (거의 내 눈 자리)
+const STREET_PITCH = 85          // 거리 시점: 기울기 (90이면 수평, 지도가 85까지 됨)
+const STREET_SPEED = 9           // 거리 시점: 1배속 이동 속도(초당 m). 걷는 느낌이 나게 천천히 (배속 버튼으로 빨리)
+const SPLIT_STAY_RADIUS_M = 30   // 나눈 머문 곳 조각의 동그라미 반경(m)
+const UNITY_TOP_SPEED = 50       // 3D 지도 위에서 보기: 1배속 이동 속도(초당 m). 평면 지도(여행 전체 40초)보다 천천히 (건물이 가까이 보여서)
+const STREET_LOOK_AHEAD_M = 35   // 거리 시점: 경로를 따라 이만큼 앞을 바라봄 (모퉁이에서 늦지 않게)
 const STREET_MAX_TURN = 30       // 거리 시점: 1초에 돌 수 있는 최대 각도
 const STREET_TURN_SMOOTH = 0.5   // 거리 시점: 방향을 따라가는 부드러움
+const STREET_PITCH_FLAT = 80     // 1인칭: 평지에서 기울기. 오르막이면 고개를 들고(85까지) 내리막이면 숙임(72까지)
+const STREET_SLOPE_AHEAD_M = 30  // 1인칭: 이만큼 앞의 땅 높이와 비교해 경사를 잼
+const STREET_PITCH_PER_SLOPE = 60 // 1인칭: 경사 10%면 고개를 6도 움직임
+const STREET_PITCH_SMOOTH = 0.08 // 1인칭: 고개 움직임을 이 비율만큼씩 따라감 (튀지 않게)
+const STREET_GROUND_OPACITY = 0.6 // 1인칭 바닥에 까는 위성 사진 진하기
 const STREET_PIN_RANGE_M = 300   // 거리 시점: 이 거리 안의 장소 핀만 보여 줌 (먼 핀이 건물을 뚫고 보여서)
-const BUILDING_SEARCH_M = 30     // 장소 좌표가 건물 밖이면 이 거리 안의 건물까지 찾음 (좌표가 입구·도로에 찍힌 경우)
-const BUILDING_MIN_ZOOM = 15     // 이만큼 확대했을 때만 찾음 (더 멀면 지도 데이터에서 여러 건물이 한 덩어리로 합쳐져 있음)
-const BUILDING_FIND_MS = 700     // 재생 중 건물을 찾아보는 간격
-const BUILDING_FIND_RANGE_M = 600 // 지도 중심에서 이 거리 안의 장소만 찾음 (먼 곳은 건물 데이터가 덜 자세함)
 const TURN_WINDOW_M = 40         // 회전 안내: 이 거리만큼 앞뒤 방향을 비교함 (GPS 잔떨림은 무시)
 const TURN_STEP_M = 10           // 회전 안내: 경로를 이 간격으로 살펴봄
 const TURN_MIN_ANGLE = 45        // 회전 안내: 이 각도 이상 꺾여야 안내함
 const TURN_UTURN_ANGLE = 150     // 회전 안내: 이 각도 이상이면 유턴
 const TURN_STAY_GAP_M = 60       // 회전 안내: 머문 곳에서 이 거리 안의 꺾임은 안내하지 않음
 const TURN_NOTICE_M = 500        // 회전 안내: 이 거리 안에 들어오면 카드에 보여 줌
-// 일정 분류 글자로 건물 색 정하기 (앞에서부터 먼저 맞는 것)
-const BUILDING_KINDS = [
-  { name: '카페', color: '#8D5A2B', words: ['카페', '디저트', '커피', '베이커리'] },
-  { name: '숙소', color: '#7B5CD6', words: ['숙소', '호텔', '모텔', '펜션', '게스트하우스', '리조트'] },
-  { name: '쇼핑', color: '#D6409F', words: ['백화점', '쇼핑', '마트', '아울렛', '할인매장', '시장'] },
-  { name: '교통', color: '#1FA39A', words: ['정차역', '기차역', '지하철', '터미널', '공항', 'KTX', 'SRT'] },
-  { name: '명소·문화', color: '#4CAF50', words: ['공원', '관광', '명소', '박물관', '미술관', '전시'] },
-  { name: '음식점', color: '#F2A33A', words: ['요리', '식당', '음식', '한식', '중식', '일식', '양식', '분식', '이자카야', '주점', '술집', '고기', '구이', '국밥', '치킨', '피자', '라멘', '초밥', '찌개', '냉면', '뷔페', '맛집', '호프', '포차'] },
-]
-const OTHER_KIND = { name: '기타', color: '#8A93A6' }
-const TERRAIN_EXAGGERATION = 1.3 // 3D 지형 높이 배율 (1이면 실제 높이)
 const SIDE_KEY = 'chakchak.webRetroSide'
 const SIDE_DEFAULT = 440         // 오른쪽 칸 기본 너비(px)
 const SIDE_MIN = 320             // 오른쪽 칸 최소 너비
 const SIDE_MAX_RATIO = 0.55      // 오른쪽 칸은 화면의 55%까지 (지도가 너무 좁아지지 않게)
+const FOREST_URL = '/geo/forest-seoul.json' // 숲 구역 (임상도 + NDVI를 미리 계산해 넣은 파일, 없으면 숲 층 없음)
 const PHOTO_POP_MS = 3500        // 재생 중 사진 카드가 떠 있는 시간
 const PHOTO_MARKER_OFFSET = [30, -44] // 장소 사진 동그라미를 핀 오른쪽 위에 (핀과 안 겹치게)
 const SUN_STRIP_SAMPLES = 120    // 재생 막대의 낮·밤 띠를 이만큼 나눠서 색칠
@@ -98,13 +99,16 @@ const errorMessage = ref('')
 const isLoading = ref(true)
 const selectedDay = ref(0)        // 0 = 전체, 1 = 1일차 …
 const isSatellite = ref(false)
-const is3d = ref(true)
+const isUnity3d = ref(false) // 실감 3D(유니티) 칸을 지도 위에 띄웠는지
+const isDayNight = ref(true) // 재생 시각에 맞춰 밤낮이 바뀌는지 (끄면 늘 낮)
+const unityMap = ref(null)   // 실감 3D 부품 (재생 시각·시점을 넘겨줌)
+const unityTrip = ref(null)  // 이 여행의 실감 3D 지도 자료 { json, photo } (켜면 이 브라우저에서 만듦)
+const unityStatus = ref('')  // 지도 자료를 만드는 중 안내 글
 const playing = ref(false)
 const speed = ref(1)              // 1·2·4배
 const progress = ref(0)           // 재생 위치 = 재생 시작부터 몇 초째인지 (playRoute의 시간표 기준)
 const isFollow = ref(true)        // 재생 중 카메라가 따라가는지
 const viewMode = ref('top')       // 재생 시점: 'top' = 위에서, 'street' = 거리
-const paintedKinds = ref([])      // 건물을 칠한 분류 (범례에 보여 줌)
 const mePosition = ref(null)      // 재생 중 지금 위치 [경도, 위도]
 const geoReady = ref(false)       // 서울 동·구 경계를 다 읽었는지
 const mapBox = ref(null)
@@ -116,8 +120,14 @@ const isPhotoShown = ref(true)    // 지도에 사진 보이기
 const isSunOn = ref(true)         // 해·하늘 반영
 const floatPhoto = ref(null)      // 재생 중 잠깐 뜨는 사진 카드
 const viewer = ref(null)          // 크게 보기 { list, index }
+const isNavFolded = ref(false)    // 내비 카드를 한 줄로 접었는지
+const navOffset = ref({ x: 0, y: 0 }) // 내비 카드를 끌어 옮긴 거리(px)
+const clusters = ref({ isOn: false, stays: [] }) // DBSCAN으로 찾은 머문 곳 군집
+const navSlope = ref(null)        // 1인칭에서 지금 자리의 경사·해발 { percent, altitude } (DEM)
 const sideWidth = ref(readSideWidth()) // 오른쪽 칸 너비(px). 가운데 막대를 끌어서 바꿈
 const photoCard = ref(null)       // 오른쪽 사진 카드 (사진 크게 보기의 [꾸미기]에서 편집기를 열 때)
+const landscape = ref({ status: 'idle', done: 0, total: 0, items: [], message: '' }) // 풍경 분석 결과
+const isLandscapeOn = ref(false)  // 지도 경로를 구간 성격 색으로
 
 // 지도 관련 값은 화면 반응(ref)이 필요 없어서 보통 변수로 둠
 let map = null
@@ -133,15 +143,17 @@ let lastFrameTime = 0
 let smoothBearing = -20
 let cameraCenter = null           // 재생 중 카메라가 보는 곳 [경도, 위도] (내 위치를 살짝 늦게 따라감)
 let startFlyTimer = null          // 출발점으로 날아간 뒤 재생을 시작하는 타이머
-let buildingOfStop = {}           // 일정 칸 id → 찾은 건물 하나 (null = 찾아봤는데 건물 없음)
-let lastBuildingFind = 0          // 재생 중 건물을 마지막으로 찾아본 시각
 let introTimers = []
 let photoMarkers = []             // 사진 동그라미 마커
 let lastPhotoMinutes = null       // 재생 중 사진을 마지막으로 확인한 여행 시각 (이 뒤에 찍은 사진만 띄움)
 let floatTimer = null
 let isMapReady = false            // 지도 스타일을 다 읽었는지 (하늘·빛은 그 뒤에만 바꿀 수 있음)
 let lastSkyKey = ''               // 마지막으로 칠한 하늘 (같으면 다시 안 칠함)
-let isTerrainOn = false           // 3D 지형(땅 높이)을 켰는지
+let forestData = null             // 숲 구역 자료 (forest-seoul.json)
+let forestReady = null            // 숲 자료를 다 읽으면 끝나는 약속(Promise)
+let streetPitch = STREET_PITCH_FLAT // 1인칭 카메라의 지금 기울기 (경사를 부드럽게 따라감)
+let roadLabelIds = null           // 길 이름 글자 층 (1인칭에서 숨김)
+let navDrag = null                // 내비 카드를 끄는 중 { startX, startY, x, y }
 
 // ============================== 데이터 읽기
 onMounted(async () => {
@@ -172,6 +184,7 @@ onUnmounted(() => {
   cancelAnimationFrame(playFrame)
   cancelAnimationFrame(riseFrame)
   stopSplitDrag()
+  stopNavDrag()
   clearTimeout(startFlyTimer)
   clearTimeout(floatTimer)
   for (const timer of introTimers) clearTimeout(timer)
@@ -947,26 +960,34 @@ function createMap() {
     style: STYLE_URL,
     center: SEOUL_CENTER,
     zoom: 10.4,
-    pitch: 45,
-    bearing: -10,
+    pitch: 0,
+    bearing: 0,
     maxPitch: 85, // 거리 시점은 거의 수평으로 봄
     attributionControl: { compact: true },
   })
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
   map.on('load', () => {
     useKoreanLabels()
-    map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.72) // 건물을 살짝 비치게 (뒤 경로가 보이게)
     addHillshade()
     addSatellite()
     addBoundaryLayers()
     addRouteLayers()
+    addLandscapeLayers()
+    forestReady = loadForest()
     drawDay()
     runIntro()
-    map.on('idle', findStopBuildings) // 지도가 멈출 때마다 아직 못 찾은 건물을 찾아봄
+    startLandscape()
     isMapReady = true
     applySun()
-    useTerrain(true)
+    hideFlatMapExtras()
   })
+}
+
+// 평면 지도에서는 건물 기둥(3D 건물)을 숨김 (3D는 유니티 "3D 지도"가 맡음)
+function hideFlatMapExtras() {
+  for (const layerId of ['building-3d']) {
+    if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', 'none')
+  }
 }
 
 // 지명은 한국어 이름 먼저 (없으면 기본 이름)
@@ -981,19 +1002,8 @@ function useKoreanLabels() {
 // 산 그림자(hillshade) + 3D 지형용 높이 자료. 그림자와 지형은 자료를 따로 둬야 MapLibre가 경고 없이 그림
 function addHillshade() {
   map.addSource('dem-shade', { type: 'raster-dem', tiles: [DEM_TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 14 })
-  map.addSource('dem', { type: 'raster-dem', tiles: [DEM_TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 14 })
-  map.addLayer({ id: 'hillshade', type: 'hillshade', source: 'dem-shade', paint: { 'hillshade-exaggeration': 0.35, 'hillshade-shadow-color': '#5a6b86' } }, 'building')
+  map.addLayer({ id: 'hillshade', type: 'hillshade', source: 'dem-shade', paint: { 'hillshade-exaggeration': 0.45, 'hillshade-shadow-color': '#5a6b86', 'hillshade-illumination-anchor': 'map' } }, 'building')
   setSkyColors(DAY_SKY)
-}
-
-// 3D 지형(땅을 실제 높이로 올림): 처음 연출·전체 보기에서만 켬 (11/11)
-// 내비 재생 중에는 끔 — 켜 두면 카메라가 땅 높이를 따라 위아래로 출렁여서. 2D에서도 끔
-function useTerrain(isOn) {
-  if (!map || !isMapReady) return
-  const isWanted = isOn && is3d.value
-  if (isWanted === isTerrainOn) return
-  isTerrainOn = isWanted
-  map.setTerrain(isWanted ? { source: 'dem', exaggeration: TERRAIN_EXAGGERATION } : null)
 }
 
 function setSkyColors(sky) {
@@ -1022,24 +1032,24 @@ function applySun() {
   map.setLight({ anchor: 'map', position: [1.5, sun.azimuth, polar], color: sun.sky.light, intensity: sun.sky.intensity })
 }
 
+// 산 그림자(음영) 방향을 해 방향으로
+function applySunLook() {
+  if (!map || !isMapReady) return
+  const sun = currentSun.value
+  map.setPaintProperty('hillshade', 'hillshade-illumination-direction', sun && sun.altitude > 0 ? Math.round(sun.azimuth) : 335)
+}
+
 // 화면 전체에 덮는 밤·노을 색 (지도 위, 카드 아래)
-const skyShade = computed(() => (currentSun.value ? currentSun.value.sky.shade : 'rgba(0, 0, 0, 0)'))
+const skyShade = computed(() => (currentSun.value && isDayNight.value ? currentSun.value.sky.shade : 'rgba(0, 0, 0, 0)'))
 
 function addSatellite() {
-  map.addSource('satellite', { type: 'raster', tiles: [SATELLITE_TILES], tileSize: 256, attribution: 'Esri, Maxar, Earthstar Geographics' })
+  map.addSource('satellite', { type: 'raster', tiles: [SATELLITE_TILES], tileSize: 256, maxzoom: 18, attribution: 'Esri, Maxar, Earthstar Geographics' })
   map.addLayer({ id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'none' } }, 'building')
 }
 
 // 구 경계선 + 동네 기둥(fill-extrusion: 다각형을 높이만큼 세우는 3D 레이어)
 function addBoundaryLayers() {
   const empty = { type: 'FeatureCollection', features: [] }
-  map.addSource('stop-building', { type: 'geojson', data: empty })
-  // 다녀온 장소의 건물: 원래 건물 위에 분류 색으로 살짝 더 높게 덮어씌움
-  map.addLayer({ id: 'stop-building', type: 'fill-extrusion', source: 'stop-building', paint: {
-    'fill-extrusion-color': ['get', 'color'],
-    'fill-extrusion-height': ['+', ['get', 'h'], 1.5],
-    'fill-extrusion-base': ['get', 'base'],
-    'fill-extrusion-opacity': 0.95 } })
   map.addSource('gu', { type: 'geojson', data: guGeo || empty })
   map.addLayer({ id: 'gu-line', type: 'line', source: 'gu', paint: { 'line-color': '#1F3A68', 'line-opacity': 0.45, 'line-width': 1.4 } })
   map.addSource('dong-rise', { type: 'geojson', data: empty })
@@ -1063,14 +1073,11 @@ function addBoundaryLayers() {
   map.addLayer({ id: 'dong-line', type: 'line', source: 'dong-rise', filter: ['==', ['get', 'kind'], 'visit'], paint: { 'line-color': '#A9412A', 'line-width': 2 } })
 }
 
-// 계획 경로(회색 점선), 실제 경로(파랑), 재생으로 지나온 부분(진한 파랑)
+// 실제 경로(파랑), 재생으로 지나온 부분(진한 파랑). 계획 경로 선은 그리지 않음 (팀에서 빼기로 함)
 function addRouteLayers() {
   const emptyLine = { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }
-  map.addSource('plan', { type: 'geojson', data: emptyLine })
   map.addSource('track', { type: 'geojson', data: emptyLine })
   map.addSource('track-done', { type: 'geojson', data: emptyLine })
-  map.addLayer({ id: 'plan-line', type: 'line', source: 'plan', layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#7C8496', 'line-width': 4, 'line-dasharray': [1.2, 1.4], 'line-opacity': 0.9 } })
   map.addLayer({ id: 'track-casing', type: 'line', source: 'track', layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': '#FFFFFF', 'line-width': 8, 'line-opacity': 0.9 } })
   map.addLayer({ id: 'track-line', type: 'line', source: 'track', layout: { 'line-join': 'round', 'line-cap': 'round' },
@@ -1079,24 +1086,250 @@ function addRouteLayers() {
     paint: { 'line-color': '#0B4FC4', 'line-width': 7 } })
 }
 
+// ============================== 풍경 분석 (11/11): 이동 경로 객체 분석
+// 여행 계절 (첫날 기준)
+
+// 구간 선(걸은 구간)과 점(머문 곳)을 성격 색으로 그릴 층. 처음엔 숨김
+function addLandscapeLayers() {
+  map.addSource('landscape', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({ id: 'landscape-line', type: 'line', source: 'landscape', filter: ['==', ['geometry-type'], 'LineString'],
+    layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' }, paint: { 'line-color': ['get', 'color'], 'line-width': 7 } }, 'track-done')
+  map.addLayer({ id: 'landscape-stay', type: 'circle', source: 'landscape', filter: ['==', ['geometry-type'], 'Point'],
+    layout: { visibility: 'none' }, paint: { 'circle-color': ['get', 'color'], 'circle-radius': 9, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } }, 'track-done')
+  // 가시권: 보이는 칸을 옅은 노랑으로 (건물 아래에 깔아서 건물·나무는 그대로 보임)
+  // 살펴본 범위(반경 6km 동그라미)와 관찰 지점. 회색 위에 노랑을 덮어서, 회색이 남은 곳 = 가려진 곳
+  // DBSCAN 군집: 머문 곳 동그라미 (계획한 곳 남색, 계획 밖 주황)
+  map.addSource('stay-cluster', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  const clusterColor = ['case', ['get', 'planned'], '#1F3A68', '#E8603F']
+  map.addLayer({ id: 'stay-cluster-fill', type: 'fill', source: 'stay-cluster', layout: { visibility: 'none' }, paint: { 'fill-color': clusterColor, 'fill-opacity': 0.25 } })
+  map.addLayer({ id: 'stay-cluster-line', type: 'line', source: 'stay-cluster', layout: { visibility: 'none' }, paint: { 'line-color': clusterColor, 'line-width': 2.5, 'line-dasharray': [2, 1.5] } })
+  // 넓게 보면 동그라미(반경 25m쯤)가 너무 작아서, 화면 크기가 변하지 않는 가운데 점을 같이 그림
+  map.addLayer({ id: 'stay-cluster-dot', type: 'circle', source: 'stay-cluster', filter: ['==', ['geometry-type'], 'Point'], layout: { visibility: 'none' },
+    paint: { 'circle-color': clusterColor, 'circle-radius': 9, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 3 } })
+  for (const layer of ['landscape-line', 'landscape-stay']) {
+    map.on('click', layer, (event) => openLandscapePopup(event.features[0].properties.id, event.lngLat))
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = '' })
+  }
+}
+
+// ---------- 머문 곳 찾기: DBSCAN 군집 (landscape/dbscan.js)
+// GPS 점을 군집으로 묶어 머문 곳을 찾고, 분석용 지점 목록(머문 곳은 한 지점, 나머지는 이동 점)으로 바꿈
+function toAnalysisNodes(track) {
+  const points = track.map((point) => ({ lng: point.lng, lat: point.lat, minute: tripMinutes(point.day, point.time) }))
+  const found = findStays(points)
+  const partsOf = {} // 군집 번호 → 머문 곳 조각들 (보통 하나, 붙어 있는 두 가게면 둘)
+  const allParts = []
+  for (const stay of found.stays) {
+    partsOf[stay.id] = splitByPlannedStops(stay)
+    allParts.push(...partsOf[stay.id]) // ...: 목록을 풀어서 하나씩 넣음
+  }
+  clusters.value = { isOn: clusters.value.isOn, stays: allParts }
+  if (map && map.getSource('stay-cluster')) map.getSource('stay-cluster').setData(toClusterCollection(allParts))
+  const nodes = []
+  const isAdded = {}
+  for (let i = 0; i < points.length; i++) {
+    const parts = partsOf[found.labels[i]]
+    if (!parts) {
+      nodes.push({ lng: points[i].lng, lat: points[i].lat, from: points[i].minute, to: points[i].minute, isStay: false })
+    } else if (!isAdded[found.labels[i]]) {
+      isAdded[found.labels[i]] = true
+      for (const part of parts) nodes.push({ lng: part.lng, lat: part.lat, from: part.from, to: part.to, isStay: true, name: part.name, category: part.category })
+    }
+  }
+  return nodes
+}
+
+// 한 군집 안에 계획 장소 두 곳 이상의 도착이 있으면 도착 시각마다 나눔
+//   예) 50m 떨어진 분식집(11:39 도착) → 디저트 가게(13:22 도착): GPS로는 한 덩어리지만 두 곳에 머문 것
+function splitByPlannedStops(stay) {
+  const arrivals = []
+  for (const stop of retro.value.stops) {
+    if (stop.actualArrive === null || stop.lat === null) continue
+    const arrive = tripMinutes(stop.day, stop.actualArrive)
+    const isNear = distanceMeters(stay.lat, stay.lng, stop.lat, stop.lng) <= 120
+    if (isNear && arrive >= stay.from - 30 && arrive <= stay.to) arrivals.push({ stop: stop, arrive: arrive })
+  }
+  if (arrivals.length < 2) return [Object.assign(stay, nameOfStay(stay))]
+  arrivals.sort((a, b) => a.arrive - b.arrive)
+  const parts = []
+  for (let k = 0; k < arrivals.length; k++) {
+    const from = k === 0 ? stay.from : arrivals[k].arrive
+    const to = k + 1 < arrivals.length ? arrivals[k + 1].arrive : stay.to
+    const stop = arrivals[k].stop
+    parts.push({ id: stay.id + '-' + k, lng: stop.lng, lat: stop.lat, from: from, to: to, minutes: to - from, count: 0, radiusM: SPLIT_STAY_RADIUS_M, name: stop.name, category: stop.category, isPlanned: true })
+  }
+  return parts
+}
+
+// 군집에 이름 붙이기: 가까이(120m) 있고 그 시간대에 도착한 일정 칸 → 계획한 곳. 없으면 계획 밖
+function nameOfStay(stay) {
+  for (const stop of retro.value.stops) {
+    if (stop.actualArrive === null || stop.lat === null) continue
+    const arrive = tripMinutes(stop.day, stop.actualArrive)
+    const isNear = distanceMeters(stay.lat, stay.lng, stop.lat, stop.lng) <= 120
+    if (isNear && arrive >= stay.from - 30 && arrive <= stay.to + 30) return { name: stop.name, category: stop.category, isPlanned: true }
+  }
+  return { name: null, category: '', isPlanned: false }
+}
+
+// 군집마다 동그라미(가운데에서 가장 먼 점까지, 최소 25m) → 지도에 그릴 도형
+function toClusterCollection(stays) {
+  const features = []
+  for (const stay of stays) {
+    const ring = []
+    const radius = Math.max(25, stay.radiusM)
+    for (let i = 0; i <= 32; i++) ring.push(movePoint([stay.lng, stay.lat], (i / 32) * 360, radius))
+    features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: { planned: stay.isPlanned } })
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [stay.lng, stay.lat] }, properties: { planned: stay.isPlanned } })
+  }
+  return { type: 'FeatureCollection', features: features }
+}
+
+const CLUSTER_LAYERS = ['stay-cluster-fill', 'stay-cluster-line', 'stay-cluster-dot']
+
+function toggleClusters() {
+  clusters.value = { isOn: !clusters.value.isOn, stays: clusters.value.stays }
+  const visibility = clusters.value.isOn ? 'visible' : 'none'
+  for (const layer of CLUSTER_LAYERS) map.setLayoutProperty(layer, 'visibility', visibility)
+}
+
+// 군집 줄을 누르면 지도에서 그 자리로
+function focusCluster(stay) {
+  if (!clusters.value.isOn) toggleClusters()
+  stopPlay()
+  setStreetLook(false)
+  map.flyTo({ center: [stay.lng, stay.lat], zoom: 17, pitch: 0, duration: 1400, essential: true })
+}
+
+// 여행 전체(모든 날)를 한 번 분석. 지도는 날짜를 고르면 그날 것만 보여 줌 (filterLandscapeDay)
+async function startLandscape() {
+  const allTrack = retro.value.track
+  if (allTrack.length < 2) {
+    landscape.value = { status: 'done', done: 0, total: 0, items: [], message: '' }
+    return
+  }
+  landscape.value = { status: 'running', done: 0, total: 0, items: [], message: '' }
+  try {
+    await forestReady // 숲 자료가 있어야 숲 비율·숲 그늘을 볼 수 있음
+    const layers = { sun: (segment, features) => sunStateOf(middleOf(segment), sunAt((segment.from + segment.to) / 2), features.green) }
+    if (forestData) layers.green = makeGreenReader(forestData)
+    const result = await analyzeLandscape(toAnalysisNodes(allTrack), {
+      layers: layers,
+      onProgress: (done, total) => { landscape.value = Object.assign({}, landscape.value, { done: done, total: total }) },
+    })
+    landscape.value = { status: 'done', done: result.items.length, total: result.items.length, items: result.items, message: '' }
+    map.getSource('landscape').setData(toLandscapeCollection(result.items))
+    filterLandscapeDay()
+  } catch (e) {
+    landscape.value = { status: 'error', done: 0, total: 0, items: [], message: e.message }
+  }
+}
+
+function toLandscapeCollection(items) {
+  const features = []
+  for (const item of items) {
+    const segment = item.segment
+    const geometry = segment.kind === 'stay' ? { type: 'Point', coordinates: segment.points[0] } : { type: 'LineString', coordinates: segment.points }
+    features.push({ type: 'Feature', geometry: geometry, properties: { id: segment.id, day: segment.day, color: item.type.color } })
+  }
+  return { type: 'FeatureCollection', features: features }
+}
+
+function filterLandscapeDay() {
+  if (!map || !map.getLayer('landscape-line')) return
+  const dayFilter = selectedDay.value === 0 ? true : ['==', ['get', 'day'], selectedDay.value]
+  map.setFilter('landscape-line', ['all', ['==', ['geometry-type'], 'LineString'], dayFilter])
+  map.setFilter('landscape-stay', ['all', ['==', ['geometry-type'], 'Point'], dayFilter])
+}
+
+// 켜면 구간 색 선이 보이고 원래 파란 GPS 선은 흐리게
+function toggleLandscape() {
+  isLandscapeOn.value = !isLandscapeOn.value
+  const visibility = isLandscapeOn.value ? 'visible' : 'none'
+  map.setLayoutProperty('landscape-line', 'visibility', visibility)
+  map.setLayoutProperty('landscape-stay', 'visibility', visibility)
+  map.setPaintProperty('track-line', 'line-opacity', isLandscapeOn.value ? 0.25 : 1)
+}
+
+function findLandscapeItem(id) {
+  for (const item of landscape.value.items) {
+    if (item.segment.id === id) return item
+  }
+  return null
+}
+
+// 구간 누르기 → 성격·근거·특징값 창 (글자는 textContent로만 넣음)
+function openLandscapePopup(id, lngLat) {
+  const item = findLandscapeItem(id)
+  if (!item) return
+  const box = document.createElement('div')
+  box.className = 'wr-pop'
+  const chip = makeTag('wr-pop__type', item.type.name + ' · 확신도 ' + Math.round(item.confidence * 100) + '%')
+  chip.style.background = item.type.color
+  box.appendChild(chip)
+  box.appendChild(makeTag('wr-pop__title', item.segment.kind === 'stay' ? (item.segment.name || '머문 곳') : '이동 구간'))
+  box.appendChild(makeTag('wr-pop__line', toDayTime(item.segment.from) + ' · ' + toDuration(Math.max(1, item.segment.minutes))))
+  box.appendChild(makeTag('wr-pop__line wr-pop__line--real', '근거: ' + item.reasons.join(' · ')))
+  for (const line of featureLines(item.features)) box.appendChild(makeTag('wr-pop__feature', line))
+  new maplibregl.Popup({ offset: 12, maxWidth: '280px' }).setLngLat(lngLat).setDOMContent(box).addTo(map)
+}
+
+// 특징값을 사람이 읽을 줄로
+function featureLines(features) {
+  const lines = []
+  if (features.lengthM > 0) lines.push('길이 ' + features.lengthM + 'm · 평균 ' + features.speedKmh.toFixed(1) + 'km/h')
+  if (features.gainM !== null) lines.push('오른 높이 ' + features.gainM + 'm · 내린 높이 ' + features.lossM + 'm · 평균 경사 ' + Math.round(features.avgSlope * 100) + '%')
+  if (features.places.length > 0) lines.push('주변: ' + features.places.slice(0, 3).map((place) => place.name).join(', '))
+  if (features.green !== null) lines.push('숲 구역 ' + Math.round(features.green * 100) + '%')
+  if (features.sun) lines.push('일조: ' + features.sun.state.name + (features.sun.altitude > 0 ? ' (해 높이 ' + Math.round(features.sun.altitude) + '°, 방향 ' + Math.round(features.sun.azimuth) + '°)' : ''))
+  return lines
+}
+
+// 오른쪽 목록에서 구간 누르기 → 지도에서 그 구간으로 + 창
+function focusLandscape(item) {
+  if (!isLandscapeOn.value) toggleLandscape()
+  stopPlay()
+  setStreetLook(false)
+  const points = item.segment.points
+  if (points.length === 1) {
+    map.flyTo({ center: points[0], zoom: 16.5, pitch: 0, duration: 1400, essential: true })
+  } else {
+    const bounds = new maplibregl.LngLatBounds()
+    for (const point of points) bounds.extend(point)
+    map.fitBounds(bounds, { padding: 120, maxZoom: 17, duration: 1400 })
+  }
+  openLandscapePopup(item.segment.id, points[Math.floor((points.length - 1) / 2)])
+}
+
+// ============================== 숲 구역 (임상도): 여행 분석에서 "숲길"·숲 그늘을 볼 때 씀 (지도에 칠하지는 않음, 계절 나무는 3D 지도에서)
+async function loadForest() {
+  let data = null
+  try {
+    const response = await fetch(FOREST_URL)
+    if (response.ok && (response.headers.get('content-type') || '').includes('json')) data = await response.json()
+  } catch (e) {
+    data = null // 파일이 없으면 숲 층 없이
+  }
+  if (!map) return
+  forestData = data
+}
+
 // ============================== 고른 날 다시 그리기
 function drawDay() {
   if (!map) return
   map.getSource('dong-rise').setData(toDongCollection())
-  map.getSource('plan').setData(toLine(planCoordinates()))
   map.getSource('track').setData(toLine(trackCoordinates()))
   map.getSource('track-done').setData(toLine([]))
   drawMarkers()
   setRise(riseFactor)
-  drawStopBuildings()
-  findStopBuildings()
 }
 
 function toLine(coordinates) {
   return { type: 'Feature', geometry: { type: 'LineString', coordinates: coordinates } }
 }
 
-// 계획 경로 = 좌표 있는 일정 칸을 계획 순서대로 이은 선 (건너뛴 곳 포함)
+// 좌표 있는 일정 칸 자리를 계획 순서대로 (건너뛴 곳 포함). 지도를 일정 전체가 보이게 맞출 때 씀
 function planCoordinates() {
   const list = []
   for (const row of shownStops.value) {
@@ -1132,7 +1365,7 @@ function setRise(factor) {
 
 // 동네 기둥 보이기·숨기기 (내비 재생 중에는 숨김, 테두리 선은 그대로)
 function showDongs(isShown) {
-  if (map && map.getLayer('dong-rise')) map.setLayoutProperty('dong-rise', 'visibility', isShown && is3d.value ? 'visible' : 'none')
+  if (map && map.getLayer('dong-rise')) map.setLayoutProperty('dong-rise', 'visibility', 'none')
 }
 
 // 동네 기둥 높이를 from → to로 ms 동안 부드럽게
@@ -1148,124 +1381,6 @@ function animateRise(to, ms, onDone) {
     else if (onDone) onDone()
   }
   riseFrame = requestAnimationFrame(frame)
-}
-
-// ============================== 다녀온 장소의 건물 색칠
-// 지도 데이터의 건물에는 용도가 없어서, 일정 칸의 분류로 그 장소가 있는 건물만 칠함
-function kindOfCategory(category) {
-  if (category) {
-    for (const kind of BUILDING_KINDS) {
-      for (const word of kind.words) {
-        if (category.includes(word)) return kind
-      }
-    }
-  }
-  return OTHER_KIND
-}
-
-// 건물 도형을 폴리곤 목록으로 (MultiPolygon은 지도 데이터에서 여러 건물이 묶여 온 것이라 하나씩 나눔)
-function polygonsOf(geometry) {
-  if (geometry.type === 'Polygon') return [geometry.coordinates]
-  if (geometry.type === 'MultiPolygon') return geometry.coordinates
-  return []
-}
-
-// 테두리 넓이(㎡, 신발끈 공식)
-function ringAreaMeters(ring) {
-  const metersPerLng = metersPerLngAt(ring[0][1])
-  let sum = 0
-  for (let i = 1; i < ring.length; i++) {
-    sum += ring[i - 1][0] * metersPerLng * (ring[i][1] * METERS_PER_DEGREE_LAT) - ring[i][0] * metersPerLng * (ring[i - 1][1] * METERS_PER_DEGREE_LAT)
-  }
-  return Math.abs(sum) / 2
-}
-
-// 점에서 테두리까지 가장 가까운 거리(m)
-function distanceToRing(lng, lat, ring) {
-  const metersPerLng = metersPerLngAt(lat)
-  let best = Infinity
-  for (let i = 1; i < ring.length; i++) {
-    const ax = (ring[i - 1][0] - lng) * metersPerLng
-    const ay = (ring[i - 1][1] - lat) * METERS_PER_DEGREE_LAT
-    const bx = (ring[i][0] - lng) * metersPerLng
-    const by = (ring[i][1] - lat) * METERS_PER_DEGREE_LAT
-    const lengthSquared = (bx - ax) ** 2 + (by - ay) ** 2
-    const rate = lengthSquared > 0 ? Math.max(0, Math.min(1, -(ax * (bx - ax) + ay * (by - ay)) / lengthSquared)) : 0
-    best = Math.min(best, Math.hypot(ax + (bx - ax) * rate, ay + (by - ay) * rate))
-  }
-  return best
-}
-
-// 이 장소의 건물 하나 찾기: 좌표가 들어 있는 건물 중 가장 작은 것, 없으면 BUILDING_SEARCH_M 안의 가장 가까운 건물
-function findBuilding(row, features) {
-  let inside = null
-  let insideArea = Infinity
-  let nearest = null
-  let nearestDistance = BUILDING_SEARCH_M
-  for (const feature of features) {
-    if (feature.properties.hide_3d) continue
-    for (const polygon of polygonsOf(feature.geometry)) {
-      const ring = polygon[0]
-      if (isInRing(row.lng, row.lat, ring)) {
-        const area = ringAreaMeters(ring)
-        if (area < insideArea) {
-          inside = { polygon: polygon, feature: feature }
-          insideArea = area
-        }
-      } else {
-        const distance = distanceToRing(row.lng, row.lat, ring)
-        if (distance < nearestDistance) {
-          nearest = { polygon: polygon, feature: feature }
-          nearestDistance = distance
-        }
-      }
-    }
-  }
-  const found = inside || nearest
-  if (found === null) return null
-  return {
-    geometry: { type: 'Polygon', coordinates: found.polygon },
-    h: Number(found.feature.properties.render_height) || 12,
-    base: Number(found.feature.properties.render_min_height) || 0,
-  }
-}
-
-// 화면 근처에서 아직 안 찾아본 장소의 건물 찾기 (건물 데이터는 확대해서 불러온 곳에만 있음)
-function findStopBuildings() {
-  if (!map) return
-  const layer = map.getLayer('building-3d')
-  if (!layer || map.getZoom() < BUILDING_MIN_ZOOM || !map.isSourceLoaded(layer.source)) return
-  const center = map.getCenter()
-  const waiting = []
-  for (const row of shownStops.value) {
-    if (!row.isVisited || row.lat === null || buildingOfStop[row.id] !== undefined) continue
-    if (distanceMeters(center.lat, center.lng, row.lat, row.lng) <= BUILDING_FIND_RANGE_M) waiting.push(row)
-  }
-  if (waiting.length === 0) return
-  const features = map.querySourceFeatures(layer.source, { sourceLayer: layer.sourceLayer })
-  if (features.length === 0) return
-  for (const row of waiting) buildingOfStop[row.id] = findBuilding(row, features)
-  drawStopBuildings()
-}
-
-// 찾아 둔 건물을 분류 색으로 그리기 (같은 건물에 장소가 둘이면 일정 순서가 빠른 쪽 색)
-function drawStopBuildings() {
-  if (!map || !map.getSource('stop-building')) return
-  const features = []
-  const seen = new Set()
-  const kinds = []
-  for (const row of shownStops.value) {
-    const building = buildingOfStop[row.id]
-    if (!building) continue
-    const key = JSON.stringify(building.geometry)
-    if (seen.has(key)) continue
-    seen.add(key)
-    const kind = kindOfCategory(row.category)
-    features.push({ type: 'Feature', geometry: building.geometry, properties: { color: kind.color, h: building.h, base: building.base } })
-    if (!kinds.includes(kind)) kinds.push(kind)
-  }
-  map.getSource('stop-building').setData({ type: 'FeatureCollection', features: features })
-  paintedKinds.value = kinds
 }
 
 // ============================== 핀·이름표 (HTML로 만든 마커)
@@ -1417,7 +1532,7 @@ function runIntro() {
   resetPlay()
   showDongs(true)
   setRise(0)
-  map.jumpTo({ center: SEOUL_CENTER, zoom: 10.4, pitch: is3d.value ? 45 : 0, bearing: is3d.value ? -10 : 0 })
+  map.jumpTo({ center: SEOUL_CENTER, zoom: 10.4, pitch: 0, bearing: 0 })
   introTimers = [
     setTimeout(() => animateRise(1, RISE_MS), 500),
     setTimeout(() => fitTrip(2600), 2600),
@@ -1440,7 +1555,7 @@ function fitTrip(duration) {
   if (bounds.isEmpty()) return
   const camera = map.cameraForBounds(bounds, { padding: { top: 140, bottom: 170, left: 80, right: 80 } })
   if (!camera) return
-  map.flyTo({ center: camera.center, zoom: Math.min(camera.zoom, 15.5), pitch: is3d.value ? OVERVIEW_PITCH : 0, bearing: is3d.value ? -20 : 0, duration: duration, essential: true })
+  map.flyTo({ center: camera.center, zoom: Math.min(camera.zoom, 15.5), pitch: 0, bearing: 0, duration: duration, essential: true })
 }
 
 function focusStop(row) {
@@ -1448,7 +1563,7 @@ function focusStop(row) {
   if (row.lat === null || !map) return
   stopPlay()
   setStreetLook(false) // 내비 시점에서 숨겼던 핀·바닥 표시를 되돌림
-  map.flyTo({ center: [row.lng, row.lat], zoom: 16.5, pitch: is3d.value ? 60 : 0, duration: 1600, essential: true })
+  map.flyTo({ center: [row.lng, row.lat], zoom: 16.5, pitch: 0, duration: 1600, essential: true })
   const marker = stopMarkers[row.id]
   if (marker && !marker.getPopup().isOpen()) marker.togglePopup()
 }
@@ -1456,7 +1571,7 @@ function focusStop(row) {
 function focusDong(dong) {
   stopPlay()
   setStreetLook(false) // 내비 시점에서 숨겼던 핀·바닥 표시를 되돌림
-  map.flyTo({ center: centerOf(dong.feature), zoom: 14.2, pitch: is3d.value ? 58 : 0, duration: 1600, essential: true })
+  map.flyTo({ center: centerOf(dong.feature), zoom: 14.2, pitch: 0, duration: 1600, essential: true })
 }
 
 // ============================== 지도 고르기
@@ -1467,24 +1582,14 @@ function changeDay(day) {
 watch(selectedDay, () => {
   resetPlay()
   drawDay()
+  filterLandscapeDay()
   fitTrip(1800)
 })
 
 function toggleSatellite() {
   isSatellite.value = !isSatellite.value
+  map.setPaintProperty('satellite', 'raster-opacity', 1)
   map.setLayoutProperty('satellite', 'visibility', isSatellite.value ? 'visible' : 'none')
-}
-
-function toggle3d() {
-  is3d.value = !is3d.value
-  map.setLayoutProperty('building-3d', 'visibility', is3d.value ? 'visible' : 'none')
-  map.setLayoutProperty('stop-building', 'visibility', is3d.value ? 'visible' : 'none')
-  if (!is3d.value) {
-    showDongs(false) // 2D에서는 기둥 없이 바닥 색만
-    changeView('top') // 거리 시점은 3D에서만
-  }
-  useTerrain(!playing.value) // 3D로 돌아오면 (재생 중이 아니면) 지형도 켬
-  map.easeTo({ pitch: is3d.value ? OVERVIEW_PITCH : 0, bearing: is3d.value ? -20 : 0, duration: 900 })
 }
 
 // ============================== 내비 재생
@@ -1494,11 +1599,11 @@ function stayWindows() {
   for (const row of shownStops.value) {
     if (!row.isVisited || row.lat === null || row.actualStay === null) continue
     const from = tripMinutes(row.day, row.actualArrive)
-    list.push({ lng: row.lng, lat: row.lat, from: from, to: from + row.actualStay })
+    list.push({ lng: row.lng, lat: row.lat, from: from, to: from + row.actualStay, name: row.name, category: row.category })
   }
   for (const extra of shownExtras.value) {
     const from = tripMinutes(extra.day, extra.arrive)
-    list.push({ lng: extra.lng, lat: extra.lat, from: from, to: from + extra.stay })
+    list.push({ lng: extra.lng, lat: extra.lat, from: from, to: from + extra.stay, name: extra.kind === 'lodging' ? '숙소' : extra.name, category: extra.kind === 'lodging' ? '숙소' : '' })
   }
   return list
 }
@@ -1521,7 +1626,7 @@ function toRouteNodes(track) {
     if (stay) {
       let last = start
       while (last + 1 < track.length && isInStayWindow(track[last + 1], stay)) last++
-      nodes.push({ lng: stay.lng, lat: stay.lat, from: stay.from, to: stay.to, isStay: true })
+      nodes.push({ lng: stay.lng, lat: stay.lat, from: stay.from, to: stay.to, isStay: true, name: stay.name, category: stay.category })
       start = last + 1
       continue
     }
@@ -1544,7 +1649,39 @@ function toRouteNodes(track) {
       start++
     }
   }
+  spreadSameMinutes(nodes)
   return nodes
+}
+
+// GPS 시각은 분 단위라 같은 분에 찍힌 점이 여럿 있음 (영등포 예시: 645점 중 180점)
+// 그대로 두면 3D는 시각으로 자리를 정해서, 그 점들 사이를 0초 만에 건너뜀(순간이동) → 다음 시각까지를 거리 비율로 나눠 줌
+// 예) 17:26에 A·B 두 점, 17:29에 C, A→B 100m · B→C 200m → B는 17:27 (3분 × 100/300)
+function spreadSameMinutes(nodes) {
+  let i = 0
+  while (i + 1 < nodes.length) {
+    let j = i + 1
+    while (j < nodes.length && !nodes[j].isStay && nodes[j].from === nodes[i].to) j++
+    // i+1 ~ j-1: i와 같은 분에 찍힌 이동 점들, j: 시각이 다음으로 넘어간 점
+    if (j > i + 1 && j < nodes.length) spreadBetween(nodes, i, j)
+    i = j
+  }
+}
+
+// i와 j 사이 점들에 i의 시각 ~ j의 시각을 거리 비율로 나눠 줌
+function spreadBetween(nodes, i, j) {
+  const steps = [] // i부터 각 점까지 거리(m)
+  let walked = 0
+  for (let k = i + 1; k <= j; k++) {
+    walked += distanceMeters(nodes[k - 1].lat, nodes[k - 1].lng, nodes[k].lat, nodes[k].lng)
+    steps.push(walked)
+  }
+  const start = nodes[i].to
+  const span = nodes[j].from - start
+  for (let k = i + 1; k < j; k++) {
+    const rate = walked > 0 ? steps[k - i - 1] / walked : (k - i) / (j - i)
+    nodes[k].from = start + span * rate
+    nodes[k].to = nodes[k].from
+  }
 }
 
 // 머문 곳에서 멈출 시간: 도착 방향과 떠나는 방향이 많이 다를수록 멈춰서 도는 시간을 더 줌
@@ -1569,6 +1706,7 @@ const playRoute = computed(() => {
   const totalMeters = nodes.length > 0 ? meters[nodes.length - 1] : 0
   let secondsPerMeter = totalMeters > 0 ? PLAY_MOVE_SECONDS / totalMeters : 0
   if (isStreet()) secondsPerMeter = 1 / STREET_SPEED // 거리 시점은 거리와 상관없이 일정한 속도
+  else if (isUnity3d.value) secondsPerMeter = 1 / UNITY_TOP_SPEED // 3D 위에서 보기도 일정한 속도 (평면보다 천천히)
   let clock = 0
   for (let i = 0; i < nodes.length; i++) {
     nodes[i].enter = clock
@@ -1662,6 +1800,48 @@ function toTurn(found) {
 // 지금 재생 시각 (여행 첫날 0시부터 분)
 const nowMinutes = computed(() => routeAt(progress.value).minutes)
 
+// 실감 3D를 켜면 이 여행의 지도 자료를 만듦 (처음 한 번은 1~3분. 같은 화면에서 다시 켜면 바로)
+watch(isUnity3d, async (isOn) => {
+  if (!isOn || unityTrip.value || unityStatus.value) return
+  try {
+    const guNames = visitedGuText.value ? visitedGuText.value.split(' · ') : []
+    const nodes = toRouteNodes(retro.value.track) // 머문 곳의 흔들린 GPS는 한 점으로 묶은 것 (3D에서도 머무는 동안 가만히 있게)
+    unityTrip.value = await makeTripMap(route.query.id, retro.value, nodes, guNames, (text) => { unityStatus.value = text })
+    unityStatus.value = ''
+  } catch (e) {
+    unityStatus.value = '3D 지도 자료를 못 만들었어요: ' + e.message
+  }
+})
+
+// 실감 3D(유니티)를 웹 재생에 맞춤: 재생 시각·위에서/내비·따라가기를 그대로 넘김 (속도는 웹의 배속이 정함)
+function syncUnity() {
+  if (!unityMap.value) return
+  unityMap.value.setView(viewMode.value)
+  unityMap.value.setFollow(isFollow.value)
+  unityMap.value.setDayNight(isDayNight.value)
+  if (canPlay.value) unityMap.value.seekClock(nowMinutes.value)
+}
+watch(isDayNight, (isOn) => {
+  if (isUnity3d.value && unityMap.value) unityMap.value.setDayNight(isOn)
+})
+
+// [3D 지도] 버튼: 켜고 끄면 재생 속도가 바뀌니(위에서 보기) 지금 간 거리 자리에서 이어지게
+function toggleUnity3d() {
+  const hasStarted = progress.value > 0
+  const meters = routeAt(progress.value).meters
+  isUnity3d.value = !isUnity3d.value
+  if (hasStarted) progress.value = Math.min(playEnd.value, secondsAtMeters(meters))
+}
+watch(nowMinutes, (minutes) => {
+  if (isUnity3d.value && unityMap.value && canPlay.value) unityMap.value.seekClock(minutes)
+})
+watch(viewMode, (view) => {
+  if (isUnity3d.value && unityMap.value) unityMap.value.setView(view)
+})
+watch(isFollow, (isOn) => {
+  if (isUnity3d.value && unityMap.value) unityMap.value.setFollow(isOn)
+})
+
 // 내비 카드: 지금 머무는 곳 또는 다음 목적지
 const navCard = computed(() => {
   const now = nowMinutes.value
@@ -1723,7 +1903,6 @@ function startPlay() {
   playing.value = true
   isFollow.value = true
   showDongs(false) // 동네 기둥을 숨겨서 길·건물이 보이게 (테두리만 남김)
-  useTerrain(false) // 재생 중에는 땅을 평평하게 (카메라 출렁임 방지)
   setStreetLook(isStreet())
   if (progress.value === 0) {
     flyToStart()
@@ -1754,7 +1933,6 @@ function stopPlay() {
 // 재생을 맨 처음 상태로: 위치 0, 내 위치 점과 지나온 선 지우기
 function resetPlay() {
   stopPlay()
-  useTerrain(true) // 처음 상태(전체 보기)로 돌아오면 지형을 다시 켬
   progress.value = 0
   mePosition.value = null
   cameraCenter = null
@@ -1779,9 +1957,38 @@ function flyToStart() {
 function cameraFor(position, bearing) {
   if (isStreet()) {
     const eye = movePoint(position, bearing + 180, STREET_BACK_M)
-    return map.calculateCameraOptionsFromCameraLngLatAltRotation(eye, STREET_EYE_M, bearing, STREET_PITCH)
+    return map.calculateCameraOptionsFromCameraLngLatAltRotation(eye, STREET_EYE_M, bearing, streetPitchAt(position, bearing))
   }
-  return { center: position, zoom: NAV_ZOOM, pitch: is3d.value ? NAV_PITCH : 0, bearing: bearing }
+  return { center: position, zoom: NAV_ZOOM, pitch: 0, bearing: bearing }
+}
+
+// 1인칭 기울기: 지금 자리와 30m 앞의 땅 높이(DEM)로 경사를 재서, 오르막이면 고개를 들고 내리막이면 숙임
+// (1인칭에서는 지도 지형을 꺼서 땅은 평평함 — 켜면 카메라가 튀어서. 경사는 고개 각도와 카드 글자로 느끼게)
+function streetPitchAt(position, bearing) {
+  const here = elevationNow(position[0], position[1])
+  const ahead = movePoint(position, bearing, STREET_SLOPE_AHEAD_M)
+  const there = elevationNow(ahead[0], ahead[1])
+  let slope = 0
+  if (here !== null && there !== null) slope = (there - here) / STREET_SLOPE_AHEAD_M
+  const target = Math.max(72, Math.min(STREET_PITCH, STREET_PITCH_FLAT + slope * STREET_PITCH_PER_SLOPE))
+  streetPitch += (target - streetPitch) * STREET_PITCH_SMOOTH
+  showSlope(slope, here)
+  return streetPitch
+}
+
+// 카드에 보여 줄 경사·해발 (1% 단위로 바뀔 때만 화면을 다시 그림)
+function showSlope(slope, altitude) {
+  const percent = Math.round(slope * 100)
+  const meters = altitude === null ? null : Math.round(altitude)
+  if (!navSlope.value || navSlope.value.percent !== percent || navSlope.value.altitude !== meters) navSlope.value = { percent: percent, altitude: meters }
+}
+
+// "↗ 오르막 8% · 해발 182m"
+function slopeText(info) {
+  let text = '평지'
+  if (info.percent >= 2) text = '↗ 오르막 ' + info.percent + '%'
+  else if (info.percent <= -2) text = '↘ 내리막 ' + -info.percent + '%'
+  return info.altitude === null ? text : text + ' · 해발 ' + info.altitude + 'm'
 }
 
 // [위에서 / 거리] 버튼: 재생 중이면 카메라를 옮긴 뒤 같은 자리에서 이어서 재생
@@ -1804,9 +2011,49 @@ function changeView(mode) {
 
 // 거리 시점으로 볼 때는 바닥에 그린 면·경계선·계획 점선을 숨겨서 길과 건물만 보이게
 function setStreetLook(isOn) {
-  if (!map || !map.getLayer('plan-line')) return
-  for (const id of ['dong-fill', 'dong-line', 'gu-line', 'plan-line']) map.setLayoutProperty(id, 'visibility', isOn ? 'none' : 'visible')
+  if (!map || !map.getLayer('gu-line')) return
+  for (const id of ['dong-fill', 'dong-line', 'gu-line']) map.setLayoutProperty(id, 'visibility', isOn ? 'none' : 'visible')
+  for (const id of findRoadLabelIds()) map.setLayoutProperty(id, 'visibility', isOn ? 'none' : 'visible') // 길 이름이 땅에 줄줄이 깔려 보여서
+  showStreetGround(isOn)
   if (!isOn) showAllPins()
+}
+
+// 1인칭에서는 바닥이 텅 비어 보여서 위성 사진을 옅게 깔아 줌 (아스팔트·보도·잔디 색). [위성]을 켜 둔 상태면 그대로 둠
+function showStreetGround(isOn) {
+  if (isSatellite.value) return
+  map.setPaintProperty('satellite', 'raster-opacity', isOn ? STREET_GROUND_OPACITY : 1)
+  map.setLayoutProperty('satellite', 'visibility', isOn ? 'visible' : 'none')
+}
+
+// 길을 따라 쓰는 글자 층(길 이름) 찾기: 한 번만 찾아서 기억
+function findRoadLabelIds() {
+  if (roadLabelIds === null) {
+    roadLabelIds = []
+    for (const layer of map.getStyle().layers) {
+      const placement = layer.layout ? layer.layout['symbol-placement'] : null
+      const isRoadName = layer['source-layer'] === 'transportation_name' || placement === 'line' || placement === 'line-center'
+      if (layer.type === 'symbol' && isRoadName) roadLabelIds.push(layer.id)
+    }
+  }
+  return roadLabelIds
+}
+
+// ---------- 내비 카드 끌어 옮기기 (접기 버튼을 누를 때는 안 옮김)
+function startNavDrag(event) {
+  if (event.target.closest('button')) return
+  navDrag = { startX: event.clientX, startY: event.clientY, x: navOffset.value.x, y: navOffset.value.y }
+  window.addEventListener('pointermove', onNavDrag)
+  window.addEventListener('pointerup', stopNavDrag)
+  event.preventDefault()
+}
+
+function onNavDrag(event) {
+  navOffset.value = { x: navDrag.x + event.clientX - navDrag.startX, y: navDrag.y + event.clientY - navDrag.startY }
+}
+
+function stopNavDrag() {
+  window.removeEventListener('pointermove', onNavDrag)
+  window.removeEventListener('pointerup', stopNavDrag)
 }
 
 // 거리 시점: 가까운 장소 핀만 보이게
@@ -1853,7 +2100,7 @@ function showProgress(frameSeconds) {
   if (!canPlay.value) return
   const at = routeAt(progress.value)
   drawPlayPosition(at)
-  if (isFollow.value) followCamera(at, frameSeconds)
+  if (isFollow.value && !isUnity3d.value) followCamera(at, frameSeconds) // 3D 지도를 켜면 아래 평면 지도는 카메라를 안 움직임 (가려져 있는데 그리느라 그래픽 카드를 쓰지 않게)
 }
 
 function drawPlayPosition(at) {
@@ -1869,11 +2116,6 @@ function drawPlayPosition(at) {
   done.push(at.position)
   map.getSource('track-done').setData(toLine(done))
   if (isStreet()) updateStreetPins(at.position)
-  const now = performance.now()
-  if (now - lastBuildingFind > BUILDING_FIND_MS) {
-    lastBuildingFind = now
-    findStopBuildings()
-  }
 }
 
 // 이 위치에서 경로를 따라 조금 앞을 보는 방향 (앞이 너무 가까우면 지금 방향 유지)
@@ -1984,23 +2226,27 @@ const sunStripStyle = computed(() => {
   return { background: 'linear-gradient(to right, ' + stops.join(', ') + ')' }
 })
 
-function toggleSun() {
-  isSunOn.value = !isSunOn.value
-}
-
 // 재생 시각이 바뀌어 해가 움직이면 하늘·빛을 다시 칠함
 watch(currentSun, applySun)
+watch(currentSun, applySunLook)
 
 // 메모·사진은 고른 날이 바뀌면 다시 그림 (drawDay 안에서 drawMarkers가 사진도 그림)
 watch(shownPhotos, drawPhotoMarkers)
 </script>
 
 <template>
-  <div class="wr">
+  <div class="wr" :class="{ 'is-unity': isUnity3d }">
     <section class="wr-map">
       <div ref="mapBox" class="wr-map__canvas"></div>
+      <!-- 실감 3D (유니티 WebGL): 켜면 지도 위를 덮음. 지금은 시연 자료(1박 2일)를 그림 -->
+      <RetroUnityMap v-if="isUnity3d" ref="unityMap" class="wr-unity" :trip-data="unityTrip" :status-text="unityStatus" @ready="syncUnity" />
       <!-- 밤·노을 덮개: 재생 시각의 해 높이에 맞춘 색 (지도 위, 카드 아래, 누르기는 통과) -->
-      <div class="wr-sky" :style="{ background: skyShade }"></div>
+      <div v-if="!isUnity3d" class="wr-sky" :style="{ background: skyShade }"></div><!-- 3D는 유니티가 하늘을 직접 그려서 덮개를 안 씀 -->
+      <!-- 3D 위에서 보기 가까이·멀리 (마우스 휠도 됨) -->
+      <div v-if="isUnity3d && viewMode === 'top'" class="wr-unity-zoom">
+        <button type="button" title="가까이" @click="unityMap && unityMap.zoom(1)">＋</button>
+        <button type="button" title="멀리" @click="unityMap && unityMap.zoom(-1)">－</button>
+      </div>
 
       <div v-if="isLoading || errorMessage" class="wr-state">
         <p>{{ errorMessage || '회고를 불러오는 중…' }}</p>
@@ -2009,12 +2255,12 @@ watch(shownPhotos, drawPhotoMarkers)
       <template v-if="retro">
         <!-- 위 왼쪽: 여행 제목 -->
         <div class="wr-title">
-          <span class="wr-badge">착착트립 · 웹 회고</span>
-          <h1>{{ retro.title }}</h1>
-          <p>{{ retro.startDate }} ~ {{ retro.endDate }} · {{ retro.people }}명<template v-if="visitedGuText"> · {{ visitedGuText }}</template></p>
           <div class="wr-title__links">
             <RouterLink to="/web/trips" class="wr-btn">← 지난 여행</RouterLink>
           </div>
+          <span class="wr-badge">착착트립 · 웹 회고</span>
+          <h1>{{ retro.title }}</h1>
+          <p>{{ retro.startDate }} ~ {{ retro.endDate }} · {{ retro.people }}명<template v-if="visitedGuText"> · {{ visitedGuText }}</template></p>
         </div>
 
         <!-- 위 오른쪽: 날짜·지도 고르기 -->
@@ -2026,19 +2272,27 @@ watch(shownPhotos, drawPhotoMarkers)
             <button type="button" :class="{ 'is-on': !isSatellite }" @click="isSatellite && toggleSatellite()">기본</button>
             <button type="button" :class="{ 'is-on': isSatellite }" @click="!isSatellite && toggleSatellite()">위성</button>
           </div>
-          <div class="wr-seg">
-            <button type="button" :class="{ 'is-on': is3d }" @click="!is3d && toggle3d()">3D</button>
-            <button type="button" :class="{ 'is-on': !is3d }" @click="is3d && toggle3d()">2D</button>
-          </div>
-          <button type="button" class="wr-btn" :class="{ 'is-on': isPhotoShown }" @click="isPhotoShown = !isPhotoShown">📷 사진 {{ isPhotoShown ? '켜짐' : '꺼짐' }}</button>
-          <button type="button" class="wr-btn" :class="{ 'is-on': isSunOn }" title="재생 시각에 맞춰 하늘·밝기가 바뀌어요" @click="toggleSun">🌇 해·하늘 {{ isSunOn ? '켜짐' : '꺼짐' }}</button>
-          <button type="button" class="wr-btn" @click="runIntro">동네 다시 띄우기</button>
+          <button type="button" class="wr-btn" :class="{ 'is-on': isUnity3d }" title="건물·한강·밤 불빛까지 보이는 3D 지도 (누르면 켜고 끔)" @click="toggleUnity3d">🏙 3D 지도</button>
+          <button type="button" class="wr-btn" :class="{ 'is-on': isDayNight }" title="재생 시각에 맞춰 밤낮 바꾸기 (끄면 늘 낮)" @click="isDayNight = !isDayNight">🌙 밤낮</button>
+          <!-- 11/13: 지도 버튼은 실감 3D와 기본/위성만 남김 (3D·2D, 사진, 해·하늘, 동네 다시 띄우기, 머문 곳, 가시권 버튼은 뺌. 기능 코드는 그대로) -->
         </div>
 
         <!-- 내비 카드 -->
-        <div v-if="navCard && (playing || progress > 0)" class="wr-nav" :class="{ 'wr-nav--street': viewMode === 'street' }">
-          <div class="wr-nav__time">{{ toDayTime(nowMinutes) }}</div>
-          <template v-if="navCard.isStay">
+        <div v-if="navCard && (playing || progress > 0)" class="wr-nav" :class="{ 'wr-nav--street': viewMode === 'street' && !isNavFolded, 'is-folded': isNavFolded }"
+          :style="{ transform: 'translate(calc(-50% + ' + navOffset.x + 'px), ' + navOffset.y + 'px)' }" title="끌어서 옮길 수 있어요" @pointerdown="startNavDrag">
+          <button type="button" class="wr-nav__fold" :aria-expanded="!isNavFolded" :title="isNavFolded ? '안내 펼치기' : '안내 접기'" :aria-label="isNavFolded ? '안내 펼치기' : '안내 접기'" @click="isNavFolded = !isNavFolded">{{ isNavFolded ? '▾' : '▴' }}</button>
+          <!-- 재생 중 사진을 찍은 시각을 지나면 내비 카드 바로 밑에 잠깐 뜨는 카드 (카드를 옮기면 같이 움직임) -->
+          <Transition name="wr-float">
+            <button v-if="floatPhoto" type="button" class="wr-float" @click="openViewer([floatPhoto], 0)">
+              <video v-if="floatPhoto.mediaType === 'video'" :src="floatPhoto.url" muted autoplay loop></video>
+              <img v-else :src="floatPhoto.url" alt="" />
+              <span>📷 {{ floatPhoto.takenAt }} · {{ floatPhoto.placeName }}</span>
+            </button>
+          </Transition>
+          <div v-if="isNavFolded" class="wr-nav__line">{{ toDayTime(nowMinutes) }} · {{ navCard.isStay ? '머무는 중' : '다음' }} <b>{{ navCard.row.name }}</b><template v-if="!navCard.isStay && navCard.meters !== null"> {{ metersText(navCard.meters) }}</template></div>
+          <div v-if="!isNavFolded" class="wr-nav__time">{{ toDayTime(nowMinutes) }}<span v-if="viewMode === 'street' && navSlope" class="wr-nav__slope">{{ slopeText(navSlope) }}</span></div>
+          <template v-if="isNavFolded"></template>
+          <template v-else-if="navCard.isStay">
             <div class="wr-nav__label">머무는 중</div>
             <div class="wr-nav__place">{{ navCard.row.name }}</div>
             <div class="wr-nav__sub">
@@ -2057,21 +2311,16 @@ watch(shownPhotos, drawPhotoMarkers)
         <!-- 범례 -->
         <div class="wr-legend">
           <span><i class="wr-legend__real"></i>실제 경로 (GPS)</span>
-          <span><i class="wr-legend__plan"></i>계획 경로</span>
           <span><i class="wr-legend__dong"></i>머문 동네 (높을수록 오래)</span>
           <span><i class="wr-legend__pass"></i>지나간 동네</span>
-          <span v-for="kind in paintedKinds" :key="kind.name"><i class="wr-legend__dong" :style="{ background: kind.color, opacity: 1 }"></i>{{ kind.name }} 건물</span>
           <span v-if="shownPhotos.length > 0"><i class="wr-legend__photo"></i>사진 {{ shownPhotos.length }}장 (찍은 곳)</span>
+          <template v-if="clusters.isOn">
+            <span><i class="wr-legend__dot" style="background: #1F3A68"></i>머문 곳 · 계획한 곳</span>
+            <span><i class="wr-legend__dot" style="background: #E8603F"></i>머문 곳 · 계획 밖</span>
+          </template>
         </div>
 
         <!-- 재생 중 사진을 찍은 시각을 지나면 잠깐 뜨는 카드 -->
-        <Transition name="wr-float">
-          <button v-if="floatPhoto" type="button" class="wr-float" @click="openViewer([floatPhoto], 0)">
-            <video v-if="floatPhoto.mediaType === 'video'" :src="floatPhoto.url" muted autoplay loop></video>
-            <img v-else :src="floatPhoto.url" alt="" />
-            <span>📷 {{ floatPhoto.takenAt }} · {{ floatPhoto.placeName }}</span>
-          </button>
-        </Transition>
 
         <!-- 재생 막대 -->
         <div class="wr-player">
@@ -2079,7 +2328,7 @@ watch(shownPhotos, drawPhotoMarkers)
           <button type="button" class="wr-btn" :disabled="!canPlay" @click="goToStart">처음으로</button>
           <div class="wr-seg wr-seg--view">
             <button type="button" :class="{ 'is-on': viewMode === 'top' }" @click="changeView('top')">위에서</button>
-            <button type="button" :class="{ 'is-on': viewMode === 'street' }" :disabled="!is3d" @click="changeView('street')">내비</button>
+            <button type="button" :class="{ 'is-on': viewMode === 'street' }" :disabled="!isUnity3d" @click="changeView('street')">내비</button>
           </div>
           <button type="button" class="wr-btn" :disabled="!canPlay" @click="changeSpeed">{{ speed }}배속</button>
           <div class="wr-player__barwrap">
@@ -2107,6 +2356,13 @@ watch(shownPhotos, drawPhotoMarkers)
         <b>{{ biggestOver.name }}</b>에서 계획보다 <b>{{ toDuration(biggestOver.diff) }}</b> 더 머물렀어요.
         <template v-if="summary.skipped > 0"> 건너뛴 곳 {{ summary.skipped }}곳.</template>
       </p>
+
+      <!-- 여행 분석 (11/11, 11/12 이름 바꿈): 걸은 길 구성 + 머문 곳 -->
+      <section class="wr-card">
+        <RetroLandscapeCard :landscape="landscape" :is-on="isLandscapeOn" :day="selectedDay" :clusters="clusters"
+          @toggle="toggleLandscape" @focus="focusLandscape"
+          @toggle-clusters="toggleClusters" @focus-cluster="focusCluster" />
+      </section>
 
       <!-- 메모 (11/11): 여행 메모 + 고른 장소의 메모·별점 (메모·사진 화면과 같은 저장소) -->
       <section class="wr-card">
@@ -2317,14 +2573,19 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-title p { margin: 0; color: var(--ink-muted); }
 .wr-badge { display: inline-block; padding: 2px 8px; border-radius: var(--radius-full); background: var(--navy); color: var(--on-navy); font-size: 12px; }
 
-.wr-tools { top: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; max-width: min(560px, max(260px, calc(100% - 470px))); justify-content: flex-end; } /* 지도가 좁아지면 제목 카드와 안 겹치게 여러 줄로 */
+.wr-tools { background: none; box-shadow: none; top: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; max-width: min(560px, max(260px, calc(100% - 470px))); justify-content: flex-end; } /* 지도가 좁아지면 제목 카드와 안 겹치게 여러 줄로 */
+.wr-tools > * { box-shadow: 0 2px 8px rgba(24, 33, 58, 0.18); } /* 상자 없이 버튼마다 그림자 (지도 위에서도 보이게) */
 .wr-seg { display: flex; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
 .wr-seg button { padding: 6px 12px; border: 0; background: #fff; cursor: pointer; }
 .wr-seg button.is-on { background: var(--navy); color: var(--on-navy); }
 .wr-btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; cursor: pointer; }
 .wr-btn:disabled, .wr-player__play:disabled { opacity: 0.5; cursor: default; }
 
-.wr-nav { top: 92px; left: 50%; transform: translateX(-50%); min-width: 340px; padding: 12px 18px; background: rgba(31, 58, 104, 0.95); color: #fff; }
+.wr-nav__fold { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.16); color: #fff; font-size: 12px; cursor: pointer; }
+.wr-nav.is-folded { min-width: 0; padding: 8px 44px 8px 14px; }
+.wr-nav__line { font-size: 13px; white-space: nowrap; }
+.wr-nav__slope { margin-left: 10px; padding: 1px 8px; border-radius: var(--radius-full); background: rgba(255, 255, 255, 0.16); font-weight: 700; }
+.wr-nav { cursor: grab; touch-action: none; user-select: none; top: 176px; left: 50%; transform: translateX(-50%); min-width: 340px; padding: 12px 18px; background: rgba(31, 58, 104, 0.95); color: #fff; }
 .wr-nav__time { font-size: 12px; opacity: 0.8; }
 .wr-nav__label { margin-top: 2px; font-size: 12px; color: #F6B9A6; }
 .wr-nav__place { font-size: 20px; font-weight: 700; line-height: 28px; }
@@ -2342,7 +2603,6 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-legend { left: 16px; bottom: 92px; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; font-size: 12px; }
 .wr-legend i { display: inline-block; width: 22px; height: 0; margin-right: 6px; vertical-align: middle; }
 .wr-legend__real { border-top: 5px solid #2F7BFF; }
-.wr-legend__plan { border-top: 4px dashed #7C8496; }
 .wr-legend__dong { height: 10px !important; background: #E8603F; opacity: 0.7; }
 .wr-legend__pass { height: 10px !important; background: #8FA6CF; opacity: 0.7; }
 
@@ -2457,6 +2717,8 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-payform .wr-btn { justify-self: start; }
 .wr-payform button[type='submit'] { grid-column: 2; }
 .wr-settle-msg { margin: 8px 0 0; color: var(--navy); font-size: 12px; font-weight: 700; }
+:deep(.wr-pop__type) { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: var(--radius-full); color: #fff; font-size: 11px; font-weight: 700; }
+:deep(.wr-pop__feature) { margin-top: 2px; font-size: 12px; color: var(--ink-muted); }
 :deep(.wr-pop__stars) { margin-top: 6px; color: #F2A33A; letter-spacing: 1px; }
 :deep(.wr-pop__hint) { margin-top: 6px; font-size: 11px; color: var(--ink-muted); }
 .wr-transfers { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--navy-soft); }
@@ -2483,18 +2745,24 @@ watch(shownPhotos, drawPhotoMarkers)
 /* (11/10) 웹사이트 이동 버튼 · 사진 · 해 */
 .wr-btn { display: inline-block; color: var(--ink); font: inherit; text-decoration: none; }
 .wr-btn.is-on { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); font-weight: 700; }
-.wr-title__links { display: flex; gap: 6px; margin-top: 10px; }
+.wr-title__links { display: flex; gap: 6px; margin-bottom: 8px; }
 .wr-sky { position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: background 0.8s; }
+.wr-unity { position: absolute; inset: 0; z-index: 1; } /* 카드·버튼(z-index 2)은 3D 위에 그대로 보임 */
+.wr-unity-zoom { position: absolute; right: 10px; bottom: 96px; z-index: 3; display: flex; flex-direction: column; border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 2px 8px rgba(24, 33, 58, 0.18); }
+.wr-unity-zoom button { width: 32px; height: 32px; border: 0; border-bottom: 1px solid var(--line); background: #fff; font-size: 18px; cursor: pointer; }
+.wr-unity-zoom button:last-child { border-bottom: 0; }
+.wr.is-unity :deep(.maplibregl-ctrl-bottom-right) { display: none; } /* 3D를 켜면 가려진 평면 지도의 +/− 대신 3D용 버튼을 씀 */
+.wr-legend__dot { width: 12px !important; height: 12px !important; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(24, 33, 58, 0.3); }
 .wr-legend__photo { width: 14px !important; height: 14px !important; border: 2px solid #fff; border-radius: 50%; background: #F2A33A; box-shadow: 0 0 0 1px #F2A33A; }
 .wr-player__barwrap { position: relative; flex: 1; min-width: 60px; padding-top: 24px; }
 .wr-player__barwrap .wr-player__bar { width: 100%; }
 .wr-player__sun { position: absolute; left: 0; right: 0; top: 18px; height: 6px; border-radius: var(--radius-full); }
 
-.wr-float { position: absolute; z-index: 3; right: 16px; bottom: 120px; width: 240px; padding: 0; overflow: hidden; border: 3px solid #fff; border-radius: var(--radius-lg); background: #000; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); cursor: zoom-in; }
+.wr-float { position: absolute; left: 50%; top: calc(100% + 10px); transform: translateX(-50%); width: 260px; padding: 0; overflow: hidden; border: 3px solid #fff; border-radius: var(--radius-lg); background: #000; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); cursor: zoom-in; }
 .wr-float img, .wr-float video { display: block; width: 100%; height: 170px; object-fit: cover; }
 .wr-float span { display: block; padding: 6px 10px; background: #fff; color: var(--ink); font-size: 13px; text-align: left; }
 .wr-float-enter-active, .wr-float-leave-active { transition: opacity 0.3s, transform 0.3s; }
-.wr-float-enter-from, .wr-float-leave-to { opacity: 0; transform: translateY(16px); }
+.wr-float-enter-from, .wr-float-leave-to { opacity: 0; }
 
 .wr-viewer { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(8, 12, 22, 0.92); }
 .wr-viewer img, .wr-viewer video { max-width: 86vw; max-height: 78vh; border-radius: var(--radius-md); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
