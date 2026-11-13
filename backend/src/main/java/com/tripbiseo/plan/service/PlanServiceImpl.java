@@ -80,6 +80,7 @@ public class PlanServiceImpl implements PlanService {
     private static final int MUST_STAY_MIN = 90;
     private static final int FIXED_STAY_MIN = 120;
     private static final String MIDDLE_DAY_START = "10:00"; // 여러 날 여행에서 첫날이 아닌 날의 시작 (PlanRuleMaker와 같음)
+    private static final String AI_FAIL_NOTE = "AI가 답하지 않아 고른 종류·평점·거리로 일정을 짰어요"; // AI 대신 규칙으로 짠 안내 (오류 원문은 안 보임)
     private static final String CALL_AHEAD_MARK = "연락 필수"; // 영업시간 원문에 이 말이 있으면 미리 연락해야 하는 곳
     private static final int BOARDING_STAY_MIN = 30;     // 기차역·터미널·공항 고정 일정은 타러 가는 것뿐이라 30분 (11/06)
     private static final int MIN_STAY = 10;
@@ -354,7 +355,11 @@ public class PlanServiceImpl implements PlanService {
         progress.accept(makeProgress("ai", "now", 45, aiText, null));
         List<AiDraftStop> picks = pickStops(conditions, messages, candidates, reasons, days, response, makeLimitRule(conditions, finish));
         addMissingMustPicks(conditions, picks, days); // Gemini가 꼭 갈 곳을 빠뜨리면 서버가 넣음 (11/06)
-        progress.accept(makeProgress("ai", "done", 80, aiText, picks.size() + "칸 고름"));
+        if (hasNote(response, AI_FAIL_NOTE)) { // AI가 답하지 않았으면 성공처럼 보이지 않게 (11/13)
+            progress.accept(makeProgress("ai", "done", 80, "AI가 답하지 않아 평점·거리로 고르기", "AI 없이 종류·평점·거리로 채워요"));
+        } else {
+            progress.accept(makeProgress("ai", "done", 80, aiText, picks.size() + "칸 고름"));
+        }
 
         List<String> warnings = new ArrayList<>();
         Integer lastDayEndMin = finish == null ? null : finish.getLastEndMin();
@@ -972,11 +977,12 @@ public class PlanServiceImpl implements PlanService {
                     return addMissingMust(conditions, draft.getStops(), candidates);
                 }
             } catch (ApiException e) {
-                response.getNotes().add(makeNote("AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요 (" + e.getMessage() + ")", null));
+                log.info("Gemini 일정 고르기 실패 ({}): {}", e.getStatus(), e.getMessage()); // 오류 원문은 서버 기록에만 (11/13)
+                response.getNotes().add(makeNote(AI_FAIL_NOTE, null));
                 return makeFallbackStops(conditions);
             }
         }
-        response.getNotes().add(makeNote("AI 연결이 안 돼서 고른 종류·평점·거리로 일정을 짰어요", null));
+        response.getNotes().add(makeNote(AI_FAIL_NOTE, null));
         return makeFallbackStops(conditions);
     }
 
@@ -1439,6 +1445,16 @@ public class PlanServiceImpl implements PlanService {
         }
         String trimmed = name.replace("KTX", "").replace("SRT", "").trim();
         return trimmed.endsWith("역") || trimmed.contains("터미널") || trimmed.contains("공항");
+    }
+
+    /** 안내 중에 이 글이 있는지 */
+    private boolean hasNote(PlanGenerateResponse response, String text) {
+        for (PlanNote note : response.getNotes()) {
+            if (text.equals(note.getText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private PlanNote makeNote(String text, String url) {

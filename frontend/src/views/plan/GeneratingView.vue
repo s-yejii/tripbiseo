@@ -93,7 +93,7 @@ async function makeDraft() {
     const result = await generatePlanStream(conditions, store.planMessages, position?.lat, position?.lng, onProgress)
     store.setDraft(result)
     draft.value = result
-    for (const note of result.notes || []) showToast(note.text)
+    // 안내(notes)는 토스트로 연달아 띄우면 마지막 하나만 보여서, 아래 목록으로 다 보여 줌 (11/13)
     if (isLeft) showToast('일정이 완성됐어요', { actionText: '완성본 보기', action: openResult }) // 홈에서 기다려도 점검 화면으로 갈 수 있게 (11/12)
   } catch (e) {
     failed.value = true
@@ -167,6 +167,9 @@ function waitAtHome() {
             <span class="dotc"><i class="ic ic--s i-pin" aria-hidden="true"></i></span><span class="t-strong">장소 후보 찾는 중…</span>
           </li>
         </ol>
+        <ul v-if="draft && draft.notes && draft.notes.length" class="gen-notes" aria-label="일정 안내">
+          <li v-for="(note, i) in draft.notes" :key="i" class="t-cap"><i class="ic ic--s i-info" aria-hidden="true"></i>{{ note.text }}</li>
+        </ul>
       </div>
 
       <div class="cta">
@@ -193,4 +196,6 @@ function waitAtHome() {
 .scr-Generating .step.now .dotc{border:2px solid var(--navy);color:var(--navy)}
 .scr-Generating .step.wait .dotc{border:2px solid var(--line-strong)}
 .scr-Generating .step.wait .t-strong{color:var(--ink-subtle)}
+.scr-Generating .gen-notes{list-style:none;margin:0;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--surface);border-radius:var(--radius-md, 12px)}
+.scr-Generating .gen-notes li{display:flex;gap:6px;align-items:flex-start;color:var(--ink)}
 </style>
