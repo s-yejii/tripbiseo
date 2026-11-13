@@ -14,7 +14,7 @@
   </update>
 
   <!-- AI가 쓴 SQL. ${sql}에는 SqlChecker를 통과한 SELECT만 들어옴 (CLAUDE.md 예외).
-       그 안의 #{route}·#{me}·#{next}·#{slack}은 MyBatis가 값을 안전하게 넣음 -->
+       그 안의 #{route}·#{me}·#{next}·#{slack}·#{prev}는 MyBatis가 값을 안전하게 넣음 -->
   <select id="selectPlaceIdsBySql" resultType="string">
     ${sql}
   </select>

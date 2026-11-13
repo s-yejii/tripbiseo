@@ -18,7 +18,7 @@ const SCALE = 1040 // 위도 1도 = 몇 칸
 const LNG_RATIO = 0.792 // 서울에서 경도 1도는 위도 1도의 약 0.79배 길이
 
 const SPIN_MS = 2800 // 룰렛 전체 시간
-const DEMO_GU_NAME = '영등포' // 개발자 모드 주사위가 멈출 시연 지역
+const DEMO_GU_NAME = '중구' // 개발자 모드 주사위가 멈출 시연 지역 (11/12 촬영 시나리오: 명동·을지로·남산)
 const SPIN_FAST_MS = 50 // 처음 반짝임 간격
 const SPIN_SLOW_MS = 380 // 마지막 반짝임 간격
 

@@ -18,6 +18,7 @@
 \i /db/08_retrip_cleanup.sql
 \i /db/09_retrip_seed_yeongdeungpo.sql
 \i /db/10_retrip_update_demo_places.sql
+\i /db/10b_retrip_seed_tour_stay.sql
 
 \echo '== 11~18 담당별 테이블'
 \i /db/11_member.sql
@@ -28,6 +29,7 @@
 \i /db/16_trash.sql
 \i /db/17_place_area.sql
 \i /db/18_ask_place.sql
+\i /db/19_crowd.sql
 
 \echo '== 90·95·96 테스트·시연 데이터'
 \i /db/90_test_data.sql

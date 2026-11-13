@@ -78,10 +78,16 @@ public class LiveServiceImpl implements LiveService {
             throw fail(400, "메시지를 1~300자로 입력해 주세요.");
         }
         liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
-        ChatIntent intent = liveChatClassifier.classify(message);
         AssistResponse response = new AssistResponse();
+        // 이어지는 질문("이 중에 …", 11/13): 앞 결과 안에서 다시 찾음. 아니면 앞 결과는 안 씀
+        if (liveChatClassifier.isFollowUp(message, request.getPrevPlaceIds())) {
+            ChatIntent intent = liveChatClassifier.classifyFollowUp(message, request.getPrevMessage());
+            answerRecommend(response, memberId, tripId, request, message, intent, true);
+            return response;
+        }
+        ChatIntent intent = liveChatClassifier.classify(message);
         if ("recommend".equals(intent.getKind())) {
-            answerRecommend(response, memberId, tripId, request, message, intent);
+            answerRecommend(response, memberId, tripId, request, message, intent, false);
         } else if ("change".equals(intent.getKind())) {
             response.setKind("alternatives");
             response.setData(alternativeService.makeAlternatives(memberId, tripId, toAlternativesRequest(request, message)));
@@ -127,6 +133,7 @@ public class LiveServiceImpl implements LiveService {
      * 추천 장소를 바로 다음 일정으로. 새 칸을 맨 앞에 둔 "대안"을 계산해서 대안 적용(applyAlternative)으로 저장해요.
      * 고정 일정에 늦으면 고정 일정 바로 앞 칸 머무는 시간을 최대 절반까지 줄임 (API.md)
      * replaceStopId가 있으면 맨 앞 대신 그 칸 자리에 넣고, 그 칸은 skipped (놓친 예약 바꾸기, 11/12)
+     * afterStopId가 있으면 그 칸 다음에 넣음 (사용자가 넣을 자리를 고름, 11/13)
      */
     @Override
     @Transactional
@@ -135,12 +142,19 @@ public class LiveServiceImpl implements LiveService {
         Place place = placeService.getPlace(request.getPlaceId()); // 없으면 404 "장소를 찾을 수 없어요."
         List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
         Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
+        if (isPlanned(todayStops, current, place.getId())) {
+            throw fail(400, "이미 일정에 있는 곳이에요."); // 같은 곳을 두 번 넣지 않게 (11/13)
+        }
 
         if (request.getReplaceStopId() != null) {
-            findRemainingStop(todayStops, current, request.getReplaceStopId()); // 바꿀 칸이 남은 칸이 아니면 400
+            findRemainingStop(todayStops, current, request.getReplaceStopId(), "바꿀 일정을 찾을 수 없어요."); // 남은 칸이 아니면 400
+        }
+        Stop after = null;
+        if (request.getAfterStopId() != null) {
+            after = findRemainingStop(todayStops, current, request.getAfterStopId(), "넣을 자리를 찾을 수 없어요."); // 남은 칸이 아니면 400
         }
         Stop newStop = toNewStop(place, liveStopFinder.getToday(trip));
-        List<Stop> plan = makeInsertPlan(todayStops, current, newStop, request.getReplaceStopId());
+        List<Stop> plan = makeInsertPlan(todayStops, current, newStop, request.getReplaceStopId(), request.getAfterStopId());
         plan = alternativeCalculator.copyStops(plan); // 원본을 고치지 않게 복사본으로 계산
         Alternative result = alternativeCalculator.calculate(trip, current, plan, request.getLat(), request.getLng());
         String shortened = shortenBeforeFixed(plan, result);
@@ -151,7 +165,7 @@ public class LiveServiceImpl implements LiveService {
 
         InsertResponse response = new InsertResponse();
         response.setTrip(tripService.getTrip(memberId, tripId));
-        response.setMessage(getInsertMessage(place, plan, result, shortened));
+        response.setMessage(getInsertMessage(place, after, plan, result, shortened));
         return response;
     }
 
@@ -162,7 +176,7 @@ public class LiveServiceImpl implements LiveService {
         Trip trip = liveTripReader.getOngoingTrip(memberId, tripId, request.getLat(), request.getLng());
         List<Stop> todayStops = liveStopFinder.getTodayStops(trip);
         Stop current = liveStopFinder.findCurrentStop(todayStops, request.getLat(), request.getLng());
-        Stop skipped = findRemainingStop(todayStops, current, request.getStopId()); // 없으면 400
+        Stop skipped = findRemainingStop(todayStops, current, request.getStopId(), "바꿀 일정을 찾을 수 없어요."); // 없으면 400
 
         List<Stop> plan = new ArrayList<>();
         for (Stop stop : todayStops) {
@@ -186,10 +200,13 @@ public class LiveServiceImpl implements LiveService {
 
     // ---------------------------------------------------------------- 채팅 도우미
 
-    /** 추천 질문: Text-to-SQL로 바로 찾기 (places). AI로 못 찾으면 예전처럼 반경 묻기 (ask-radius) */
+    /** 추천 질문: Text-to-SQL로 바로 찾기 (places). AI로 못 찾으면 예전처럼 반경 묻기 (ask-radius). isFollowUp이면 앞 결과 안에서 */
     private void answerRecommend(AssistResponse response, long memberId, long tripId, AssistRequest request,
-                                 String message, ChatIntent intent) {
-        PlaceAskResult found = placeAskService.findPlaces(memberId, tripId, message, request.getLat(), request.getLng());
+                                 String message, ChatIntent intent, boolean isFollowUp) {
+        String prevMessage = isFollowUp ? request.getPrevMessage() : null;
+        List<String> prevPlaceIds = isFollowUp ? request.getPrevPlaceIds() : null;
+        PlaceAskResult found = placeAskService.findPlaces(memberId, tripId, message, prevMessage, prevPlaceIds,
+                request.getLat(), request.getLng());
         if (found.isFallback()) {
             response.setKind("ask-radius");
             response.setCategory(intent.getCategory());
@@ -347,10 +364,13 @@ public class LiveServiceImpl implements LiveService {
 
     // ---------------------------------------------------------------- 놓친 예약 도우미 (11/12)
 
-    /** 넣을 일정: replaceStopId가 없으면 새 칸을 맨 앞에, 있으면 그 칸 자리에 (그 칸은 빠져서 skipped가 됨) */
-    private List<Stop> makeInsertPlan(List<Stop> todayStops, Stop current, Stop newStop, Long replaceStopId) {
+    /**
+     * 넣을 일정: replaceStopId가 있으면 그 칸 자리에 (그 칸은 빠져서 skipped가 됨),
+     * afterStopId가 있으면 그 칸 바로 뒤에, 둘 다 없으면 맨 앞에
+     */
+    private List<Stop> makeInsertPlan(List<Stop> todayStops, Stop current, Stop newStop, Long replaceStopId, Long afterStopId) {
         List<Stop> plan = new ArrayList<>();
-        if (replaceStopId == null) {
+        if (replaceStopId == null && afterStopId == null) {
             plan.add(newStop);
         }
         for (Stop stop : todayStops) {
@@ -358,18 +378,32 @@ public class LiveServiceImpl implements LiveService {
                 continue;
             }
             plan.add(stop.getId().equals(replaceStopId) ? newStop : stop);
+            if (stop.getId().equals(afterStopId)) {
+                plan.add(newStop);
+            }
         }
         return plan;
     }
 
-    /** 남은 칸 중 id가 같은 칸. 없으면 400 */
-    private Stop findRemainingStop(List<Stop> todayStops, Stop current, Long stopId) {
+    /** 이 장소가 지금 있는 칸이거나 남은 칸에 이미 있는지 (다녀온 곳은 다시 넣어도 됨) */
+    private boolean isPlanned(List<Stop> todayStops, Stop current, String placeId) {
+        for (Stop stop : todayStops) {
+            boolean isAhead = stop == current || liveStopFinder.isRemaining(stop, current);
+            if (isAhead && placeId.equals(stop.getPlaceId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 남은 칸 중 id가 같은 칸. 없으면 400 (message) */
+    private Stop findRemainingStop(List<Stop> todayStops, Stop current, Long stopId, String message) {
         for (Stop stop : todayStops) {
             if (liveStopFinder.isRemaining(stop, current) && stop.getId().equals(stopId)) {
                 return stop;
             }
         }
-        throw fail(400, "바꿀 일정을 찾을 수 없어요.");
+        throw fail(400, message);
     }
 
     /** 놓친 가게와 업종 낱말이 하나라도 겹치는 곳만. 이미 일정에 있는 곳(놓친 가게 포함)은 뺌 */
@@ -454,8 +488,9 @@ public class LiveServiceImpl implements LiveService {
     }
 
     /** "카페OO을(를) 다음 일정으로 넣었어요. (청계천 시간을 줄여) 세종문화회관에는 12분 여유가 있어요." */
-    private String getInsertMessage(Place place, List<Stop> plan, Alternative result, String shortened) {
-        String message = place.getName() + "을(를) 다음 일정으로 넣었어요. ";
+    private String getInsertMessage(Place place, Stop after, List<Stop> plan, Alternative result, String shortened) {
+        String where = after == null ? "다음 일정으로" : after.getName() + " 다음에";
+        String message = place.getName() + "을(를) " + where + " 넣었어요. ";
         if (shortened != null) {
             message += shortened + " 시간을 줄여 ";
         }

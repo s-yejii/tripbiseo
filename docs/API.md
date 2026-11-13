@@ -151,7 +151,7 @@
 | `POST /api/trips/{id}/live/status` | 지금 상황 다시 계산 (알림·여유·날씨) | live/LiveView, live/LiveDelayView | 있음 |
 | `POST /api/trips/{id}/live/assist` | 여행 중 채팅 (Gemini가 말 분류) | live/LiveView (AI 채팅 AskPanel) | 있음 |
 | `POST /api/trips/{id}/live/recommend` | 반경 안 평점 상위 3곳 추천 | live/LiveView (AI 채팅 AskPanel) | 있음 |
-| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 (`replaceStopId`면 그 칸 자리에) | live/LiveView (AI 채팅 AskPanel), live/SimilarPlaceView | 있음 |
+| `POST /api/trips/{id}/live/insert` | 추천 장소를 다음 일정으로 넣기 (`replaceStopId`면 그 칸 자리에) | live/LiveView (AI 채팅 AskPanel, 놓친 예약 비슷한 가게 SimilarSearch) | 있음 |
 | `POST /api/trips/{id}/live/skip` | 못 가게 된 일정 빼고 다음 장소로 (11/12) | live/LiveView (놓침 카드) | 있음 |
 | `POST /api/trips/{id}/live/link-fit` | 링크로 찾은 장소를 남은 일정에 넣어 보기 (저장 안 함) | live/LiveView (LinkAddSheet), live/LinkFitView | 있음 |
 | `POST /api/trips/{id}/live/alternatives` | 대안 A·B·C 만들기 | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
@@ -159,7 +159,7 @@
 | `POST /api/trips/{id}/live/preview` | 직접 고친 남은 일정 계산 (저장 안 함) | live/AlternativesView, live/AltTrimView, live/AltDropView, live/AltSwapView | 있음 |
 | `GET /api/trips/{id}/live/swap-candidates` | 바꿀 장소 후보 (바꿨을 때 여유 포함) | live/AltSwapView | 있음 |
 | (주소 미정) | 줄서기 대기 시간 반영 | live/LiveView (TablingModal) | 확인 필요 |
-| (주소 미정) | "그냥 갈게요" (늦어도 그대로 가기) | live/LateModalView, member/LockDelayView | 확인 필요 |
+| (주소 미정) | "그냥 갈게요" (늦어도 그대로 가기) | member/LockDelayView, member/LockPushView | 확인 필요 |
 
 ### ⑤ 여행 후·지도 부가 (after)
 
@@ -1172,7 +1172,7 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 | now | string | 지금 시각 |
 | currentStopId | number (null 가능) | 지금 있는 일정 칸 id (도착했고 아직 출발 안 함, 또는 150m 안) |
 | alert | object (null 가능) | 화면 맨 위 알림 1개 `{key, level, title, text, repeat}` |
-| alert.key | string | 중복 알림 방지 키. 앞부분: `lost-` 식당·카페 예약에 가장 빠른 방법으로도 못 닿음 (11/12) / `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / `next-` 다음 장소 지각 / `rain-` 다음 경로 비 소식 |
+| alert.key | string | 중복 알림 방지 키. 앞부분: `lost-` 고정 일정에 가장 빠른 방법으로도 못 닿음 (11/12) / `overdue-` 더 머묾 / `closed-` 영업 끝·휴무 (danger), 열려 있지만 닫을 때까지 남은 분이 머무는 시간보다 짧음 (warn) / `late-` 고정 일정 지각 / `leave-` 출발 알림 / `missed-` 지난 일정 / `tight-` 고정 여유 10분 이하 / ~~`next-` 다음 장소 지각~~ (11/12부터 안 보냄) / `rain-` 다음 경로 비 소식 |
 | alert.level | string | `danger` / `warn` |
 | alert.repeat | boolean (없을 수 있음) | `leave-` 알림에만 `true` |
 | leave | object (null 가능) | 출발 시각 ±10분 안일 때만 `{stopId, name, leaveAt, minutesLeft, to, atStop}`. `stopId`는 지금 있는 칸 또는 다음 칸 id. `minutesLeft`는 −10~10(음수=지남), `to`는 다음 장소 이름(null 가능), `atStop`이 `true`면 지금 있는 곳에서 출발 |
@@ -1207,14 +1207,14 @@ GPS 한 점을 저장하고 도착·출발을 기록해요. · 로그인 필요 
 
 | 순서 | key | 언제 | level |
 |---|---|---|---|
-| 0 | `lost-{고정 칸}` | 식당·카페·술집 고정 일정에 늦는데(`fixed.slackMin` < 0), 가장 빠른 방법(택시·지하철 갈아타기·대중교통 중 가장 짧은 것)으로 지금 바로 가도 예약 시각을 넘김 (유예 0분). `title`은 가게 이름. 가장 빠른 방법은 늦는 분이 10분 바뀔 때마다만 다시 계산 (11/12) | danger |
+| 0 | `lost-{고정 칸}` | 고정 일정에 늦는데(`fixed.slackMin` < 0), 가장 빠른 방법(택시·지하철 갈아타기·대중교통 중 가장 짧은 것)으로 지금 바로 가도 그 시각을 넘김 (유예 0분). `title`은 장소 이름, `text`의 시각 이름은 식당·카페·술집이면 "예약 시각", 그 밖은 "약속 시각". 가장 빠른 방법은 늦는 분이 10분 바뀔 때마다만 다시 계산. 화면은 가운데 놓침 카드, 그 칸이 `stops[].meal`이면 비슷한 가게 찾기도 (11/12) | danger |
 | 1 | `overdue-{칸}-{더 머문 분÷5}` | 지금 칸에서 떠날 시각(도착 + 머묾)이 지남 | danger |
 | 2 | `closed-{칸}` / `closed-{칸}-short` | 남은 칸이 도착할 때 닫힘·휴무 / 열려 있지만 닫을 때까지 남은 분 < 머무는 시간 | danger / warn |
-| 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0 | danger |
+| 3 | `late-{고정 칸}-{늦는 분÷10}` | 고정 일정 여유(`fixed.slackMin`) < 0, 대안으로 만회 가능. 화면은 위 배너 + [10분 뒤 다시] [알림 끄기](그 예약 늦음 배너 끔, 놓침 카드는 뜸), 누르면 지연 화면 (11/12) | danger |
 | 4 | `leave-{칸}-{남은 분}` | `leave`가 있음 (출발 ±10분). `repeat: true` | 남은 분 > 0이면 warn, 아니면 danger |
 | 5 | `missed-{칸}` | 계획 시각 + 머묾이 지났는데 도착 기록이 없는 고정(예약) 칸. 느슨한 칸은 시간이 밀릴 뿐이라 안 봄 (11/12: 코드에 맞춰 고침, 예전 문구 "고정 일정 제외"는 틀렸음) | warn |
 | 6 | `tight-{고정 칸}` | 고정 일정 여유 ≤ 10분 | warn |
-| 7 | `next-{칸}-{늦는 분÷10}` | 다음 칸에 10분 넘게 늦게 도착 | warn |
+| 7 | ~~`next-{칸}-{늦는 분÷10}`~~ | 11/12부터 알림으로 안 보냄. 지연 알림은 고정 일정 기준만 (앞 일정이 밀린 영향은 고정 일정 예상 도착에 이미 들어 있음). `replan` 판단에는 그대로 씀 | |
 | 8 | `rain-{비 시작 HHmm}` | 다음 경로에 비·눈 소식이 있고 그때 야외에 있을 칸이 있음 (`weather.outdoor`). 예보가 바뀌어 비 시작 시각이 달라지면 다시 울림 | warn |
 
 key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
@@ -1224,7 +1224,9 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ### `POST /api/trips/{id}/live/assist`
 여행 중 채팅이에요. Gemini가 사용자 말을 분류해요. · 로그인 필요 · 화면: live/LiveView (지도 아래 "AI에게 묻기" → `components/live/AskPanel.vue`)
 
-**요청** `message`(1~300자), `lat`, `lng`
+**요청** `message`(1~300자), `lat`, `lng`, `prevMessage`(바로 앞 질문, 없으면 생략), `prevPlaceIds`(바로 앞에 찾은 장소 id 목록, 최대 10, 없으면 생략)
+
+> 이어지는 질문 (11/13): `prevPlaceIds`가 있고 말에 "이 중/이중/그중/그 중/여기서/거기서"가 있으면 추천으로 보고, 앞 결과 안에서만 찾아요 (SQL 빈칸 `:prev`). 그런 말이 없으면 앞 결과는 쓰지 않아요.
 
 **응답** `kind`에 따라 세 가지 중 하나
 
@@ -1245,12 +1247,14 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 |---|---|---|
 | message | string | 안내 한 줄 ("4곳을 찾았어요", 표에 없는 조건이면 "가격 정보가 없어서 …"처럼 이유) |
 | explain | string | 어떻게 찾았는지 한 줄 (Gemini가 씀, 없으면 null) |
-| sql | string | AI가 쓴 SQL. 빈칸(`:route`·`:me`·`:next`·`:slack`) 그대로라 좌표 없음. "이렇게 찾았어요"에 보여 줌 |
+| sql | string | AI가 쓴 SQL. 빈칸(`:route`·`:me`·`:next`·`:slack`·`:prev`) 그대로라 좌표 없음. 화면에는 안 보여 줌 (11/13) |
 | slack | number | 다음 일정까지 지금 여유(분), 남은 일정이 없으면 null |
 | band | string | 지도에 그릴 가는 길 띠 (경로 양옆 190m, GeoJSON). 가는 길로 찾지 않았으면 null |
-| places | array | 찾은 곳 (최대 10, AI SQL이 정한 순서). `id`, `name`, `kind`, `category`, `lat`, `lng`, `rating`(보정 평점), `reviewCount`, `detourMinutes`(가는 길에서 몇 분 더, 없으면 null), `joinLat`·`joinLng`(가는 길 위 가장 가까운 점), `closeAt`, `closingSoon`, `slackAfter`(30분 머물고 남는 여유, 계산 못 하면 null). 지금 닫힌 곳은 빠짐 |
+| places | array | 찾은 곳 (최대 10, AI SQL이 정한 순서). `id`, `name`, `kind`, `category`, `lat`, `lng`, `rating`(보정 평점), `reviewCount`, `detourMinutes`(가는 길에서 몇 분 더, 없으면 null. 덜 돌아가는 순으로 찾았으면 실제 걷는 길로 다시 잰 값), `walkMinutes`(지금 위치 → 이곳 실제 걷는 시간, 다시 재지 않았으면 null), `isEstimate`(다시 잴 때 길찾기가 실패해 거리로 어림했으면 true), `joinLat`·`joinLng`(가는 길 위 가장 가까운 점), `closeAt`, `closingSoon`, `slackAfter`(30분 머물고 남는 여유, 계산 못 하면 null). 지금 닫힌 곳은 빠짐 |
 
 > Text-to-SQL: Gemini가 SQL을 쓰고(좌표 없이 빈칸만) → `SqlChecker`(JSqlParser)가 SELECT 하나·허용한 뷰(`ask_place`·`ask_review`)·함수·상한·LIMIT 10을 검사(떨어지면 이유를 붙여 한 번 더) → 읽기 전용 트랜잭션에서 `ask_reader` 계정 + 3초 제한으로 실행해요 (`db/18_ask_place.sql`). 가는 길(`:route`)은 다음 칸까지 걸어갈 때만 써요. Gemini 실패·검사 두 번 탈락·DB 3초 초과면 `"ask-radius"`로 돌아가요.
+
+> 실제 걷는 길로 다시 재기 (11/13): SQL이 덜 돌아가는 순(`detour_minutes`)이나 내 위치에서 가까운 순(`ST_Distance(…, :me)`)으로 줄 세우면, 후보를 5곳까지 넉넉히 뽑아 TMAP 보행자 길찾기로 다시 재고 줄 세운 뒤 원한 개수만 남겨요. 돌아가는 분 = (나 → 이곳) + (이곳 → 다음 장소) − (나 → 다음 장소).
 
 > `text` 답: 자주 하는 질문(다음 일정·여유·날씨)은 정해진 문장으로, 그 밖은 Gemini가 **서버가 계산한 오늘 상황(live/status)만 근거로** 답해요. 답에 근거에 없는 시각·분이 있으면 버리고 기본 문장으로 바꿔요. 좌표는 Gemini에 보내지 않아요.
 
@@ -1285,13 +1289,13 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 ### `POST /api/trips/{id}/live/insert`
 추천 장소를 바로 다음 일정으로 넣어요. · 로그인 필요 · 화면: live/LiveView (AskPanel의 "일정에 넣기")
 
-**요청** `placeId`(장소 카드의 `id`), `lat`, `lng`, `replaceStopId`(선택, 11/12: 놓친 예약 칸 id)
+**요청** `placeId`(장소 카드의 `id`), `lat`, `lng`, `replaceStopId`(선택, 11/12: 놓친 예약 칸 id), `afterStopId`(선택, 11/13: 이 남은 칸 바로 뒤에 넣기)
 
-**동작** 새 칸(카페면 40분, 아니면 60분)을 넣고 남은 일정 시각을 다시 계산해 저장. 고정 일정에 늦으면 그 앞 칸 머무는 시간을 최대 절반까지 줄임. `replaceStopId`가 있으면 맨 앞 대신 그 칸 자리에 넣고, 그 칸은 `skipped`가 돼요.
+**동작** 새 칸(카페면 40분, 아니면 60분)을 넣고 남은 일정 시각을 다시 계산해 저장. 고정 일정에 늦으면 그 앞 칸 머무는 시간을 최대 절반까지 줄임. `replaceStopId`가 있으면 맨 앞 대신 그 칸 자리에 넣고, 그 칸은 `skipped`가 돼요. `afterStopId`가 있으면 그 칸 바로 뒤에 넣어요 (화면: 넣을 자리 고르기 시트, 고를 때마다 `/live/preview`로 바뀐 시각을 보여 줌).
 
 **응답** `{ "trip": Trip, "message": "카페OO을(를) 다음 일정으로 넣었어요. 세종문화회관에는 12분 여유가 있어요." }`
 
-**오류** 공통 오류 · 404 "장소를 찾을 수 없어요." · 400 "바꿀 일정을 찾을 수 없어요." (`replaceStopId`가 남은 칸이 아님)
+**오류** 공통 오류 · 404 "장소를 찾을 수 없어요." · 400 "바꿀 일정을 찾을 수 없어요." (`replaceStopId`가 남은 칸이 아님) · 400 "넣을 자리를 찾을 수 없어요." (`afterStopId`가 남은 칸이 아님) · 400 "이미 일정에 있는 곳이에요." (지금 있는 칸이나 남은 칸에 같은 장소가 있음, 11/13)
 
 ### `POST /api/trips/{id}/live/skip`
 못 가게 된 일정(놓친 예약 등) 하나를 빼고, 남은 일정을 앞으로 당겨 다시 계산해 저장해요. · 로그인 필요 · 화면: live/LiveView (놓침 카드의 "빼고 다음 장소로") · 11/12 추가

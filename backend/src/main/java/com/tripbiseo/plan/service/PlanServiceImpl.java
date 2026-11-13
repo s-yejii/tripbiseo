@@ -70,6 +70,8 @@ public class PlanServiceImpl implements PlanService {
     private static final int MAX_PROMPT_CANDIDATES = 90;
     private static final int MAX_REASON_LENGTH = 40;      // Gemini 이유 한 줄
     private static final int MAX_MEMO_LENGTH = 200;       // trip_stop.memo 저장 규칙
+    private static final java.util.regex.Pattern WEAK_EVIDENCE = java.util.regex.Pattern.compile("리뷰 \\d+개 중 (\\d+)개");
+    private static final int MIN_EVIDENCE_COUNT = 3;      // 리뷰에서 이만큼은 나와야 근거로 붙임 (11/12)
     private static final int TODAY_START_AFTER_MIN = 60;  // 오늘 출발이면 지금부터 1시간 뒤부터 (PlanRuleMaker와 같게)
     private static final int FALLBACK_START_MIN = 600;    // AI 없이: 10:00부터 2시간 간격
     private static final int FALLBACK_GAP_MIN = 120;
@@ -227,6 +229,7 @@ public class PlanServiceImpl implements PlanService {
         removeRepeatedStops(response.getStops()); // 같은 곳 두 번 (11/06)
         removeAfterBoarding(response.getStops(), days); // KTX 탄 뒤 일정 (11/06)
         addKeptAndSort(conditions, response, days);
+        planRuleMaker.fixTravelTimes(response); // 순서를 바꾼 뒤 이동 시간이 모자란 칸을 밀거나 줄임 (11/12)
         planRuleMaker.addStayStops(response, conditions, days);
         if (response.getStops().isEmpty()) {
             boolean isMissingLocation = isNearMe && request.getLat() == null;
@@ -561,7 +564,7 @@ public class PlanServiceImpl implements PlanService {
             { "candidates", "20", "장소 후보 찾기" },
             { "reviews", "40", "리뷰로 단체석·분위기 확인" },
             { "ai", "80", "AI가 일정 고르기" },
-            { "fixed", "95", "회식 18:30 · KTX 19:00 시간에 맞추기" },
+            { "fixed", "95", "1일차 19:00 회식 · 2일차 12:30 스시도 시간에 맞추기" }, // 11/12 촬영 시나리오
         };
         for (String[] step : steps) {
             waitDemoStep();
@@ -1185,7 +1188,7 @@ public class PlanServiceImpl implements PlanService {
                 // 관광공사 정보에 "방문 전 연락 필수"인 곳은 미리 알려 줌 (11/07 점검: 삼해소주를 아무 안내 없이 넣었음)
                 response.getNotes().add(makeNote(place.getName() + "은(는) 방문 전에 연락이 필요해요", placeService.getNaverUrl(place.getName(), null)));
             }
-            stop.setMemo(makeMemo(pick.getReason(), reasons.get(place.getId())));
+            stop.setMemo(makeMemo(pick.getReason(), reasons.get(place.getId()), conditions.getCompanion()));
             stop.setImportance(isMustStop(pick, place, conditions, mustKindsLeft) ? MUST : MAYBE); // 여행 중 대안이 꼭은 안 줄임 (11/04)
             response.getStops().add(stop);
         }
@@ -1200,15 +1203,41 @@ public class PlanServiceImpl implements PlanService {
     }
 
     /** 일정 칸 메모 = Gemini가 쓴 이유 + 리뷰 근거 ("성수 감성 카페 · 분위기 좋아요 · 리뷰 10개 중 6개"). 둘 다 없으면 null, 200자까지 */
-    private String makeMemo(String reason, List<String> evidence) {
+    private String makeMemo(String reason, List<String> evidence, String companion) {
         List<String> parts = new ArrayList<>();
-        if (hasText(reason)) {
+        if (hasText(reason) && isFitReason(reason, companion)) {
             parts.add(cut(reason.trim(), MAX_REASON_LENGTH));
         }
         if (evidence != null) {
-            parts.addAll(evidence);
+            for (String item : evidence) {
+                // 11/12: 친구 5명인데 "데이트하기 좋아요", 같은 근거가 두 번, "리뷰 10개 중 2개"처럼 약한 근거가 붙던 것 정리
+                boolean isRepeated = !parts.isEmpty() && parts.get(0).contains(headOf(item));
+                if (isFitReason(item, companion) && !isRepeated && !isWeakEvidence(item)) {
+                    parts.add(item);
+                }
+            }
         }
         return parts.isEmpty() ? null : cut(String.join(" · ", parts), MAX_MEMO_LENGTH);
+    }
+
+    /** 누구랑에 안 맞는 이유인지: 연인이 아니면 "데이트", 혼자가 아니면 "혼밥" 이유는 안 붙임 */
+    private boolean isFitReason(String text, String companion) {
+        if (text.contains("데이트") && !"연인".equals(companion)) {
+            return false;
+        }
+        return !text.contains("혼밥") || "혼자".equals(companion);
+    }
+
+    /** 근거 앞부분 ("분위기 좋아요 · 리뷰 10개 중 6개" → "분위기") */
+    private String headOf(String evidence) {
+        String head = evidence.split("[ ·]")[0];
+        return head.length() > 2 ? head.substring(0, 2) : head;
+    }
+
+    /** "리뷰 10개 중 2개"처럼 리뷰 3개 미만에서 나온 근거는 약해서 안 붙임 */
+    private boolean isWeakEvidence(String evidence) {
+        java.util.regex.Matcher matcher = WEAK_EVIDENCE.matcher(evidence); // Matcher: 글자에서 패턴을 찾는 자바 도구
+        return matcher.find() && Integer.parseInt(matcher.group(1)) < MIN_EVIDENCE_COUNT;
     }
 
     /** 초안 칸 (②의 저장 규칙: day 1~기간, time HH:mm, stay 10~600) */

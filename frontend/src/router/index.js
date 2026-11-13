@@ -74,10 +74,8 @@ const routes = [
   { path: '/live/alt/trim', component: () => import('@/views/live/AltTrimView.vue'), meta: { parent: '/live/alt', owner: 4, title: 'S16-a2 시간 줄이기 슬라이더', overlay: true } },
   { path: '/live/alt/drop', component: () => import('@/views/live/AltDropView.vue'), meta: { parent: '/live/delay', owner: 4, title: 'S16-b 대안 · 한 곳 빼기' } },
   { path: '/live/alt/swap', component: () => import('@/views/live/AltSwapView.vue'), meta: { parent: '/live/delay', owner: 4, title: 'S16-c 장소 바꾸기 (지연·비 공용)' } },
-  { path: '/live/similar', component: () => import('@/views/live/SimilarPlaceView.vue'), meta: { parent: '/live', owner: 4, title: 'S16-e 놓친 예약 · 비슷한 근처 가게' } },
   { path: '/live/link-fit', component: () => import('@/views/live/LinkFitView.vue'), meta: { parent: '/live', owner: 3, title: 'S16-d 링크로 넣기 · 방법 고르기' } },
   { path: '/live/applied', component: () => import('@/views/live/AppliedView.vue'), meta: { parent: '/live', owner: 4, title: 'S17 바뀐 일정' } },
-  { path: '/live/reserve-late', component: () => import('@/views/live/LateModalView.vue'), meta: { parent: '/live', owner: 4, title: 'S18 예약에 늦어요', overlay: true } },
 
   // ⑤ 길 안내·결제 메모·회고·앨범·카드 등록
   { path: '/live/route', component: () => import('@/views/after/RouteGuideView.vue'), meta: { parent: '/live', owner: 5, title: 'S13-e 길 안내 · 버스 정류장' } },

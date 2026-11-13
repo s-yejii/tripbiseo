@@ -40,15 +40,31 @@ export const useReplanStore = defineStore('replan', () => {
   const appliedAt = ref(0)
   const mutedLate = ref(null) // "그냥 갈게요"를 누른 때 늦는 분 (10분 더 늦어지면 다시 알림)
   const mutedFor = ref('') // 그 늦음이 어느 여행·예약 것인지 "여행id:예약이름" (11/09: 다른 여행·다른 예약까지 조용해지던 문제)
+  const isMutedForever = ref(false) // "그냥 갈게요"·"그래도 갈게요"로 그대로 가기로 함 → 그 예약은 더 늦어져도 다시 안 알림 (11/12)
+  const lateOffFor = ref('') // [알림 끄기]를 누른 "여행id:예약이름" → 그 예약의 늦음 배너는 더 안 띄움 (놓침 카드는 뜸, 11/12)
   const MUTE_AGAIN_MIN = 10
-  // 이 여행·이 예약의 늦음을 "알고 가는 중"인지 (대안을 골랐거나 그냥 가기로 함, 10분 더 늦어지기 전까지)
+  // 이 여행·이 예약의 늦음을 "알고 가는 중"인지 (대안을 골랐으면 10분 더 늦어지기 전까지, 그대로 가기로 했으면 계속)
   function isMutedFor(id, fixedName, lateMin) {
-    return mutedLate.value !== null && mutedFor.value === id + ':' + fixedName && lateMin < mutedLate.value + MUTE_AGAIN_MIN
+    if (mutedLate.value === null || mutedFor.value !== id + ':' + fixedName) return false
+    return isMutedForever.value || lateMin < mutedLate.value + MUTE_AGAIN_MIN
   }
-  // 늦음을 알고 가기로 함 (대안 적용·그냥 갈게요)
-  function muteLate(lateMin) {
+  // 늦음을 알고 가기로 함 (대안 적용: 10분 더 늦으면 다시 / 그대로 가기: isForever)
+  function muteLate(lateMin, isForever = false) {
+    muteFixed(tripId.value, basisStop.value ? basisStop.value.name : '', lateMin, isForever)
+  }
+  // 여행·예약 이름을 직접 받아서 (여행 중 화면의 놓침 카드처럼 이 저장소를 안 불러온 곳에서)
+  function muteFixed(id, fixedName, lateMin, isForever) {
     mutedLate.value = lateMin
-    mutedFor.value = tripId.value + ':' + (basisStop.value ? basisStop.value.name : '')
+    mutedFor.value = id + ':' + fixedName
+    isMutedForever.value = isForever
+  }
+  // [알림 끄기]: 이 여행·예약의 늦음 배너를 끔
+  function turnOffLate(id, fixedName) {
+    lateOffFor.value = id + ':' + fixedName
+  }
+  // 늦음 배너를 끈 예약인지
+  function isLateOffFor(id, fixedName) {
+    return lateOffFor.value === id + ':' + fixedName
   }
   const linkFit = ref(null) // 링크로 넣어 본 결과 { place, result } (POST /live/link-fit, 링크 추가 화면이 씀)
   const isLoading = ref(false)
@@ -157,7 +173,7 @@ export const useReplanStore = defineStore('replan', () => {
   }
 
   return {
-    tripId, position, trip, status, options, base, trimPlan, before, applied, plan, mutedLate, mutedFor, isMutedFor, muteLate, linkFit, isLoading, error,
+    tripId, position, trip, status, options, base, trimPlan, before, applied, plan, mutedLate, mutedFor, isMutedForever, isMutedFor, muteLate, muteFixed, lateOffFor, turnOffLate, isLateOffFor, linkFit, isLoading, error,
     stops, lateMin, basisStop, currentStop, canUndo,
     load, findOption, preview, trimList, apply, undo,
   }

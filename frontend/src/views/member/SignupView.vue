@@ -8,6 +8,7 @@ import TopBar from '@/components/common/TopBar.vue'
 import { showToast } from '@/utils/toast'
 import { get, post } from '@/api/http'
 import { useEmailCode } from '@/utils/useEmailCode'
+import { getPathAfterLogin } from '@/utils/permissionSeen'
 
 const router = useRouter()
 
@@ -121,7 +122,7 @@ async function join() {
   try {
     await post('/auth/signup', { ...account, nickname: nickname.value.trim(), email: email.value.trim() })
     await post('/auth/login', account)
-    router.replace('/permission')
+    router.replace(getPathAfterLogin(account.username)) // 새 아이디라 처음엔 권한 화면
   } catch (e) {
     showToast(e.message) // 예: "이미 쓰는 아이디예요." (서버가 보낸 문장)
   } finally {

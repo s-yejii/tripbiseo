@@ -23,7 +23,7 @@ public interface PlaceAskMapper {
     /** AI가 쓴 SQL 실행 → 장소 id (SQL이 정한 순서). 빈칸 값이 없으면 null로 들어감 */
     List<String> selectPlaceIdsBySql(@Param("sql") String sql, @Param("route") String route,
                                      @Param("me") String me, @Param("next") String next,
-                                     @Param("slack") Integer slack);
+                                     @Param("slack") Integer slack, @Param("prev") String prev);
 
     /** 고른 장소에 정보 붙이기 (+분·점선 시작점은 route가 있을 때만) */
     List<AskedPlace> selectAskedPlaceList(@Param("ids") List<String> ids, @Param("route") String route);

@@ -41,13 +41,31 @@ public class SqlPromptMaker {
         new String[] {"만원 이하 파스타", null,
             "가격 정보가 없어서 가격으로는 찾을 수 없어요"});
 
+    /** 이어지는 질문 예시 (앞 결과가 있을 때만 프롬프트에 넣음, 11/13). 한 문장에 맞추지 않게 정렬·조건을 여러 가지로 */
+    static final List<String[]> FOLLOW_EXAMPLES = List.of(
+        new String[] {"이 중에 제일 안 돌아가는 데",
+            "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY detour_minutes(p.geom, :route) LIMIT 1",
+            "앞에서 찾은 곳 중 가는 길에서 가장 덜 돌아가는 곳이에요"},
+        new String[] {"그중에 평점 높은 순으로",
+            "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY p.rating_adj DESC LIMIT 10",
+            "앞에서 찾은 곳을 평점 높은 순으로 다시 줄 세웠어요"},
+        new String[] {"여기서 지금 제일 가까운 데",
+            "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY ST_Distance(p.geom, :me) LIMIT 1",
+            "앞에서 찾은 곳 중 지금 위치에서 가장 가까운 곳이에요"},
+        new String[] {"이 중에 조용한 데만",
+            "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) "
+                + "AND (SELECT COUNT(*) FROM ask_review r WHERE r.place_id = p.id AND r.content ILIKE '%조용%') >= 2 "
+                + "ORDER BY p.rating_adj DESC LIMIT 10",
+            "앞에서 찾은 곳 중 리뷰 2개 이상에 '조용'이 나온 곳이에요"});
+
     /**
      * Gemini에 보낼 글
      * @param message     사용자 말
-     * @param usable      지금 값이 있는 빈칸 (route·me·next·slack 중). 대중교통 구간이면 route가 없음
+     * @param prevMessage 바로 앞 질문 (이어지는 질문일 때만, 아니면 null)
+     * @param usable      지금 값이 있는 빈칸 (route·me·next·slack·prev 중). 대중교통 구간이면 route가 없음
      * @param retryReason 방금 쓴 SQL이 검사에서 떨어진 이유 (처음 물을 때는 null)
      */
-    public String makePrompt(String message, Set<String> usable, String retryReason) {
+    public String makePrompt(String message, String prevMessage, Set<String> usable, String retryReason) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("여행 중인 사용자의 말을 PostgreSQL(PostGIS) SELECT 문 하나로 바꿔. JSON으로만 답해.\n\n");
         prompt.append(tableText()).append('\n');
@@ -55,7 +73,12 @@ public class SqlPromptMaker {
         prompt.append(placeholderText(usable)).append('\n');
         prompt.append(ruleText()).append('\n');
         prompt.append(answerText()).append('\n');
-        prompt.append(exampleText()).append('\n');
+        prompt.append(exampleText(EXAMPLES)).append('\n');
+        boolean isFollowUp = usable != null && usable.contains("prev");
+        if (isFollowUp) {
+            prompt.append(followText()).append('\n');
+            prompt.append("앞 질문: \"").append(clean(prevMessage)).append("\" (그 결과가 :prev)\n");
+        }
         prompt.append("사용자 말: \"").append(clean(message)).append("\"\n");
         if (retryReason != null) {
             prompt.append("\n방금 쓴 SQL은 쓸 수 없어: \"").append(retryReason).append("\". 규칙대로 다시 써.\n");
@@ -89,7 +112,7 @@ public class SqlPromptMaker {
     /** 빈칸 설명 + 지금 쓸 수 있는 빈칸 */
     private String placeholderText(Set<String> usable) {
         return "[빈칸] 좌표 숫자는 쓰지 말고 이 이름만 써. 값은 서버가 넣어\n"
-             + ":route 지금 가는 길 / :me 내 위치 / :next 다음 장소 / :slack 다음 일정까지 여유(분)\n"
+             + ":route 지금 가는 길 / :me 내 위치 / :next 다음 장소 / :slack 다음 일정까지 여유(분) / :prev 바로 앞에 찾은 장소들\n"
              + "지금 쓸 수 있는 빈칸: " + usableText(usable) + "\n"
              + "가는 길(:route)을 쓸 수 없으면 다음 장소(:next)나 내 위치(:me) 근처로 찾아\n";
     }
@@ -102,6 +125,8 @@ public class SqlPromptMaker {
              + "- 리뷰(ask_review)는 조용한·뷰·데이트 같은 분위기에만 쓰고, 한 곳에 2개 이상 나올 때만 인정해\n"
              + "- 머무는 시간을 말하지 않으면 30분으로 생각해\n"
              + "- 정렬을 말하지 않으면 rating_adj DESC\n"
+             + "- '안 돌아가는·덜 돌아가는·가는 길에서 가까운'은 detour_minutes(geom, :route) 작은 순, '가까운'만 말하면 ST_Distance(geom, :me) 작은 순\n"
+             + "- '제일·가장' 하나를 물으면 LIMIT 1\n"
              + "- 가격·메뉴·혼잡도·웨이팅 시간은 표에 없어. 그런 조건이 핵심이면 supported false\n";
     }
 
@@ -111,9 +136,16 @@ public class SqlPromptMaker {
              + "못 찾으면 {\"supported\": false, \"reason\": \"왜 못 찾는지 한 줄\"}\n";
     }
 
-    private String exampleText() {
+    /** 이어지는 질문 규칙 + 예시 */
+    private String followText() {
+        return "[이어지는 질문] 사용자가 앞 결과를 말하고 있어 (이 중·그중·여기서). 반드시 WHERE에 p.id IN (:prev)를 넣고 그 안에서만 찾아.\n"
+             + "장소 종류(kind)는 이미 앞에서 골랐으니 다시 거르지 않아도 돼\n"
+             + exampleText(FOLLOW_EXAMPLES);
+    }
+
+    private String exampleText(List<String[]> examples) {
         StringBuilder text = new StringBuilder("[예시]\n");
-        for (String[] example : EXAMPLES) {
+        for (String[] example : examples) {
             text.append("말: ").append(example[0]).append('\n');
             if (example[1] == null) {
                 text.append("{\"supported\": false, \"reason\": \"").append(example[2]).append("\"}\n");

@@ -17,6 +17,7 @@
 | `db/08_retrip_cleanup.sql` | 여행 갈 곳이 아닌 관광공사 장소 22곳 지우기 (동상·기념비·어린이공원·~터, KBS온·국회의사당, 가게·방탈출·끝난 행사) + 편의시설 값을 네이버 표준 18개만 남기기 + 폐업 16곳·크롤링 확인 3곳·중복 9곳 삭제, 좌표 3곳 + 노트북 정제(예전 관광공사 176곳·관광공사 153곳·스터디카페 34곳·애매 업종 12곳 삭제, 날짜·격주 휴무 조각, 휴무일 글 통일, 주소 "서울특별시", 사진 https). 07 다음에 실행 (11/06~07) | DB 총괄 |
 | `db/09_retrip_seed_yeongdeungpo.sql` | 시연 경로(문래·영등포·여의도) 주변 쇼핑 5·들를 곳 4·숙소 5곳(호텔 4, 비즈니스호텔 1) (`source='demo'`, 좌표 OpenStreetMap). 08 다음에 실행 (11/06) | DB 총괄 |
 | `db/10_retrip_update_demo_places.sql` | 시연 장소 평점·영업시간·소개를 네이버 지도 화면대로 고치기. 09 다음에 실행 (11/06) | DB 총괄 |
+| `db/10b_retrip_seed_tour_stay.sql` | 시나리오 5개 구(중구·종로구·강남구·용산구·영등포구) 숙박 217곳 (TourAPI, `content_type_id='32'`, `source='tour'`). `use_time`에 '체크인 HH:MM · 체크아웃 HH:MM'. 르메르디앙 서울 명동은 시연용으로 체크인 15:00·체크아웃 11:00(실제 16:00·12:00). 09와 겹치는 4곳 뺌. 08이 예전 관광공사 숙소를 지우므로 10 다음에 실행 (11/12) | DB 총괄 |
 | `db/11_member.sql` | ① 테이블 | ① |
 | `db/12_trip.sql` | ② 테이블 (`trip_chat`) | ② |
 | `db/13_plan.sql` | ③ 테이블 | ③ |
@@ -308,12 +309,13 @@
 | place_id | TEXT → retrip_place (ON DELETE SET NULL) | DB에 없는 장소면 NULL |
 | name | VARCHAR(60) NOT NULL UNIQUE | 칸 이름과 맞춰볼 이름 |
 | source | VARCHAR(40) NOT NULL | 출처 (예: `osm:relation/7550666`) |
-| boundary | geography(MultiPolygon, 4326) NOT NULL, GIST 인덱스 | 경계 |
+| boundary | geography(Geometry, 4326) NOT NULL, GIST 인덱스, CHECK `ST_IsValid(boundary::geometry)` | 경계. 공원 같은 면, 둘레길 같은 선 둘 다 (11/12: MultiPolygon → Geometry). 모양이 깨진 경계는 못 들어와요 (제약 `place_area_boundary_valid`, 11/12) |
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
 
 - 칸과 잇는 법: `place_id`가 같거나 이름이 같을 때만(띄어쓰기 무시). 좌표로만 이으면 안 돼요 (여의도샛강생태공원도 여의도한강공원 경계 안에 있음)
 - 도착: 지금 점·앞 점 둘 다 경계 30m 안. 출발: 둘 다 경계 80m 밖. 경계 없는 칸은 예전처럼 150m/200m
-- 지금 들어 있는 곳: 여의도한강공원 1개. 출처 © OpenStreetMap contributors (ODbL), 앱에 경계를 보여주면 출처 표기 필요
+- 선(길)이면 길에서 30m 안 = 도착, 80m 밖 = 출발 (판정 쿼리는 같은 `ST_Distance`)
+- 지금 들어 있는 곳: 여의도한강공원(면), 남산순환나들길(선, 11/12: OSM 남산북측·남측순환로·남산공원길 8조각을 합침). 출처 © OpenStreetMap contributors (ODbL), 앱에 경계를 보여주면 출처 표기 필요
 ### ask_place · ask_review · ask_reader · AI에게 묻기 (④, `18_ask_place.sql`, 11/06)
 
 여행 중 "가는 길에 5분 안 카페"처럼 물으면 AI(Gemini)가 SQL을 써 주고, 서버가 검사한 뒤 실행해요. AI는 SQL을 글자로 쓰기만 하고 DB에 붙지 않아요.
@@ -392,3 +394,26 @@
 | created_at | TIMESTAMP NOT NULL DEFAULT NOW() | |
 
 `UNIQUE (member_id, organization)`. **카드사 아이디·비밀번호·카드 번호는 저장하지 않아요** (연결할 때 암호화해서 CODEF로만 보냄).
+
+
+### crowd_cell (② 이찬기, 19_crowd.sql) — 250m 칸
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| cell_id | VARCHAR(20) PK | 격자 ID (예: 다사47254650) |
+| dong_code | VARCHAR(10) | 행정동 코드 (여러 동에 걸치면 인원이 가장 많은 동) |
+| x5179 | INTEGER | 칸 왼쪽 아래 X (EPSG:5179) |
+| y5179 | INTEGER | 칸 왼쪽 아래 Y |
+| geom | geometry(Polygon, 4326) | 250m 네모, GIST 인덱스 |
+
+### crowd_hour (② 이찬기, 19_crowd.sql) — 칸 × 요일 × 시각 평소 인원
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| cell_id | VARCHAR(20) FK → crowd_cell | |
+| day_kind | SMALLINT | 1=월 … 7=일, 8=공휴일 |
+| hour | SMALLINT | 7~23시 |
+| people | INTEGER | 평균 인원 (내국인+단기외국인+장기외국인) |
+| foreign_short | INTEGER | 그중 단기외국인 |
+| seoul_pct | SMALLINT | 같은 요일·시각 서울 칸 중 순위 0~100 |
+| self_pct | SMALLINT | 이 칸 가장 붐빌 때 대비 % |
+
+PK (cell_id, day_kind, hour). 지금은 중구·강남구·종로구 1,076칸, 146,135줄. 출처: 서울 열린데이터광장 생활인구(250m), 최근 8주(2026-09-05~10-31) 평균, 공휴일만 1년치.
