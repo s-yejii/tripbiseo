@@ -5,6 +5,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { post } from '@/api/http' // 서버 호출 공통 함수 (팀 뼈대에 있음)
 import { applyDemoAccount } from '@/utils/devMode'
+import { getPathAfterLogin } from '@/utils/permissionSeen'
 
 const router = useRouter()
 
@@ -19,7 +20,7 @@ async function login() {
   try {
     await post('/auth/login', { username: userId.value, password: password.value })
     await applyDemoAccount() // 시연 계정이면 개발자 모드·가짜 GPS 자동으로 켜기 (③ 11/08)
-    router.replace('/permission') // 성공하면 다음 화면
+    router.replace(getPathAfterLogin(userId.value)) // 권한 화면은 처음 로그인 때만 (11/12)
   } catch (e) {
     error.value = e.message // 실패하면 서버가 보낸 문장을 그대로 보여 줘요
   }
