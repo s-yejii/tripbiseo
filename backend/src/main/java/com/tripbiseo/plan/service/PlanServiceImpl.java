@@ -651,7 +651,7 @@ public class PlanServiceImpl implements PlanService {
         FixedVisit finish = conditions.getFinish();
         appendLine(text, "finish(여행이 끝나는 곳, 이 시각까지 도착)", finish == null ? null : finish.getName() + " " + finish.getTime());
         appendLine(text, "maxWalkMin(한 번에 걷는 분 상한)", conditions.getMaxWalkMin() == null ? null : String.valueOf(conditions.getMaxWalkMin()));
-        appendLine(text, "origin(1일차 출발지)", conditions.getOriginName());
+        // 출발지 이름은 보내지 않음: "현재 위치"면 집 주소일 수 있어서 (11/13). 출발지는 서버가 좌표로만 씀
         if (conditions.getStays() != null) {
             for (PlanStay stay : conditions.getStays()) {
                 appendLine(text, "stay(이날 밤 숙소, 다음 날 여기서 출발. 일정에는 넣지 마 — 서버가 넣음)", stay.getName() + " " + stay.getCheckInDate());
