@@ -49,8 +49,9 @@ const DAY_MS = 24 * 60 * 60 * 1000 // 하루를 밀리초로
 // 읽은 날짜(yyyy-MM-dd)가 여행 며칠째인지 (여행 시작일 기준). 날짜를 못 읽었으면 1일차, 여행 날짜 밖이면 0
 function dayOfTrip(readDate) {
   const conditions = store.planConditions || {}
-  const start = conditions.startDate || store.planStartDate
-  const end = conditions.endDate || store.planEndDate || start
+  // 11/13: 지금 고른 날짜(store)를 먼저 봄. 예전 조건(conditions)을 먼저 보면 날짜를 바꾼 뒤에도 옛 날짜로 검사했어요
+  const start = store.planStartDate || conditions.startDate
+  const end = store.planStartDate ? store.planEndDate || start : conditions.endDate || start
   if (!readDate || !start) return 1
   if (readDate < start || readDate > end) return 0
   return Math.round((new Date(readDate) - new Date(start)) / DAY_MS) + 1
