@@ -984,9 +984,13 @@ function createMap() {
     pitch: 0,
     bearing: 0,
     maxPitch: 85, // 거리 시점은 거의 수평으로 봄
+    dragRotate: false, // 2D·위성 지도는 안 돌아가게 (북쪽이 늘 위). 확대·축소·끌어서 옮기기만
+    pitchWithRotate: false,
     attributionControl: { compact: true },
   })
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
+  map.touchZoomRotate.disableRotation() // 두 손가락으로 돌리기 막기 (확대·축소는 그대로)
+  map.keyboard.disableRotation()        // 키보드 화살표로 돌리기 막기
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right') // 나침반(회전) 버튼 없이 +/− 만
   map.on('load', () => {
     useKoreanLabels()
     addHillshade()
@@ -1952,7 +1956,7 @@ function cameraFor(position, bearing) {
     const eye = movePoint(position, bearing + 180, STREET_BACK_M)
     return map.calculateCameraOptionsFromCameraLngLatAltRotation(eye, STREET_EYE_M, bearing, streetPitchAt(position, bearing))
   }
-  return { center: position, zoom: NAV_ZOOM, pitch: 0, bearing: bearing }
+  return { center: position, zoom: NAV_ZOOM, pitch: 0, bearing: 0 } // 위에서 따라갈 때도 지도는 북쪽이 위 (돌리지 않음)
 }
 
 // 1인칭 기울기: 지금 자리와 30m 앞의 땅 높이(DEM)로 경사를 재서, 오르막이면 고개를 들고 내리막이면 숙임
