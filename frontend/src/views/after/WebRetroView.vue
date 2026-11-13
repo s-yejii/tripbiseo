@@ -2298,7 +2298,7 @@ watch(shownPhotos, drawPhotoMarkers)
             <button v-for="item in dayButtons" :key="item.day" type="button" :class="{ 'is-on': selectedDay === item.day }" @click="changeDay(item.day)">{{ item.label }}</button>
           </div>
           <div class="wr-seg">
-            <button type="button" :class="{ 'is-on': !isSatellite }" @click="isSatellite && toggleSatellite()">기본</button>
+            <button type="button" :class="{ 'is-on': !isSatellite }" @click="isSatellite && toggleSatellite()">2D</button>
             <button type="button" :class="{ 'is-on': isSatellite }" @click="!isSatellite && toggleSatellite()">위성</button>
           </div>
           <button type="button" class="wr-btn" :class="{ 'is-on': isUnity3d }" title="건물·한강·밤 불빛까지 보이는 3D 지도 (누르면 켜고 끔)" @click="toggleUnity3d">🏙 3D 지도</button>
