@@ -87,8 +87,7 @@ const PHOTO_POP_MS = 3500        // 재생 중 사진 카드가 떠 있는 시�
 const PHOTO_MARKER_OFFSET = [30, -44] // 장소 사진 동그라미를 핀 오른쪽 위에 (핀과 안 겹치게)
 const SUN_STRIP_SAMPLES = 120    // 재생 막대의 낮·밤 띠를 이만큼 나눠서 색칠
 const SKY_BLEND = { 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.7 }
-const DAY_SKY = { sky: '#A9C8EF', horizon: '#E9F0FA' } // 해 반영을 끄면 늘 이 하늘
-const DEFAULT_LIGHT = { anchor: 'viewport', position: [1.15, 210, 30], color: '#FFFFFF', intensity: 0.5 } // MapLibre 기본 빛
+const DAY_SKY = { sky: '#A9C8EF', horizon: '#E9F0FA' } // 평면 지도의 하늘 (밤낮은 3D 지도에서만)
 
 const route = useRoute()
 const router = useRouter()
@@ -100,7 +99,7 @@ const isLoading = ref(true)
 const selectedDay = ref(0)        // 0 = 전체, 1 = 1일차 …
 const isSatellite = ref(false)
 const isUnity3d = ref(false) // 실감 3D(유니티) 칸을 지도 위에 띄웠는지
-const isDayNight = ref(true) // 재생 시각에 맞춰 밤낮이 바뀌는지 (끄면 늘 낮)
+const isDayNight = ref(true) // 3D 지도: 재생 시각에 맞춰 밤낮이 바뀌는지 (끄면 늘 낮). 2D·위성 지도는 늘 낮
 const unityMap = ref(null)   // 실감 3D 부품 (재생 시각·시점을 넘겨줌)
 const unityTrip = ref(null)  // 이 여행의 실감 3D 지도 자료 { json, photo } (켜면 이 브라우저에서 만듦)
 const unityStatus = ref('')  // 지도 자료를 만드는 중 안내 글
@@ -117,7 +116,6 @@ const journal = reactive(loadJournal(route.query.id)) // 여행·장소 메모, 
 const memoStopId = ref(null)     // 메모 카드에서 고른 장소 (핀·표를 누르면 바뀜)
 const memoSavedText = ref('')
 const isPhotoShown = ref(true)    // 지도에 사진 보이기
-const isSunOn = ref(true)         // 해·하늘 반영
 const floatPhoto = ref(null)      // 재생 중 잠깐 뜨는 사진 카드
 const viewer = ref(null)          // 크게 보기 { list, index }
 const isNavFolded = ref(false)    // 내비 카드를 한 줄로 접었는지
@@ -148,7 +146,6 @@ let photoMarkers = []             // 사진 동그라미 마커
 let lastPhotoMinutes = null       // 재생 중 사진을 마지막으로 확인한 여행 시각 (이 뒤에 찍은 사진만 띄움)
 let floatTimer = null
 let isMapReady = false            // 지도 스타일을 다 읽었는지 (하늘·빛은 그 뒤에만 바꿀 수 있음)
-let lastSkyKey = ''               // 마지막으로 칠한 하늘 (같으면 다시 안 칠함)
 let forestData = null             // 숲 구역 자료 (forest-seoul.json)
 let forestReady = null            // 숲 자료를 다 읽으면 끝나는 약속(Promise)
 let streetPitch = STREET_PITCH_FLAT // 1인칭 카메라의 지금 기울기 (경사를 부드럽게 따라감)
@@ -546,11 +543,6 @@ function sunAt(tripMinute) {
   return { day: day, minuteOfDay: minuteOfDay, altitude: position.altitude, azimuth: position.azimuth, phase: sunPhase(position.altitude), sky: skyAt(position.altitude) }
 }
 
-// 지금 재생 위치의 해 (재생을 시작하기 전이면 null → 낮 하늘)
-const currentSun = computed(() => {
-  if (!isSunOn.value || !canPlay.value || (!playing.value && progress.value === 0)) return null
-  return sunAt(nowMinutes.value)
-})
 
 // ============================== 다닌 동네 (머문 곳이 들어 있는 행정동)
 function addDongStay(stats, dong, placeName, minutes) {
@@ -1007,7 +999,6 @@ function createMap() {
     runIntro()
     startLandscape()
     isMapReady = true
-    applySun()
     hideFlatMapExtras()
   })
 }
@@ -1043,33 +1034,6 @@ function setSkyColors(sky) {
   }
 }
 
-// 재생 시각의 해에 맞춰 하늘 색 + 건물 비추는 빛(방향·색·세기). 해 반영을 끄거나 재생 전이면 낮 하늘
-// setLight position = [거리, 방향(북쪽 0도부터 시계 방향), 높이(0 = 머리 위, 90 = 지평선)]
-function applySun() {
-  if (!map || !isMapReady) return
-  const sun = currentSun.value
-  const key = sun ? sun.sky.sky + sun.sky.horizon + Math.round(sun.azimuth / 3) : 'day'
-  if (key === lastSkyKey) return // 같은 하늘이면 다시 안 칠함 (재생 중 매 화면 칠하면 느려짐)
-  lastSkyKey = key
-  if (!sun) {
-    setSkyColors(DAY_SKY)
-    map.setLight(DEFAULT_LIGHT)
-    return
-  }
-  setSkyColors(sun.sky)
-  const polar = Math.max(10, Math.min(85, 90 - sun.altitude)) // 해가 지평선 아래면 낮게 비추되 밤 빛(약하게)
-  map.setLight({ anchor: 'map', position: [1.5, sun.azimuth, polar], color: sun.sky.light, intensity: sun.sky.intensity })
-}
-
-// 산 그림자(음영) 방향을 해 방향으로
-function applySunLook() {
-  if (!map || !isMapReady) return
-  const sun = currentSun.value
-  map.setPaintProperty('hillshade', 'hillshade-illumination-direction', sun && sun.altitude > 0 ? Math.round(sun.azimuth) : 335)
-}
-
-// 화면 전체에 덮는 밤·노을 색 (지도 위, 카드 아래)
-const skyShade = computed(() => (currentSun.value && isDayNight.value ? currentSun.value.sky.shade : 'rgba(0, 0, 0, 0)'))
 
 function addSatellite() {
   map.addSource('satellite', { type: 'raster', tiles: [SATELLITE_TILES], tileSize: 256, maxzoom: 18, attribution: 'Esri, Maxar, Earthstar Geographics' })
@@ -2255,9 +2219,6 @@ const sunStripStyle = computed(() => {
   return { background: 'linear-gradient(to right, ' + stops.join(', ') + ')' }
 })
 
-// 재생 시각이 바뀌어 해가 움직이면 하늘·빛을 다시 칠함
-watch(currentSun, applySun)
-watch(currentSun, applySunLook)
 
 // 메모·사진은 고른 날이 바뀌면 다시 그림 (drawDay 안에서 drawMarkers가 사진도 그림)
 watch(shownPhotos, drawPhotoMarkers)
@@ -2270,7 +2231,6 @@ watch(shownPhotos, drawPhotoMarkers)
       <!-- 실감 3D (유니티 WebGL): 켜면 지도 위를 덮음. 지금은 시연 자료(1박 2일)를 그림 -->
       <RetroUnityMap v-if="isUnity3d" ref="unityMap" class="wr-unity" :trip-data="unityTrip" :status-text="unityStatus" @ready="syncUnity" />
       <!-- 밤·노을 덮개: 재생 시각의 해 높이에 맞춘 색 (지도 위, 카드 아래, 누르기는 통과) -->
-      <div v-if="!isUnity3d" class="wr-sky" :style="{ background: skyShade }"></div><!-- 3D는 유니티가 하늘을 직접 그려서 덮개를 안 씀 -->
       <!-- 3D 위에서 보기 가까이·멀리 (마우스 휠도 됨) -->
       <div v-if="isUnity3d && viewMode === 'top'" class="wr-unity-zoom">
         <button type="button" title="가까이" @click="unityMap && unityMap.zoom(1)">＋</button>
@@ -2302,7 +2262,7 @@ watch(shownPhotos, drawPhotoMarkers)
             <button type="button" :class="{ 'is-on': isSatellite }" @click="!isSatellite && toggleSatellite()">위성</button>
           </div>
           <button type="button" class="wr-btn" :class="{ 'is-on': isUnity3d }" title="건물·한강·밤 불빛까지 보이는 3D 지도 (누르면 켜고 끔)" @click="toggleUnity3d">🏙 3D 지도</button>
-          <button type="button" class="wr-btn" :class="{ 'is-on': isDayNight }" title="재생 시각에 맞춰 밤낮 바꾸기 (끄면 늘 낮)" @click="isDayNight = !isDayNight">🌙 밤낮</button>
+          <button v-if="isUnity3d" type="button" class="wr-btn" :class="{ 'is-on': isDayNight }" title="재생 시각에 맞춰 밤낮 바꾸기 (끄면 늘 낮)" @click="isDayNight = !isDayNight">🌙 밤낮</button>
           <!-- 11/13: 지도 버튼은 실감 3D와 기본/위성만 남김 (3D·2D, 사진, 해·하늘, 동네 다시 띄우기, 머문 곳, 가시권 버튼은 뺌. 기능 코드는 그대로) -->
         </div>
 
@@ -2362,7 +2322,7 @@ watch(shownPhotos, drawPhotoMarkers)
           <button type="button" class="wr-btn" :disabled="!canPlay" @click="changeSpeed">{{ speed }}배속</button>
           <div class="wr-player__barwrap">
             <!-- 낮·밤 띠 (재생 시각의 하늘 색) -->
-            <div v-if="isSunOn && canPlay" class="wr-player__sun" :style="sunStripStyle"></div>
+            <div v-if="isUnity3d && canPlay" class="wr-player__sun" :style="sunStripStyle"></div>
             <input v-model="sliderValue" type="range" min="0" max="1000" :disabled="!canPlay" class="wr-player__bar" aria-label="재생 위치" />
           </div>
           <span class="wr-player__time">{{ canPlay ? toDayTime(nowMinutes) : 'GPS 기록 없음' }}</span>
@@ -2790,7 +2750,6 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-btn { display: inline-block; color: var(--ink); font: inherit; text-decoration: none; }
 .wr-btn.is-on { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); font-weight: 700; }
 .wr-title__links { display: flex; gap: 6px; margin-bottom: 8px; }
-.wr-sky { position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: background 0.8s; }
 .wr-payadd { display: flex; gap: 8px; margin: 6px 0 10px; }
 .wr-unity { position: absolute; inset: 0; z-index: 1; } /* 카드·버튼(z-index 2)은 3D 위에 그대로 보임 */
 .wr-unity-zoom { position: absolute; right: 10px; bottom: 96px; z-index: 3; display: flex; flex-direction: column; border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 2px 8px rgba(24, 33, 58, 0.18); }
