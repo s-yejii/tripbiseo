@@ -9,8 +9,10 @@ import java.util.Locale;
 import org.springframework.stereotype.Component;
 
 import com.tripbiseo.common.util.Geo;
+import com.tripbiseo.plan.dto.CrowdHour;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
 import com.tripbiseo.plan.dto.PlanNote;
+import com.tripbiseo.plan.mapper.PlanCrowdMapper;
 import com.tripbiseo.trip.dto.OpenInfo;
 import com.tripbiseo.trip.dto.Place;
 import com.tripbiseo.trip.dto.Stop;
@@ -32,7 +34,13 @@ public class PlanVerifier {
     private static final String MUST = "must";
     private static final int MAX_LINES = 6; // 안내 목록이 너무 길어지지 않게
 
+    private static final int CROWD_FIRST_HOUR = 7;  // 생활인구 데이터는 7~23시만
+    private static final int CROWD_LAST_HOUR = 23;
+    private static final int BUSY_PCT = 80;   // 서울 순위 이 이상이면 붐빔
+    private static final int NORMAL_PCT = 50; // 이 이상이면 보통, 아래면 한산
+
     private final PlaceService placeService; // 영업시간 확인 (② 메서드를 부르기만 함)
+    private final PlanCrowdMapper planCrowdMapper; // 250m 칸 평소 붐빔 (② 찬기 표 읽기만)
 
     /** 예약·꼭 갈 곳마다 검증 한 줄을 response 안내(notes)에 더함 */
     public void addVerifyNotes(PlanGenerateResponse response) {
@@ -71,6 +79,10 @@ public class PlanVerifier {
         if (openText != null) {
             line.append(' ').append(openText);
         }
+        String crowdText = crowdTextOf(stop, date);
+        if (crowdText != null) {
+            line.append(crowdText);
+        }
         Integer minutes = minutesFromStay(stop, stops);
         if (minutes != null) {
             line.append(" · 숙소에서 ").append(minutes).append("분");
@@ -93,6 +105,37 @@ public class PlanVerifier {
             return "· 영업시간 정보 없음";
         }
         return Boolean.TRUE.equals(open.getOpen()) ? "영업" : "· 그 시각 영업 안 해요";
+    }
+
+    /**
+     * 그 요일·시각에 이 장소가 든 250m 칸이 평소 얼마나 붐비는지 (서울 생활인구, 찬기 표).
+     * 데이터가 없는 곳(중구·강남·종로 밖)·시각(7~23시 밖)이면 null = 줄에 안 붙임 (가짜 값 안 만듦)
+     */
+    private String crowdTextOf(Stop stop, LocalDate date) {
+        if (stop.getLat() == null || stop.getLng() == null) {
+            return null;
+        }
+        int hour = Geo.toMinutes(stop.getTime()) / 60;
+        if (hour < CROWD_FIRST_HOUR || hour > CROWD_LAST_HOUR) {
+            return null;
+        }
+        int dayKind = date.getDayOfWeek().getValue(); // 1=월 … 7=일 (공휴일 8은 달력이 없어서 안 씀)
+        CrowdHour crowd = planCrowdMapper.selectCrowdHour(stop.getLat(), stop.getLng(), dayKind, hour);
+        if (crowd == null || crowd.getSeoulPct() == null) {
+            return null;
+        }
+        return " · " + hour + "시 " + crowdLevelText(crowd.getSeoulPct());
+    }
+
+    /**
+     * 서울 순위(같은 요일·시각 서울 칸 중 0~100, 높을수록 붐빔)를 세 단계 말로 (11/13 주형 A안).
+     * 80 이상 "붐빔(서울 상위 N%)" · 50~79 "보통" · 50 미만 "한산"
+     */
+    String crowdLevelText(int seoulPct) {
+        if (seoulPct >= BUSY_PCT) {
+            return "붐빔(서울 상위 " + Math.max(1, 100 - seoulPct) + "%)";
+        }
+        return seoulPct >= NORMAL_PCT ? "보통" : "한산";
     }
 
     /** 그날 숙소(없으면 전날 숙소)에서 이 칸까지 어림 이동 분. 숙소가 없으면 null */

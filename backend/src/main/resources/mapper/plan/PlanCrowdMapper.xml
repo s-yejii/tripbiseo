@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  ③ 검증 줄의 붐빔: ② 찬기 db/19_crowd.sql 맨 아래 쿼리와 같음 (읽기만, 11/13).
+  ST_Contains: 250m 네모(geom) 안에 장소 점이 들어 있는 칸 하나
+-->
+<mapper namespace="com.tripbiseo.plan.mapper.PlanCrowdMapper">
+
+  <select id="selectCrowdHour" resultType="com.tripbiseo.plan.dto.CrowdHour">
+    SELECT h.people, h.seoul_pct, h.self_pct
+    FROM crowd_cell c
+    JOIN crowd_hour h USING (cell_id)
+    WHERE ST_Contains(c.geom, ST_SetSRID(ST_MakePoint(#{lng}, #{lat}), 4326))
+      AND h.day_kind = #{dayKind}
+      AND h.hour = #{hour}
+    LIMIT 1
+  </select>
+
+</mapper>
