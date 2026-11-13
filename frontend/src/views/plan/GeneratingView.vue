@@ -1,3 +1,9 @@
+<script>
+// 이 화면을 여러 번 열어도 하나만 있는 값 (11/13): 마지막으로 시작한 만들기 번호
+// 만드는 중에 뒤로 갔다가 다시 만들면 첫 번째 요청은 서버에서 끝나도 결과를 버려요 (늦게 온 결과가 새 초안을 덮어쓰지 않게)
+let latestRun = 0
+</script>
+
 <script setup>
 // S08 일정 만드는 중 (③): 서버가 일정을 짜는 단계를 실제로 보내 주는 대로(POST /api/plans/generate/stream) 보여 줘요 (11/04)
 //   단계: 장소 후보 찾기 → (요청이 있으면) 리뷰로 확인 → AI가 칸마다 고르기 → 영업시간·종류 검사
@@ -88,14 +94,18 @@ onUnmounted(() => {
 
 // 위치는 브라우저에 물어보고(거절해도 계속), 조건 + 사용자가 한 말로 초안 만들기 (단계마다 onProgress)
 async function makeDraft() {
+  latestRun++
+  const myRun = latestRun // 이번 만들기 번호
   const position = await getPositionOnce()
   try {
     const result = await generatePlanStream(conditions, store.planMessages, position?.lat, position?.lng, onProgress)
+    if (myRun !== latestRun) return // 그사이 새로 만들기를 시작했으면 이 결과는 버림
     store.setDraft(result)
     draft.value = result
     // 안내(notes)는 토스트로 연달아 띄우면 마지막 하나만 보여서, 아래 목록으로 다 보여 줌 (11/13)
     if (isLeft) showToast('일정이 완성됐어요', { actionText: '완성본 보기', action: openResult }) // 홈에서 기다려도 점검 화면으로 갈 수 있게 (11/12)
   } catch (e) {
+    if (myRun !== latestRun) return
     failed.value = true
     failReason.value = e.message
     failCode.value = e.status ?? null
