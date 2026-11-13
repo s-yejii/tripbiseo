@@ -30,7 +30,7 @@ public class AskSqlRunner {
         placeAskMapper.setRoleAskReader();
         placeAskMapper.setStatementTimeout();
         List<String> ids = placeAskMapper.selectPlaceIdsBySql(check.getSql(), situation.getRoute(),
-                situation.getMe(), situation.getNext(), situation.getSlack());
+                situation.getMe(), situation.getNext(), situation.getSlack(), situation.getPrev());
         if (ids.isEmpty()) {
             return new ArrayList<>();
         }

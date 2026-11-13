@@ -25,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.dao.QueryTimeoutException;
 
 import com.tripbiseo.common.ai.AiService;
+import com.tripbiseo.common.external.Route;
 import com.tripbiseo.common.external.RouteClient;
 import com.tripbiseo.live.dto.AreaInfo;
 import com.tripbiseo.live.dto.AskSituation;
@@ -48,7 +49,11 @@ class PlaceAskServiceImplTest {
     private static final long TRIP_ID = 10L;
     private static final double LAT = 37.5271;
     private static final double LNG = 126.9326;
+    private static final double A_LAT = 37.5265; // 카페 a
+    private static final double B_LAT = 37.5263; // 카페 b
     private static final String ROUTE_CAFE = "SELECT id FROM ask_place WHERE kind = 'cafe' AND detour_minutes(geom, :route) <= 5 LIMIT 5";
+    private static final String PREV_TOP_RATED = "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY p.rating_adj DESC LIMIT 10";
+    private static final String PREV_LEAST_DETOUR = "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY detour_minutes(p.geom, :route) LIMIT 1";
     private static final String NEXT_CAFE = "SELECT id FROM ask_place WHERE kind = 'cafe' AND ST_DWithin(geom, :next, 500) LIMIT 5";
 
     private RouteClient routeClient;
@@ -66,7 +71,7 @@ class PlaceAskServiceImplTest {
         askSqlRunner = mock(AskSqlRunner.class);
         placeService = mock(PlaceService.class);
         placeAskService = new PlaceAskServiceImpl(liveTripReader, statusService, routeClient, aiService,
-                new SqlPromptMaker(), new SqlChecker(), askSqlRunner, placeService);
+                new SqlPromptMaker(), new SqlChecker(), askSqlRunner, placeService, new WalkRanker(routeClient));
 
         when(liveTripReader.getOngoingTrip(anyLong(), anyLong(), any(), any())).thenReturn(makeTrip());
         when(statusService.getStatus(anyLong(), anyLong(), any())).thenReturn(makeStatus());
@@ -90,7 +95,7 @@ class PlaceAskServiceImplTest {
         open.setCloseAt("21:30");
         when(placeService.getOpenInfo(any(), any(), anyInt(), anyInt())).thenReturn(open, closed);
 
-        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 5분 안 카페", LAT, LNG);
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 5분 안 카페", null, null, LAT, LNG);
 
         assertFalse(result.isFallback());
         assertEquals(1, result.getPlaces().size());              // b는 닫혀서 빠짐
@@ -108,7 +113,7 @@ class PlaceAskServiceImplTest {
         answer.setReason("가격 정보가 없어서 가격으로는 찾을 수 없어요");
         answerWith(answer);
 
-        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "만원 이하 파스타", LAT, LNG);
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "만원 이하 파스타", null, null, LAT, LNG);
 
         assertFalse(result.isFallback());
         assertEquals("가격 정보가 없어서 가격으로는 찾을 수 없어요", result.getMessage());
@@ -119,7 +124,7 @@ class PlaceAskServiceImplTest {
     void 검사에서_두_번_떨어지면_fallback() {
         answerWith(sqlAnswer("SELECT name FROM ask_place"), sqlAnswer("SELECT id FROM member"));
 
-        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "카페", LAT, LNG);
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "카페", null, null, LAT, LNG);
 
         assertTrue(result.isFallback());
         List<String> prompts = askedPrompts(2);
@@ -133,7 +138,7 @@ class PlaceAskServiceImplTest {
         answerWith(sqlAnswer(NEXT_CAFE));
         when(askSqlRunner.run(any(), any())).thenReturn(List.of(place("a", null)));
 
-        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "다음 장소 근처 카페", LAT, LNG);
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "다음 장소 근처 카페", null, null, LAT, LNG);
 
         assertFalse(result.isFallback());
         assertTrue(askedPrompts(1).get(0).contains("지금 쓸 수 있는 빈칸: :me, :next, :slack"));
@@ -148,7 +153,7 @@ class PlaceAskServiceImplTest {
         answerWith(sqlAnswer(ROUTE_CAFE), sqlAnswer(NEXT_CAFE));
         when(askSqlRunner.run(any(), any())).thenReturn(List.of(place("a", null)));
 
-        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 카페", LAT, LNG);
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 카페", null, null, LAT, LNG);
 
         assertFalse(result.isFallback());
         assertTrue(askedPrompts(2).get(1).contains("지금 쓸 수 없는 빈칸 :route"));
@@ -156,11 +161,68 @@ class PlaceAskServiceImplTest {
     }
 
     @Test
+    void 이어지는_질문은_앞_결과_안에서만_찾음() {
+        answerWith(sqlAnswer(PREV_TOP_RATED));
+        when(askSqlRunner.run(any(), any())).thenReturn(List.of(place("b", 3)));
+
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "그중에 평점 높은 순으로",
+                "가는 길에 카페", List.of("a", "b", " "), LAT, LNG);
+
+        assertFalse(result.isFallback());
+        assertEquals("a,b", runSituation().getPrev());                  // 빈 칸은 빼고 쉼표로
+        String prompt = askedPrompts(1).get(0);
+        assertTrue(prompt.contains("앞 질문: \"가는 길에 카페\""));
+        assertTrue(prompt.contains("p.id IN (:prev)"));
+    }
+
+    @Test
+    void 이어지는_질문인데_prev를_빼먹으면_다시_물어봄() {
+        answerWith(sqlAnswer(ROUTE_CAFE), sqlAnswer(PREV_TOP_RATED));
+        when(askSqlRunner.run(any(), any())).thenReturn(List.of(place("a", 3)));
+
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "이 중에 평점 높은 데",
+                "가는 길에 카페", List.of("a", "b"), LAT, LNG);
+
+        assertFalse(result.isFallback());
+        assertTrue(askedPrompts(2).get(1).contains("WHERE에 p.id IN (:prev)를 꼭 넣어"));
+        assertEquals(PREV_TOP_RATED, result.getSql());
+    }
+
+    @Test
+    void 앞_결과가_없으면_prev를_쓸_수_없음() {
+        answerWith(sqlAnswer(ROUTE_CAFE));
+        when(askSqlRunner.run(any(), any())).thenReturn(List.of(place("a", 3)));
+
+        placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 카페", null, null, LAT, LNG);
+
+        assertNull(runSituation().getPrev());
+        assertFalse(askedPrompts(1).get(0).contains("[이어지는 질문]"));
+    }
+
+    @Test
+    void 덜_돌아가는_순이면_실제_걷는_길로_다시_줄_세우고_원한_개수만() {
+        answerWith(sqlAnswer(PREV_LEAST_DETOUR));
+        // 직선으로는 a가 1등(1분)이지만 실제 걸음으로는 b가 덜 돌아감
+        when(askSqlRunner.run(any(), any())).thenReturn(new ArrayList<>(List.of(place("a", 1), place("b", 2))));
+        when(routeClient.getRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble(), eq("walk"), any(), eq(true)))
+                .thenAnswer(call -> walkRoute(call.getArgument(0), call.getArgument(2)));
+
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "이 중에 제일 안 돌아가는 데",
+                "가는 길에 카페", List.of("a", "b"), LAT, LNG);
+
+        assertEquals(1, result.getPlaces().size());                    // LIMIT 1 → 5곳 뽑아 다시 잰 뒤 1곳만
+        assertEquals("b", result.getPlaces().get(0).getId());
+        assertEquals(2, result.getPlaces().get(0).getDetourMinutes()); // (4 + 4) − 6
+        assertEquals(8, result.getPlaces().get(0).getSlackAfter());    // 40 − (2 + 30)
+        assertFalse(result.getPlaces().get(0).getIsEstimate());
+    }
+
+    @Test
     void DB가_3초를_넘기면_fallback() {
         answerWith(sqlAnswer(ROUTE_CAFE));
         when(askSqlRunner.run(any(), any())).thenThrow(new QueryTimeoutException("statement timeout"));
 
-        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 5분 안 카페", LAT, LNG);
+        PlaceAskResult result = placeAskService.findPlaces(MEMBER_ID, TRIP_ID, "가는 길에 5분 안 카페", null, null, LAT, LNG);
 
         assertTrue(result.isFallback());
     }
@@ -194,11 +256,28 @@ class PlaceAskServiceImplTest {
         return answer;
     }
 
+    /**
+     * 가짜 걷기 길찾기: 출발 위도로 구간을 구분
+     * 나(LAT) → 더현대 6분 / 나 → a 1분 / a → 더현대 9분 / 나 → b 4분 / b → 더현대 4분
+     */
+    private Route walkRoute(double fromLat, double toLat) {
+        Route route = new Route();
+        route.setSource("tmap");
+        if (fromLat == LAT) {
+            route.setMinutes(toLat == 37.5259 ? 6 : toLat == A_LAT ? 1 : 4);
+        } else {
+            route.setMinutes(fromLat == A_LAT ? 9 : 4);
+        }
+        return route;
+    }
+
     private AskedPlace place(String id, Integer detourMinutes) {
         AskedPlace place = new AskedPlace();
         place.setId(id);
         place.setName("카페 " + id);
         place.setDetourMinutes(detourMinutes);
+        place.setLat("a".equals(id) ? A_LAT : B_LAT);
+        place.setLng(126.93);
         return place;
     }
 

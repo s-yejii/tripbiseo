@@ -19,6 +19,40 @@ class SqlCheckerTest {
     // ---------------------------------------------------------------- 통과
 
     @Test
+    void prev는_IN_꼴이면_통과하고_쪼개는_SQL로_바꿈() {
+        SqlCheck check = sqlChecker.checkSql("SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY p.rating_adj DESC LIMIT 10");
+        assertTrue(check.isOk(), check.getReason());
+        assertTrue(check.getSql().contains("p.id IN (SELECT unnest(string_to_array(#{prev}, ',')))"), check.getSql());
+        assertEquals(Set.of("prev"), check.getPlaceholders());
+        assertEquals(null, check.getOrderBy());                         // 평점 순은 다시 줄 세우지 않음
+    }
+
+    @Test
+    void prev를_IN_말고_다른_꼴로_쓰면_탈락() {
+        assertFalse(sqlChecker.checkSql("SELECT p.id FROM ask_place p WHERE p.name = :prev").isOk());
+        assertFalse(sqlChecker.checkSql("SELECT p.id FROM ask_place p WHERE p.id NOT IN (:prev)").isOk());
+    }
+
+    @Test
+    void 덜_돌아가는_순이면_orderBy를_적고_LIMIT을_5로_늘림() {
+        SqlCheck check = sqlChecker.checkSql(
+                "SELECT p.id FROM ask_place p WHERE p.id IN (:prev) ORDER BY detour_minutes(p.geom, :route) LIMIT 1");
+        assertTrue(check.isOk(), check.getReason());
+        assertEquals("detour", check.getOrderBy());
+        assertEquals(1, check.getWantLimit());
+        assertTrue(check.getSql().endsWith("LIMIT 5"), check.getSql());
+    }
+
+    @Test
+    void 가까운_순은_별명으로_정렬해도_near() {
+        SqlCheck check = sqlChecker.checkSql(
+                "SELECT id, ST_Distance(geom, :me) AS d FROM ask_place WHERE kind = 'cafe' ORDER BY d LIMIT 3");
+        assertTrue(check.isOk(), check.getReason());
+        assertEquals("near", check.getOrderBy());
+        assertEquals(3, check.getWantLimit());
+    }
+
+    @Test
     void 가는_길_카페는_통과하고_route를_MyBatis_파라미터로_바꿈() {
         SqlCheck check = sqlChecker.checkSql(
                 "SELECT id FROM ask_place WHERE kind = 'cafe' AND detour_minutes(geom, :route) <= 5 ORDER BY rating_adj DESC LIMIT 5");

@@ -24,10 +24,26 @@ public class LiveChatClassifier {
                                                      "가는 길", "들를", "들르", "다녀올"}; // 뒤 4개: AI에게 묻기 (11/08)
     private static final String[] CHANGE_WORDS = {"바꿔", "바꾸", "늦", "빼", "다시 짜", "일정 변경"};
     private static final String[] QUESTION_WORDS = {"몇 시", "몇시", "다음", "언제", "여유", "남았", "날씨", "비 와", "비와", "출발"};
+    private static final String[] FOLLOW_WORDS = {"이 중", "이중", "그중", "그 중", "여기서", "거기서"}; // 앞 결과를 가리키는 말 (11/13)
     private static final String[] CATEGORIES = {"카페", "디저트", "식당", "술집"};
     private static final String DEFAULT_CATEGORY = "카페";
 
     private final AiService aiService;
+
+    /** 앞 결과 안에서 다시 찾는 말인지 (앞 결과가 있고 "이 중에 …"처럼 말할 때) */
+    public boolean isFollowUp(String message, List<String> prevPlaceIds) {
+        boolean hasPrev = prevPlaceIds != null && !prevPlaceIds.isEmpty();
+        return hasPrev && containsAny(message, FOLLOW_WORDS);
+    }
+
+    /**
+     * 이어지는 질문은 추천으로 봄. "이 중에 제일 안 돌아가는 데"에는 '카페' 같은 말이 없어서
+     * 장소 종류·분위기는 앞 질문까지 같이 보고 정함 (AI로 못 찾아 반경 묻기로 갈 때 씀)
+     */
+    public ChatIntent classifyFollowUp(String message, String prevMessage) {
+        String both = prevMessage == null ? message : prevMessage + " " + message;
+        return makeIntent("recommend", both);
+    }
 
     /** 말 분류 */
     public ChatIntent classify(String message) {

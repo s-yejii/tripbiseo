@@ -29,13 +29,17 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.Limit;
+import net.sf.jsqlparser.statement.select.OrderByElement;
 import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.statement.select.SelectItem;
 import net.sf.jsqlparser.util.TablesNamesFinder;
 
 /**
  * ④ AI(Gemini)가 쓴 SQL 검사. 통과한 SQL만 AskSqlRunner가 ask_reader 계정으로 실행해요.
  * 검사: 글자(#{ ${ ; 주석) → 문법 → SELECT 하나 → 첫 칸 id → 표 → 함수 → 빈칸 → 숫자 상한 → LIMIT
  * 통과하면 빈칸 :route·:me·:next → ST_GeogFromText(#{route}) 처럼, :slack → #{slack}으로 바꿔요 (MyBatis가 값을 안전하게 넣음)
+ * :prev(앞 결과 id, 11/13)는 "id IN (:prev)" 꼴로만 쓸 수 있고 → id IN (SELECT unnest(string_to_array(#{prev}, ',')))
+ * 덜 돌아가는 순·가까운 순이면 orderBy를 적고 후보를 5곳까지 넉넉히 뽑아요 (WalkRanker가 실제 걷는 길로 다시 줄 세움)
  */
 @Component
 public class SqlChecker {
@@ -43,12 +47,15 @@ public class SqlChecker {
     private static final int MAX_LIMIT = 10;          // 결과는 많아야 10곳
     private static final int MAX_DETOUR_MIN = 15;     // 돌아가는 시간 상한(분)
     private static final int MAX_METERS = 1000;       // ST_DWithin 반경 상한(m)
+    private static final int RERANK_POOL = 5;         // 다시 잴 후보 수. 1곳마다 길찾기 2번이라 5곳이면 1 + 5×2 = 11번
     private static final Set<String> ALLOWED_TABLES = Set.of("ask_place", "ask_review");
     private static final Set<String> ALLOWED_FUNCTIONS = Set.of(
             "detour_minutes", "st_dwithin", "st_distance", "count", "coalesce", "lower", "round", "least", "greatest");
     private static final Set<String> GEO_PLACEHOLDERS = Set.of("route", "me", "next"); // 위치 빈칸
     private static final String SLACK = "slack";                                        // 숫자 빈칸 (여유 분)
-    private static final Pattern PLACEHOLDER = Pattern.compile("(?<![:\\w]):(route|me|next|slack)\\b");
+    private static final String PREV = "prev";                                          // 앞 결과 id 빈칸
+    private static final Pattern PLACEHOLDER = Pattern.compile("(?<![:\\w]):(route|me|next|slack|prev)\\b");
+    private static final Pattern PREV_IN_ID = Pattern.compile("(?i)\\bid\\s+IN\\s*\\(\\s*:prev\\s*\\)"); // id IN (:prev) (NOT IN은 안 걸림)
 
     /** 검사하고, 통과하면 실행할 SQL로 바꿔서 돌려줌 */
     public SqlCheck checkSql(String sql) {
@@ -91,9 +98,17 @@ public class SqlChecker {
             }
         }
 
+        if (!isPrevOnlyInId(select.toString())) {
+            return fail(":prev는 WHERE p.id IN (:prev) 꼴로만 쓸 수 있음");
+        }
+
         fixLimit(select);
         SqlCheck check = new SqlCheck();
         check.setOk(true);
+        check.setOrderBy(findOrderBy(select));
+        if (check.getOrderBy() != null) {
+            widenLimitForRerank(select, check);
+        }
         check.setSql(toMyBatis(select.toString()));
         check.setPlaceholders(collector.placeholders);
         check.setReviewWords(collector.reviewWords);
@@ -153,13 +168,83 @@ public class SqlChecker {
         select.setFetch(null);
     }
 
-    /** 빈칸을 MyBatis 파라미터로: :route → ST_GeogFromText(#{route}), :slack → #{slack} */
+    /** :prev를 썼다면 모두 "id IN (:prev)" 꼴인지 (쓴 수와 그 꼴의 수가 같아야 함) */
+    private boolean isPrevOnlyInId(String sql) {
+        int prevCount = 0;
+        Matcher placeholder = PLACEHOLDER.matcher(sql);
+        while (placeholder.find()) {
+            if (PREV.equals(placeholder.group(1))) {
+                prevCount++;
+            }
+        }
+        int inCount = 0;
+        Matcher in = PREV_IN_ID.matcher(sql);
+        while (in.find()) {
+            inCount++;
+        }
+        return prevCount == inCount;
+    }
+
+    /**
+     * 첫 정렬 기준: detour_minutes(…) → "detour"(덜 돌아가는 순), ST_Distance(…, :me) → "near"(내 위치에서 가까운 순).
+     * 그 밖(평점 순 등)이거나 큰 순(DESC)이면 null = 다시 줄 세우지 않음
+     */
+    private String findOrderBy(PlainSelect select) {
+        List<OrderByElement> orders = select.getOrderByElements();
+        if (orders == null || orders.isEmpty() || !orders.get(0).isAsc()) {
+            return null;
+        }
+        Expression first = findAliasTarget(select, orders.get(0).getExpression());
+        if (!(first instanceof Function function)) {
+            return null;
+        }
+        String name = function.getName().toLowerCase();
+        if ("detour_minutes".equals(name)) {
+            return "detour";
+        }
+        if ("st_distance".equals(name) && function.toString().toLowerCase().contains(":me")) {
+            return "near";
+        }
+        return null;
+    }
+
+    /** ORDER BY에 별명(AS d)을 썼으면 그 별명이 가리키는 식으로 (예: ORDER BY d → detour_minutes(…)) */
+    private Expression findAliasTarget(PlainSelect select, Expression expression) {
+        if (!(expression instanceof Column column) || column.getTable() != null) {
+            return expression;
+        }
+        for (SelectItem<?> item : select.getSelectItems()) {
+            if (item.getAlias() != null && item.getAlias().getName().equalsIgnoreCase(column.getColumnName())) {
+                return item.getExpression();
+            }
+        }
+        return expression;
+    }
+
+    /** 다시 줄 세울 거면 사용자가 원한 개수를 적어 두고, LIMIT을 5보다 작으면 5로 (직선 1등이 실제 걸음 1등이 아닐 수 있어서) */
+    private void widenLimitForRerank(PlainSelect select, SqlCheck check) {
+        long want = ((LongValue) select.getLimit().getRowCount()).getValue(); // fixLimit 뒤라 늘 숫자
+        check.setWantLimit((int) want);
+        if (want < RERANK_POOL) {
+            select.setLimit(new Limit().withRowCount(new LongValue(RERANK_POOL)));
+        }
+    }
+
+    /** 빈칸을 MyBatis 파라미터로: :route → ST_GeogFromText(#{route}), :slack → #{slack}, :prev → 쉼표로 쪼갠 id 목록 */
     private String toMyBatis(String sql) {
         Matcher matcher = PLACEHOLDER.matcher(sql);
         StringBuilder result = new StringBuilder();
         while (matcher.find()) {
             String name = matcher.group(1);
-            String value = SLACK.equals(name) ? "#{slack}" : "ST_GeogFromText(#{" + name + "})";
+            String value;
+            if (SLACK.equals(name)) {
+                value = "#{slack}";
+            } else if (PREV.equals(name)) {
+                // IN (:prev) → IN (SELECT unnest(…)): "123,456" 글자 하나를 DB가 쪼갬. #{}라 SQL을 끼워 넣을 수 없음
+                value = "SELECT unnest(string_to_array(#{prev}, ','))";
+            } else {
+                value = "ST_GeogFromText(#{" + name + "})";
+            }
             matcher.appendReplacement(result, Matcher.quoteReplacement(value));
         }
         matcher.appendTail(result);
@@ -198,8 +283,8 @@ public class SqlChecker {
         @Override
         public <S> Void visit(JdbcNamedParameter parameter, S context) {
             String name = parameter.getName().toLowerCase();
-            if (!GEO_PLACEHOLDERS.contains(name) && !SLACK.equals(name)) {
-                problem = "쓸 수 없는 빈칸: :" + parameter.getName() + " (:route, :me, :next, :slack만)";
+            if (!GEO_PLACEHOLDERS.contains(name) && !SLACK.equals(name) && !PREV.equals(name)) {
+                problem = "쓸 수 없는 빈칸: :" + parameter.getName() + " (:route, :me, :next, :slack, :prev만)";
             }
             placeholders.add(name);
             return super.visit(parameter, context);
