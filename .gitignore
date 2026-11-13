@@ -38,3 +38,15 @@ application-local.properties
 
 ### ⑤ 올린 사진·영상 (photo.dir)
 uploads/
+
+### ⑤ 3D 지도 큰 파일 (용량이 커서 각자 PC에서 만듦, 11/13 박석진)
+#   유니티 WebGL 빌드(60MB): 유니티에서 Tools > Retro > 웹으로 내보내기 → frontend/public/unity3d/
+frontend/public/unity3d/
+#   건물 자료(58MB): db/geo/make_buildings_seoul.py로 만듦
+frontend/public/geo/buildings/
+#   유니티 확인용 시연 자료(74MB)
+unity/Assets/StreamingAssets/*.json
+unity/Assets/StreamingAssets/*.jpg
+unity/Assets/StreamingAssets/*.meta
+unity/.vscode/
+__pycache__/

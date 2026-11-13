@@ -81,6 +81,10 @@ const routes = [
   { path: '/live/route', component: () => import('@/views/after/RouteGuideView.vue'), meta: { parent: '/live', owner: 5, title: 'S13-e 길 안내 · 버스 정류장' } },
   { path: '/live/pay', component: () => import('@/views/after/PayMemoView.vue'), meta: { parent: '/live', owner: 5, title: 'S13-f 결제 메모', overlay: true } },
   { path: '/retro', component: () => import('@/views/after/RetroView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-a 지난 여행 다시보기' } },
+  // ⑤ 웹사이트 (PC에서 따로 들어오는 입구, 11/10): 로그인 → 지난 여행 → 3D 회고 (11/11 메모·사진 페이지는 3D 회고로 합침)
+  { path: '/web', component: () => import('@/views/after/WebLoginView.vue'), meta: { web: true, owner: 5, title: 'W00 웹 로그인' } },
+  { path: '/web/trips', component: () => import('@/views/after/WebTripsView.vue'), meta: { web: true, owner: 5, title: 'W18 웹 지난 여행' } },
+  { path: '/web/retro', component: () => import('@/views/after/WebRetroView.vue'), meta: { web: true, owner: 5, title: 'W19 웹 회고 (3D 지도)' } },
   { path: '/album', component: () => import('@/views/after/AlbumView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-c 앨범' } },
   { path: '/my/card', component: () => import('@/views/after/CardAddView.vue'), meta: { parent: '/my', owner: 5, title: 'S21-d 카드사 연결' } },
 
