@@ -18,7 +18,7 @@ import * as maplibregl from 'maplibre-gl' // MapLibre: 3D(기울이기·건물·
 import 'maplibre-gl/dist/maplibre-gl.css'
 // 지도 계산을 하는 뒤쪽 일꾼(worker) 파일 주소. Vite가 라이브러리를 옮겨 담아서 기본 주소를 못 찾기 때문에 직접 알려 줌
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
-import { get, post, put, del } from '@/api/http'
+import { get, post, put, del, upload } from '@/api/http'
 import { toTime, toMinutes, toDuration, toWon } from '@/utils/time'
 import { sunPosition, sunPhase, skyAt, koreanDate } from '@/utils/sun'
 import { loadJournal, editedOriginalIds, makeDelayedSave, toggleStopRating } from '@/utils/webJournal'
@@ -804,6 +804,43 @@ function startAddPayment(group) {
   paymentEdit.value = { id: null, groupKey: group.key, day: group.stop.day, time: time, storeName: group.stop.name, amount: '', payer: '나', old: null }
 }
 
+// [직접 입력]: 장소와 상관없이 결제 하나를 넣는 칸 (날짜·시각도 고름)
+function startManualPayment() {
+  const day = settleDay.value === 0 ? 1 : settleDay.value
+  paymentEdit.value = { id: null, groupKey: 'top', day: day, time: '12:00', storeName: '', amount: '', payer: '나', old: null, source: 'manual' }
+}
+
+// [영수증 가져오기]: 사진을 고르면 서버(Gemini OCR, ③ 주형)가 가게·금액·시각을 읽어 칸을 채움. 틀리면 고친 뒤 넣기
+const receiptInput = ref(null)
+function openReceipt() {
+  receiptInput.value.click()
+}
+async function readReceipt(event) {
+  const file = event.target.files[0]
+  event.target.value = '' // 같은 사진을 다시 골라도 동작하게
+  if (!file) return
+  settleMessage.value = '영수증을 읽는 중…'
+  try {
+    const form = new FormData()
+    form.append('image', file)
+    const result = await upload('/plans/capture/receipt', form)
+    const paidAt = result.paidAt ? result.paidAt.replace('T', ' ') : '' // 예: "2026-11-07 13:20"
+    paymentEdit.value = { id: null, groupKey: 'top', day: dayOfDate(paidAt.slice(0, 10)), time: paidAt.slice(11, 16) || '12:00',
+      storeName: result.storeName || '', amount: result.totalAmount ? String(result.totalAmount) : '', payer: '나', old: null, source: 'capture' }
+    settleMessage.value = '영수증에서 읽었어요. 오류 시 직접 수정해 주세요.'
+  } catch (e) {
+    settleMessage.value = e.message
+  }
+}
+
+// 날짜("2026-11-07") → 여행 몇 일차 (여행 날짜 밖이거나 없으면 1일차)
+function dayOfDate(dateText) {
+  for (let day = 1; day <= dayCount.value; day++) {
+    if (dateOfDay(day) === dateText) return day
+  }
+  return 1
+}
+
 // ✎: 있던 결제를 고치는 칸 열기
 function startEditPayment(group, payment) {
   paymentEdit.value = { id: payment.id, groupKey: group.key, day: payment.day, time: payment.paidAt, storeName: payment.storeName,
@@ -826,6 +863,7 @@ function savePayment() {
       await put(base + '/' + edit.id + '/payer', { payer: body.payer })
     } else {
       if (edit.old) Object.assign(body, { method: edit.old.method, source: edit.old.source, memo: edit.old.memo })
+      else if (edit.source) body.source = edit.source // 'manual' 직접 입력 · 'capture' 영수증
       await post(base, body)
       if (edit.old) await del(base + '/' + edit.id) // 새로 넣은 뒤에 지움 (중간에 실패해도 결제가 사라지지는 않게)
     }
@@ -2488,6 +2526,21 @@ watch(shownPhotos, drawPhotoMarkers)
         </template>
 
         <h3 class="wr-sub">장소별 결제 {{ payments.length }}건 <small>낸 사람을 누르면 다음 사람으로</small></h3>
+        <!-- 결제 넣기: 영수증 사진으로 읽어 오기 · 직접 입력 (앱 회고의 ⋯ 메뉴와 같은 API) -->
+        <div class="wr-payadd">
+          <button type="button" class="wr-btn" :disabled="isSettleBusy" @click="openReceipt">🧾 영수증 가져오기</button>
+          <button type="button" class="wr-btn" :disabled="isSettleBusy" @click="startManualPayment">✎ 직접 입력</button>
+          <input ref="receiptInput" type="file" accept="image/*" hidden @change="readReceipt" />
+        </div>
+        <form v-if="paymentEdit && paymentEdit.groupKey === 'top'" class="wr-payform wr-payform--full" @submit.prevent="savePayment">
+          <select v-model="paymentEdit.day" aria-label="날짜"><option v-for="item in dayButtons.slice(1)" :key="item.day" :value="item.day">{{ item.label }}</option></select>
+          <input v-model="paymentEdit.time" type="time" aria-label="시각" />
+          <input v-model="paymentEdit.storeName" maxlength="50" placeholder="가게 이름" aria-label="가게 이름" />
+          <input v-model="paymentEdit.amount" inputmode="numeric" placeholder="금액(원)" aria-label="금액" />
+          <select v-model="paymentEdit.payer" aria-label="낸 사람"><option v-for="companion in companions" :key="companion.id" :value="companion.name">{{ companion.name }}</option></select>
+          <button type="submit" class="wr-btn wr-btn--main" :disabled="isSettleBusy">넣기</button>
+          <button type="button" class="wr-btn" @click="paymentEdit = null">취소</button>
+        </form>
         <p v-if="paymentGroups.length === 0" class="wr-empty">다녀온 장소가 없어서 결제를 넣을 곳이 없어요.</p>
         <div v-for="group in paymentGroups" :key="group.key" class="wr-paygroup">
           <div class="wr-paygroup__head">
@@ -2716,6 +2769,11 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-payform input, .wr-payform select { min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; font: inherit; font-size: 13px; }
 .wr-payform .wr-btn { justify-self: start; }
 .wr-payform button[type='submit'] { grid-column: 2; }
+/* 영수증·직접 입력 칸: 날짜|시각 / 가게 이름(한 줄 전체) / 금액|낸 사람 / 넣기|취소 */
+.wr-payform--full { grid-template-columns: 1fr 1fr; }
+.wr-payform--full input[aria-label='가게 이름'] { grid-column: 1 / -1; }
+.wr-payform--full button[type='submit'] { grid-column: auto; justify-self: stretch; }
+.wr-payform--full .wr-btn { justify-self: stretch; }
 .wr-settle-msg { margin: 8px 0 0; color: var(--navy); font-size: 12px; font-weight: 700; }
 :deep(.wr-pop__type) { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: var(--radius-full); color: #fff; font-size: 11px; font-weight: 700; }
 :deep(.wr-pop__feature) { margin-top: 2px; font-size: 12px; color: var(--ink-muted); }
@@ -2747,6 +2805,7 @@ watch(shownPhotos, drawPhotoMarkers)
 .wr-btn.is-on { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); font-weight: 700; }
 .wr-title__links { display: flex; gap: 6px; margin-bottom: 8px; }
 .wr-sky { position: absolute; inset: 0; z-index: 1; pointer-events: none; transition: background 0.8s; }
+.wr-payadd { display: flex; gap: 8px; margin: 6px 0 10px; }
 .wr-unity { position: absolute; inset: 0; z-index: 1; } /* 카드·버튼(z-index 2)은 3D 위에 그대로 보임 */
 .wr-unity-zoom { position: absolute; right: 10px; bottom: 96px; z-index: 3; display: flex; flex-direction: column; border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 2px 8px rgba(24, 33, 58, 0.18); }
 .wr-unity-zoom button { width: 32px; height: 32px; border: 0; border-bottom: 1px solid var(--line); background: #fff; font-size: 18px; cursor: pointer; }
