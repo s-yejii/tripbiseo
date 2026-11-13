@@ -24,6 +24,7 @@ import { isSameStay, isStayStop } from '@/utils/mapView'
 import { getPositionOnce } from '@/utils/position'
 import { showToast } from '@/utils/toast'
 
+const READY_DRAFT_KEY = 'tripbiseo.readyDraft' // 홈에서 기다리다 완성된 초안이 있는지 (NewTripView와 같은 이름)
 const CREEP_MS = 400 // 하는 중인 단계에서 %가 1씩 오르는 간격
 const FIRST_CREEP_TO = 15 // 첫 알림(후보 찾기 끝)이 오기 전까지 올라갈 수 있는 %
 // 단계가 끝날 때의 % (서버 PlanServiceImpl이 보내는 값과 같음) → 하는 중이면 이 값 바로 아래까지만 올라감
@@ -103,7 +104,10 @@ async function makeDraft() {
     store.setDraft(result)
     draft.value = result
     // 안내(notes)는 토스트로 연달아 띄우면 마지막 하나만 보여서, 아래 목록으로 다 보여 줌 (11/13)
-    if (isLeft) showToast('일정이 완성됐어요', { actionText: '완성본 보기', action: openResult }) // 홈에서 기다려도 점검 화면으로 갈 수 있게 (11/12)
+    if (isLeft) {
+      showToast('일정이 완성됐어요', { actionText: '완성본 보기', action: openResult }) // 홈에서 기다려도 점검 화면으로 갈 수 있게 (11/12)
+      markReadyDraft() // 토스트를 놓쳐도 '새 여행' 화면에서 다시 열 수 있게 (11/13)
+    }
   } catch (e) {
     if (myRun !== latestRun) return
     failed.value = true
@@ -131,6 +135,7 @@ function creep() {
 
 // 다 만들었으면 일정 점검, 못 만들었으면 이유를 들고 실패 화면으로
 function openResult() {
+  clearReadyDraft()
   if (!failed.value) {
     router.replace('/plan/check')
     return
@@ -138,6 +143,21 @@ function openResult() {
   const query = { why: failReason.value }
   if (failCode.value != null) query.code = failCode.value
   router.replace({ path: '/plan/fail', query })
+}
+// 홈에서 기다리다 완성된 초안이 있다는 표시 (이 탭에만). 새 여행 화면(NewTripView)이 보고 [완성본 보기] 카드를 띄워요
+function markReadyDraft() {
+  try {
+    sessionStorage.setItem(READY_DRAFT_KEY, '1')
+  } catch (e) {
+    // 저장이 막힌 브라우저면 토스트로만 알림
+  }
+}
+function clearReadyDraft() {
+  try {
+    sessionStorage.removeItem(READY_DRAFT_KEY)
+  } catch (e) {
+    // 저장이 막힌 브라우저면 할 일 없음
+  }
 }
 function waitAtHome() {
   showToast('계속 만들고 있어요. 끝나면 알려 드릴게요')
