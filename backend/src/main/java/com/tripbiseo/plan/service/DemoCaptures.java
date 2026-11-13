@@ -25,16 +25,17 @@ public class DemoCaptures {
     private final Map<String, CaptureResponse> reserves = new HashMap<>();
     private final Map<String, ReceiptResponse> receipts = new HashMap<>();
 
+    // 11/13: 촬영 날짜가 11/16(월)~17(화)로 정해져서 시연 사진·날짜를 새로 만듦 (예전 사진은 바탕화면 착착트립_시연캡처/예전_1114_15)
     public DemoCaptures() {
-        // 예약 문자: 산청숯불가든 토 19:00 5명 (시연_예약_산청숯불가든.png)
-        reserves.put("98b6dfc89c5ebead0f7173a78bfcd3156ea38299672f22995cee8b6b1acafba2",
-                makeReserve("산청숯불가든 을지로", "naver-1850187827", "2026-11-14", "19:00", "서울 중구 을지로 114-6 1층", 37.5658389, 126.9906186));
-        // 예약 문자: 스시도 일 12:30 5명 (시연_예약_스시도.png)
-        reserves.put("29180e841b65a7f3b0b784278fd53751bede0fb389399eee3ec2bbeb23ee80ab",
-                makeReserve("스시도", "naver-1008521969", "2026-11-15", "12:30", "서울 강남구 개포로 662 101호", 37.4952278, 127.0850148));
+        // 예약 문자: 산청숯불가든 월 19:00 5명 (시연_예약_산청숯불가든.png)
+        reserves.put("bcf037f90ae32f5ba753e61f20dbb43220bb82583a9ffe01801657a4f207b47b",
+                makeReserve("산청숯불가든 을지로", "naver-1850187827", "2026-11-16", "19:00", "서울 중구 을지로 114-6 1층", 37.5658389, 126.9906186));
+        // 예약 문자: 스시도 화 12:30 5명 (시연_예약_스시도.png)
+        reserves.put("2246fb13b1f9ffa27435c5f5b16e10db2bb9a28e8dfcccc5111a48d9d0249a18",
+                makeReserve("스시도", "naver-1008521969", "2026-11-17", "12:30", "서울 강남구 개포로 662 101호", 37.4952278, 127.0850148));
         // 영수증: 산청숯불가든 150,000원 20:52 (시연_영수증_산청숯불가든.png)
-        receipts.put("71e4d4f84e9fc52450e2bc646976eeb204f1163eab672ed339a728855f2adf4f",
-                makeReceipt("산청숯불가든 을지로", "naver-1850187827", "2026-11-14 20:52", 150000, "서울 중구 을지로 114-6 1층", 37.5658389, 126.9906186));
+        receipts.put("30d51adb87e7f28ccc5f00c75e9f0766e381d6d485f04ac2a1b4cd1752364841",
+                makeReceipt("산청숯불가든 을지로", "naver-1850187827", "2026-11-16 20:52", 150000, "서울 중구 을지로 114-6 1층", 37.5658389, 126.9906186));
     }
 
     /** 시연용 예약 캡처면 정해 둔 값, 아니면 null */
