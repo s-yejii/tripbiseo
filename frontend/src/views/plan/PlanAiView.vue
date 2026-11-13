@@ -369,9 +369,13 @@ function goPrev() {
   if (store.planStep === 0) return goBack('/new')
   moveStep(-1)
 }
-// 인스타로 담으면: 지역이 정해졌으니 "어디로"를 건너뛰고 "언제"로
+// 인스타로 담으면: 담은 곳의 구를 지도에도 미리 골라 두고 "어디로" 단계로 (11/13: 예전엔 "어디로·동"을 건너뛰어서 지역을 확인할 수 없었어요)
 function onLinkAdded() {
-  store.planStep = store.planArea ? STEPS.findIndex((item) => item.id === 'when') : STEPS.findIndex((item) => item.id === 'where')
+  const area = store.planArea
+  if (area && area.isAuto && !store.planAreas.length) {
+    store.planAreas = [{ name: area.name, lat: area.lat, lng: area.lng, dongs: [] }] // 지도(GuMapPicker)가 쓰는 모양
+  }
+  store.planStep = STEPS.findIndex((item) => item.id === 'where')
 }
 // 검색 화면으로 갈 때 표시해 두면, 고르고 돌아왔을 때 바로 다음 칸으로
 function markAutoNext() {
