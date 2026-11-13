@@ -1,0 +1,106 @@
+/* 여행 중 지도 위 패널 (④ 11/13): AI 여행 도우미 · 근처 찾기 · 비슷한 근처 가게가 같은 모양을 써요
+   카드 하나 안에 머리줄(아이콘 + 제목 + 닫기) → 내용 → 입력창. 각 컴포넌트가 import 해요 */
+.lp-panel { gap: 10px; padding: 12px 12px 10px; border-radius: 20px; }
+.lp-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lp-head__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 22px; font-weight: 700; color: var(--ink); }
+.lp-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; }
+.lp-avatar--sm { width: 24px; height: 24px; }
+.lp-avatar--sm .ic { width: 14px; height: 14px; }
+.lp-avatar--ai { background: #F1EAFE; }
+.lp-avatar--ai .ic { color: #7C3AED; }
+.lp-avatar--near { background: var(--coral-soft); }
+.lp-avatar--near .ic { color: var(--coral-ink); }
+.lp-avatar--similar { background: var(--navy-soft); }
+.lp-avatar--similar .ic { color: var(--navy); }
+/* 말풍선 */
+.lp-thread { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; }
+.lp-row { display: flex; align-items: flex-end; gap: 6px; }
+.lp-bubble { max-width: 85%; margin: 0; padding: 9px 12px; border-radius: 16px 16px 16px 4px; background: var(--surface); color: var(--ink); font-size: 14px; line-height: 1.5; }
+.lp-me { align-self: flex-end; max-width: 80%; margin: 0; padding: 9px 12px; border-radius: 16px 16px 4px 16px; background: var(--navy); color: #fff; font-size: 14px; line-height: 1.5; }
+.lp-typing { display: inline-flex; gap: 4px; padding: 13px 14px; }
+.lp-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-subtle); animation: lpDot 1.2s ease-in-out infinite; }
+.lp-typing span:nth-child(2) { animation-delay: .15s; }
+.lp-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes lpDot { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .lp-typing span { animation: none; opacity: .6; } }
+.lp-hint { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-muted); }
+/* 칩 줄 (예시 질문 · 반경) */
+.lp-chips { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.lp-chips::-webkit-scrollbar { display: none; }
+.lp-chips--indent { padding-left: 30px; }
+.lp-chips .chip { flex: none; border: 1px solid var(--line); background: #fff; color: var(--ink); font-weight: 600; }
+.lp-chips .chip.is-on { border-color: var(--navy); background: var(--navy); color: #fff; }
+.lp-radius { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lp-radius__k { flex: none; font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.lp-status { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-muted); }
+/* 입력창 */
+.lp-form { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 5px 0 16px; border: 1px solid transparent; border-radius: 999px; background: var(--surface); }
+.lp-form:focus-within { border-color: var(--navy); background: #fff; box-shadow: 0 0 0 3px var(--navy-soft); }
+.lp-form input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 15px; color: var(--ink); }
+.lp-form input::-webkit-search-cancel-button { display: none; }
+.lp-send { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: var(--navy); cursor: pointer; transition: background-color .15s; }
+.lp-send .ic { color: #fff; }
+.lp-send.is-empty { background: var(--navy-soft); }
+.lp-send.is-empty .ic { color: var(--navy); }
+.lp-send:disabled { cursor: default; opacity: .6; }
+/* 고른 장소 카드 */
+.lp-pick { display: flex; flex-direction: column; gap: 10px; }
+.lp-place { display: flex; align-items: flex-start; gap: 12px; }
+.lp-place__img { flex: none; width: 72px; height: 72px; border-radius: 12px; object-fit: cover; }
+.lp-place__body { flex: 1; min-width: 0; }
+.lp-place__name { display: block; font-size: 16px; line-height: 22px; color: var(--ink); }
+.lp-place__meta { margin: 2px 0 0; font-size: 13px; color: var(--ink-muted); }
+.lp-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.lp-pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.lp-pill--navy { background: var(--navy-soft); color: var(--navy); }
+.lp-pill--ok { background: var(--success-soft); color: var(--success); }
+.lp-pill--late { background: var(--danger-soft); color: var(--danger); }
+.lp-place__dist { margin: 0; font-size: 13px; color: var(--ink-muted); }
+.lp-place__reason { margin: 0; font-size: 13px; color: var(--navy); }
+.lp-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+/* 일정에 넣기 순서 정하기 (11/13): 구글 지도 경유지처럼 번호 + 목록 + 새 장소 줄의 손잡이(≡)로 끌어 옮김
+   왼쪽 세로줄에 일정 번호(지도 핀과 같은 모양), 새 장소는 코랄. 끄는 동안 놓을 자리에 코랄 선 */
+.lp-head__sub { display: block; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--ink-muted); }
+.lp-order { position: relative; display: flex; flex-direction: column; max-height: 300px; margin: 0; padding: 0 0 0 32px; overflow-y: auto; list-style: none; }
+.lp-order::before { content: ''; position: absolute; top: 22px; bottom: 22px; left: 11px; width: 2px; border-radius: 1px; background: var(--line); }
+.lp-order__row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 0 0 2px; font-size: 14px; color: var(--ink); }
+.lp-order__no { position: absolute; left: -32px; top: 50%; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-top: -12px; border: 2px solid var(--navy); border-radius: 50%; background: #fff; font-size: 12px; font-weight: 700; color: var(--navy); }
+.lp-order__row.is-fixed .lp-order__no { background: var(--navy); color: #fff; }
+.lp-order__row--from { color: var(--ink-muted); }
+.lp-order__row--from::before { content: ''; position: absolute; left: -26px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: var(--coral); box-shadow: 0 0 0 3px #fff, 0 0 0 4px rgba(232,96,63,.35); }
+.lp-order__row--new { margin: 2px 0; padding: 0 0 0 10px; border-radius: 12px; background: var(--coral-soft); }
+.lp-order__row--new .lp-order__no { border-color: var(--coral); background: var(--coral); color: #fff; }
+.lp-order__row--new.is-drag { z-index: 2; pointer-events: none; box-shadow: 0 4px 12px rgba(24,33,58,.18); will-change: transform; }
+.lp-order__row--new .grip { width: 40px; height: 44px; color: var(--coral-ink); }
+.lp-order__name { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-order__name .ic { flex: none; color: var(--navy); }
+.lp-order__tag { flex: none; padding: 1px 6px; border-radius: 999px; background: #fff; font-size: 11px; font-weight: 700; color: var(--coral-ink); }
+.lp-order__time { flex: none; padding-right: 4px; font-size: 14px; color: var(--ink-muted); }
+.lp-order__time--late { color: var(--danger); font-weight: 700; }
+.lp-order__row--new .lp-order__time { padding-right: 0; color: var(--coral-ink); font-weight: 700; }
+.lp-order__drop { position: absolute; left: 2px; right: 0; z-index: 1; height: 3px; border-radius: 2px; background: var(--coral); pointer-events: none; }
+.lp-order .lp-order__time { transition: opacity .15s; }
+.lp-order.is-loading .lp-order__row:not(.lp-order__row--new) .lp-order__time { opacity: .4; } /* 바뀐 시각을 받는 중 */
+.lp-order.is-dragging { user-select: none; cursor: grabbing; }
+.pin--new { background: var(--coral); z-index: 3; } /* 지도: 넣을 장소 핀 (번호) */
+/* 찾은 곳 카드 줄 (11/13): 네이버·카카오 지도처럼 가로로 넘기는 카드, 넘기면 지도 핀도 같이 골라짐 */
+.lp-cards { position: relative; display: flex; gap: 8px; margin: 0 -12px; padding: 2px 12px 4px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-left: 12px; scrollbar-width: none; }
+.lp-cards::-webkit-scrollbar { display: none; }
+.lp-card { flex: none; width: 276px; display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 16px; background: #fff; scroll-snap-align: start; transition: border-color .15s, box-shadow .15s; }
+.lp-card.is-sel { border-color: var(--navy); box-shadow: 0 0 0 1px var(--navy); }
+.lp-card__main { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.lp-card__img { flex: none; width: 60px; height: 60px; border-radius: 10px; object-fit: cover; background: var(--surface); }
+.lp-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lp-card__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 21px; color: var(--ink); }
+.lp-card__meta { display: flex; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--ink-muted); }
+.lp-card__info { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--navy); }
+.lp-card__info.is-late { color: var(--danger); }
+.lp-card__actions { display: grid; grid-template-columns: 1fr 2fr; gap: 6px; }
+.lp-card__actions .btn { gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .lp-card { transition: none; } }
+/* AI 채팅 대화 (11/13): 한 여행의 말이 쌓여서 위로 스크롤. 카드 줄은 말풍선 사이에 (패널 가로 안에서만 넘김) */
+.lp-thread--chat { max-height: 300px; overflow-x: hidden; overscroll-behavior: contain; }
+.lp-thread--chat .lp-cards { flex: none; margin: 0; padding: 2px 0 4px; scroll-padding-left: 0; }
+.lp-chips .chip:disabled { opacity: .5; }
+.lp-card__planned { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 36px; border-radius: var(--radius-md); background: var(--surface); font-size: 14px; font-weight: 600; color: var(--ink-muted); } /* 이미 일정에 있는 곳 (11/13) */
+.lp-actions .lp-card__planned { height: 44px; }

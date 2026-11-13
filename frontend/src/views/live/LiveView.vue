@@ -18,6 +18,8 @@ import { showToast } from '@/utils/toast'
 import { goBack } from '@/utils/back'
 import { rememberAlert, shouldOpenAlert } from '@/utils/alertMemory'
 import { finishTrip, getTripPhotos, skipStop } from '@/api/trips'
+import { chatKey, clearChat } from '@/utils/askChat'
+import { loadPhoto } from '@/utils/placePhoto'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import AppNoti from '@/components/common/AppNoti.vue'
 import PageMessage from '@/components/common/PageMessage.vue'
@@ -34,6 +36,7 @@ import { devMode, isFakeGps, setFakeGps } from '@/utils/devMode'
 import { isBoardingPlace, missTrainTitle } from '@/utils/departure'
 import SegSheet from '@/components/live/SegSheet.vue'
 import AskPanel from '@/components/live/AskPanel.vue'
+import InsertSlotSheet from '@/components/live/InsertSlotSheet.vue'
 import NearSearch from '@/components/after/NearSearch.vue'
 import SimilarSearch from '@/components/live/SimilarSearch.vue'
 import LinkAddSheet from '@/components/live/LinkAddSheet.vue'
@@ -114,6 +117,14 @@ const stops = computed(() => {
 const currentStop = computed(() => stops.value.find((stop) => stop.reach === 'here') || null)
 const remainingStops = computed(() => stops.value.filter((stop) => stop.reach !== 'done' && stop.reach !== 'here'))
 const nextStop = computed(() => remainingStops.value[0] || null)
+// 지금 있는 곳·남은 일정의 장소 id: 검색 결과 카드에서 이미 일정에 있는 곳은 [일정에 넣기] 대신 '일정에 있어요' (11/13)
+const plannedPlaceIds = computed(() => {
+  const ids = []
+  for (const stop of stops.value) {
+    if (stop.reach !== 'done' && stop.placeId) ids.push(stop.placeId)
+  }
+  return ids
+})
 
 // 이동 중(장소를 떠나 다음 장소로 가는 길): 지도가 내 위치를 크게 확대해 따라가고, 내 위치 점에 진행 방향 화살표 (11/09 시연 피드백)
 // 시연 가짜 GPS가 움직이는 중(demoRoute)이면 서버가 '떠났다'고 답하기 전이라도 바로 따라가요 (출발 직후 시점이 안 따라가던 문제)
@@ -322,13 +333,22 @@ const mapPins = computed(() => {
     const isFit = !(adding.value && nearPlaces.value.length) && !askPlaces.value.length // 근처 찾기·AI 결과가 있으면 결과·내 위치만 보이게 맞춤
     // 다녀온 곳·지금 있는 곳은 점선 동선에서 빼요 (지금 위치 → 다음 장소는 nextPath 진짜 길로)
     const isRoute = stop.reach !== 'done' && stop.reach !== 'here'
-    pins.push({ key: stop.id, id: stop.id, tag: previewId.value === stop.id ? stop.name : '', lat: stop.lat, lng: stop.lng, text: stop.no, icon: pinIcon(stop), cls: pinClass(stop), label: stop.no + ' ' + stop.name, fit: isFit, route: isRoute })
+    const no = shownNo(stop) // 넣을 순서를 고르는 중이면 넣은 뒤 번호
+    pins.push({ key: stop.id, id: stop.id, tag: previewId.value === stop.id ? stop.name : '', lat: stop.lat, lng: stop.lng, text: no, icon: pinIcon(stop), cls: pinClass(stop), label: no + ' ' + stop.name, fit: isFit, route: isRoute })
+  }
+  if (slotPlace.value) {
+    // 넣을 장소: 일정 핀처럼 번호로 (코랄). 순서를 옮기면 번호도 같이 바뀜
+    const no = slotFirstNo.value + slotIndex.value
+    pins.push({ key: 'slot-' + slotPlace.value.id, lat: slotPlace.value.lat, lng: slotPlace.value.lng, text: no, cls: ' pin--new pin--sel', label: no + ' ' + slotPlace.value.name + ' (새로)', route: false })
+    return pins
   }
   for (const place of nearPlaces.value) {
+    if (slotPlace.value && place.id !== slotPlace.value.id) continue // 자리 고르기 중에는 넣을 장소 핀만
     const cls = ' pin--res' + (place.id === nearPickedId.value ? ' pin--sel' : '')
     pins.push({ key: 'near-' + place.id, nearId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), cls, label: place.name + ', ' + distText(place.distance), route: false })
   }
   for (const place of askPlaces.value) {
+    if (slotPlace.value && place.id !== slotPlace.value.id) continue
     const cls = ' pin--res' + (place.id === askPickedId.value ? ' pin--sel' : '')
     const tag = place.detourMinutes != null ? '+' + place.detourMinutes + '분' : '' // 가는 길에서 몇 분 더 (번호는 일정 번호와 헷갈려서 아이콘으로)
     pins.push({ key: 'ask-' + place.id, askId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), tag, cls, label: place.name + (tag ? ', 가는 길 ' + tag : ''), route: false })
@@ -350,7 +370,7 @@ const askLinks = computed(() => {
   return links
 })
 const askFitKey = computed(() => (askPlaces.value.length ? 'ask|' + askPlaces.value.map((place) => place.id).join(',') : ''))
-const ASK_MAP_PADDING = { top: 100, right: 40, bottom: 300, left: 40 } // AI 채팅: 아래 채팅 패널만큼 비움
+const ASK_MAP_PADDING = { top: 100, right: 40, bottom: 440, left: 40 } // AI 채팅: 아래 채팅 패널(대화 + 카드 줄)만큼 비움
 
 function toBandRings(geojson) {
   let shape = null
@@ -367,6 +387,16 @@ function toBandRings(geojson) {
   }
   return rings
 }
+// 핀을 고르면 그 장소 카드의 진짜 사진을 받아 둠 (11/13). 길은 넣을 자리를 고를 때 전체 경로로 보여 줘요
+const pickedPlace = computed(() => {
+  if (askPickedId.value) return askPlaces.value.find((place) => place.id === askPickedId.value) || null
+  if (nearPickedId.value) return nearPlaces.value.find((place) => place.id === nearPickedId.value) || null
+  return null
+})
+watch(pickedPlace, (place) => {
+  if (place) loadPhoto(place.id)
+})
+
 function onAskFound(found) {
   askFound.value = found
   askPickedId.value = null
@@ -668,6 +698,36 @@ async function onAdded(message) {
   showToast(message)
   await live.refresh()
 }
+// 일정에 넣기 → 넣을 자리 고르기 (11/13). 시트가 고른 자리로 계산한 전체 경로를 지도에 그리고 화면을 맞춤
+const slotPlace = ref(null) // 넣을 장소 (시트가 열려 있으면)
+const slotPath = ref([]) // 고른 자리로 계산한 전체 경로선
+const slotIndex = ref(0) // 새 장소 자리 (0이면 남은 첫 칸 앞)
+const slotFirstNo = computed(() => (remainingStops.value.length ? remainingStops.value[0].no : stops.value.length + 1)) // 남은 첫 칸 번호
+// 지도 핀 번호: 넣을 순서를 고르는 중이면 새 장소 자리부터 뒤 칸은 하나씩 밀림
+function shownNo(stop) {
+  if (!slotPlace.value) return stop.no
+  const index = remainingStops.value.findIndex((item) => item.id === stop.id)
+  return index >= 0 && index >= slotIndex.value ? stop.no + 1 : stop.no
+}
+const SLOT_MAP_PADDING = { top: 110, right: 56, bottom: 440, left: 56 } // 아래 자리 고르기 시트만큼 비움
+function openSlotSheet(place) {
+  slotPlace.value = place
+  slotPath.value = []
+  slotIndex.value = 0
+}
+function closeSlotSheet() {
+  slotPlace.value = null
+  slotPath.value = []
+}
+function onSlotRoute(coords) {
+  slotPath.value = coords
+  if (coords.length > 1 && mapRef.value) mapRef.value.fitPoints(coords, SLOT_MAP_PADDING)
+}
+async function onSlotAdded(message) {
+  closeSlotSheet()
+  await onAdded(message)
+}
+
 async function onAskAdd(place) {
   await onAdded(place.message || place.name + '을(를) 다음 일정으로 넣었어요')
 }
@@ -677,6 +737,7 @@ async function finish() {
   isFinishing.value = true
   try {
     await finishTrip(live.tripId.value)
+    clearChat(chatKey(live.trip.value)) // 끝난 여행의 AI 대화는 이 브라우저에서 지움
     router.replace('/retro?id=' + live.tripId.value)
   } catch (e) {
     showToast(e.message)
@@ -783,10 +844,11 @@ function restartMoving() {
           :follow="isFollowing"
           :smooth="devMode.isOn"
           :heading="devMode.isOn && isMoving ? heading : null"
-          :paths="nextPath"
+          :paths="slotPlace ? [] : nextPath"
           :ring="nearRing"
           :band="askBand"
           :links="askLinks"
+          :preview="slotPath"
           :fit-key="adding ? nearFitKey : askFitKey"
           :padding="mapPadding"
           @pick="onPickPin"
@@ -855,6 +917,20 @@ function restartMoving() {
         <LinkAddSheet v-if="linkOpen" :trip-id="live.tripId.value" :position="live.position.value" @close="linkOpen = false" @added="onLinkAdded" />
 
         <!-- 근처 찾기 (⑤) -->
+        <!-- 일정에 넣기 → 넣을 자리 고르기 (④ 11/13): 패널 자리에 띄우고, 패널은 숨기기만 (닫으면 대화·검색 결과 그대로) -->
+        <InsertSlotSheet
+          v-if="slotPlace"
+          :trip-id="live.tripId.value"
+          :position="live.position.value"
+          :place="slotPlace"
+          :stops="remainingStops"
+          :from-name="currentStop ? currentStop.name : '지금 위치'"
+          :first-no="slotFirstNo"
+          @route="onSlotRoute"
+          @slot="slotIndex = $event"
+          @added="onSlotAdded"
+          @close="closeSlotSheet"
+        />
         <!-- 놓친 예약과 비슷한 근처 가게 (④ 11/12): 근처 찾기와 같은 자리·같은 지도 핀 -->
         <SimilarSearch
           v-if="adding && similarStop"
@@ -868,9 +944,12 @@ function restartMoving() {
         />
         <NearSearch
           v-else-if="adding"
+          v-show="!slotPlace"
           v-model:picked-id="nearPickedId"
+          :planned="plannedPlaceIds"
           :trip-id="live.tripId.value"
           :position="live.position.value"
+          @choose="openSlotSheet"
           @results="onNearResults"
           @added="onAdded"
           @close="closeNear"
@@ -878,7 +957,10 @@ function restartMoving() {
 
         <template v-else>
           <!-- AI 채팅(④) -->
-          <AskPanel v-if="asking" :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" :selected="askPickedId" @found="onAskFound" @unpick="askPickedId = null" />
+          <!-- 자리 고르기 중에는 숨기기만 (AskPanel은 뿌리 요소가 둘이라 v-show를 감싸는 div에) -->
+          <div v-if="asking" v-show="!slotPlace">
+            <AskPanel :me="mePoint || { x: 195, y: 300 }" :late="isLate" :trip-id="live.tripId.value" :position="live.position.value" @close="asking = false" @add="onAskAdd" :selected="askPickedId" :chat-key="chatKey(live.trip.value)" :planned="plannedPlaceIds" @choose="openSlotSheet" @found="onAskFound" @pick="askPickedId = $event" />
+          </div>
           <div v-else class="quick live-quick" data-sheet-follow role="group" aria-label="AI 채팅과 근처 찾기">
             <button type="button" class="chip chip--sm chip--add live-chip" @click="openAsk"><span class="live-chip__ic live-chip__ic--ai" aria-hidden="true"><i class="ic ic--s i-sparkle"></i></span>AI에게 묻기</button>
             <button type="button" class="chip chip--sm chip--add live-chip" @click="openNear"><span class="live-chip__ic live-chip__ic--near" aria-hidden="true"><i class="ic ic--s i-search"></i></span>근처 찾기</button>

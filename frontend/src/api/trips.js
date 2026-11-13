@@ -95,10 +95,13 @@ export function readCapture(file) {
 // ④ 여행 중 (본문에 지금 위치 lat, lng가 항상 들어가요)
 export const sendTrack = (tripId, lat, lng, accuracy) => post(`/trips/${tripId}/live/track`, { lat, lng, accuracy })
 export const getLiveStatus = (tripId, lat, lng) => post(`/trips/${tripId}/live/status`, { lat, lng })
-export const askAssist = (tripId, message, lat, lng) => post(`/trips/${tripId}/live/assist`, { message, lat, lng })
+// prev: 바로 앞 질문과 찾은 장소 id { message, ids } ("이 중에 …"처럼 이어서 물을 때, 11/13). 없으면 안 보냄
+export const askAssist = (tripId, message, lat, lng, prev) =>
+  post(`/trips/${tripId}/live/assist`, { message, lat, lng, prevMessage: prev?.message, prevPlaceIds: prev?.ids })
 // similarTo: 놓친 장소 id (비슷한 가게 찾기, 11/12), replaceStopId: 이 칸 자리에 넣기 (놓친 예약 바꾸기). 둘 다 안 넣으면 예전과 같음
 export const askRecommend = (tripId, lat, lng, radius, category, tags, similarTo) => post(`/trips/${tripId}/live/recommend`, { lat, lng, radius, category, tags, similarTo })
-export const insertPlace = (tripId, placeId, lat, lng, replaceStopId) => post(`/trips/${tripId}/live/insert`, { placeId, lat, lng, replaceStopId })
+// afterStopId: 이 남은 칸 바로 뒤에 넣기 (11/13, 없으면 바로 다음)
+export const insertPlace = (tripId, placeId, lat, lng, replaceStopId, afterStopId) => post(`/trips/${tripId}/live/insert`, { placeId, lat, lng, replaceStopId, afterStopId })
 export const skipStop = (tripId, stopId, lat, lng) => post(`/trips/${tripId}/live/skip`, { stopId, lat, lng })
 export const getAlternatives = (tripId, lat, lng, reason = 'delay', request = null) => post(`/trips/${tripId}/live/alternatives`, { lat, lng, reason, request })
 export const applyAlternative = (tripId, key, stops, lat, lng) => post(`/trips/${tripId}/live/apply`, { key, stops, lat, lng })
