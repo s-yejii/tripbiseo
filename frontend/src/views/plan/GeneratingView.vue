@@ -97,7 +97,9 @@ onUnmounted(() => {
 async function makeDraft() {
   latestRun++
   const myRun = latestRun // 이번 만들기 번호
-  const position = await getPositionOnce()
+  // 11/13: 지역을 골랐으면 서버가 내 위치를 안 써서 위치 권한을 묻지 않음 (지역이 없을 때만 '내 위치 근처'로 찾으려고 물음)
+  const hasArea = !!store.planArea || store.planAreas.length > 0
+  const position = hasArea ? null : await getPositionOnce()
   try {
     const result = await generatePlanStream(conditions, store.planMessages, position?.lat, position?.lng, onProgress)
     if (myRun !== latestRun) return // 그사이 새로 만들기를 시작했으면 이 결과는 버림
