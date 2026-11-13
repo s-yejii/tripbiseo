@@ -37,6 +37,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class PlanCandidateFinder {
 
+    private static final String STORE_SUFFIX = "점"; // "○○점" = 건물·공원 안의 한 가게 (11/13)
     private static final int NEAR_ME_RADIUS_M = 2000;
     private static final int NEAR_ME_LIMIT = 60;
     private static final int AROUND_MUST_RADIUS_M = 1000;
@@ -305,6 +306,23 @@ public class PlanCandidateFinder {
         return a.length() >= 2 && b.length() >= 2 && (a.contains(b) || b.contains(a));
     }
 
+    /**
+     * 예약(고정 일정)·꼭 갈 곳과 같은 곳인지: 이름이 서로 포함되어도 한쪽이 그 이름이 들어간 "○○점" 가게면 다른 곳 (11/13)
+     * 예) "롯데월드타워" ≠ "나이키 롯데월드타워점", "여의도 한강공원" = "여의도한강공원"
+     */
+    public boolean isSamePlaceName(String first, String second) {
+        if (!isSameName(first, second)) {
+            return false;
+        }
+        String a = toCompactName(first);
+        String b = toCompactName(second);
+        if (a.equals(b)) {
+            return true;
+        }
+        String longer = a.length() > b.length() ? a : b;
+        return !longer.endsWith(STORE_SUFFIX); // 긴 쪽이 "○○점"이면 그 이름 안의 다른 가게
+    }
+
     /** 띄어쓰기를 빼고 소문자로 (이름 비교용) */
     private String toCompactName(String name) {
         return name.replace(" ", "").toLowerCase();
@@ -315,6 +333,16 @@ public class PlanCandidateFinder {
         String placeName = toCompactName(place.getName());
         String wanted = toCompactName(name);
         return !placeName.equals(wanted) && placeName.contains(wanted) && placeName.endsWith("점");
+    }
+
+    /** 예약(고정 일정) 장소 찾기: 이름으로 찾은 곳이 그 이름이 든 "○○점" 가게면 건물·공원 자체로 (11/13: 롯데월드타워 → 나이키 롯데월드타워점) */
+    public Place findFixedPlace(String name, Double lat, Double lng) {
+        Place place = findByName(name, lat, lng);
+        if (place != null && isSamePlaceName(place.getName(), name)) {
+            return place;
+        }
+        Place building = findBuilding(name, lat, lng);
+        return building != null ? building : place;
     }
 
     /** 카카오 키워드로 건물·공원 자체 찾기 (이름이 맞고 "○○점"이 아닌 첫 곳). 저장할 때는 장소 연결 없이 이름·좌표만 남음 */
