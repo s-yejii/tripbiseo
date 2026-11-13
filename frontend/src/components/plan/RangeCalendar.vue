@@ -40,14 +40,18 @@ function moveMonth(diff) {
   shown.value = next
 }
 
-// 처음 누르면 시작일, 그 뒤 날짜를 누르면 끝날, 다시 누르면 처음부터
+// 이 달력에서 처음 누르면 시작일, 그 뒤 날짜를 누르면 끝날, 다시 누르면 처음부터
+// 11/13: 미리 채워진 시작일(오늘)이 있어도 첫 누름은 시작일로 (한 번만 눌러도 '오늘~그날' 여러 날이 되던 문제)
+const isPickingEnd = ref(false) // 시작일을 이 달력에서 눌러 고른 뒤 끝날을 기다리는 중인지
 function pick(day) {
-  if (!props.start || props.end || day <= props.start) {
-    emit('update:start', day)
-    emit('update:end', null)
-  } else {
+  if (isPickingEnd.value && day > props.start) {
     emit('update:end', day)
+    isPickingEnd.value = false
+    return
   }
+  emit('update:start', day)
+  emit('update:end', null)
+  isPickingEnd.value = true
 }
 
 function dayClass(day) {
