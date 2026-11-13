@@ -25,7 +25,6 @@ import DongPicker from '@/components/plan/DongPicker.vue'
 import OriginPicker from '@/components/plan/OriginPicker.vue'
 import ChoiceCard from '@/components/plan/ChoiceCard.vue'
 import TimeRangePicker from '@/components/plan/TimeRangePicker.vue'
-import VerifiedBadge from '@/components/common/VerifiedBadge.vue'
 import { KIND_CHIPS, MOVE_CODES, TAG_CHIPS } from '@/utils/styleCodes'
 // 서비스 아이콘: Simple Icons (CC0, 상표는 각 회사 소유). 그 서비스 바로가기에만 써요
 import youtubeLogo from '@/assets/brand/youtube.svg'
@@ -105,15 +104,13 @@ const canNext = computed(() => !step.value.isRequired || !!store.planArea)
 const YOUTUBE_WORD = '서울 핫플 브이로그'
 const NAVER_WORD = '서울 가볼만한곳'
 const INSTAGRAM_ACCOUNT_URL = 'https://www.instagram.com/yeohaenge_ottae/' // 여행어때 인스타그램 계정 (모든 계정 같음)
+// 11/13: 실제 제휴가 아닌 "착착트립 파트너스" 인증 배지·방송 이미지(먹을텐데·흑백요리사)·미쉐린 로고는 뺌. 실제로 여는 검색 바로가기만 둠
 const SEARCH_LINKS = [
-  { key: 'mukeul', label: '먹을텐데', caption: '착착트립 파트너스', isVerified: true, img: '/img/shortcut/mukeul.jpg', text: '유튜브에서 먹을텐데 서울 찾기', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent('성시경 먹을텐데 서울') },
   { key: 'youtube', label: 'YouTube', logo: youtubeLogo, cls: 'pa-sns--yt', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(YOUTUBE_WORD) },
   { key: 'instagram', label: 'Instagram', labelCls: 'pa-sns__script', logo: instagramLogo, cls: 'pa-sns--ig', url: () => INSTAGRAM_ACCOUNT_URL }, // 11/08 주형: 인스타는 우리 계정 페이지로
   { key: 'naver', label: '네이버', logo: naverLogo, cls: 'pa-sns--nv', url: () => 'https://search.naver.com/search.naver?query=' + encodeURIComponent(NAVER_WORD) }, // 통합검색: 플레이스 지도·사진 목록이 나와요
   // 캐치테이블: 아이콘은 공식 사이트 favicon. 주소는 캐치테이블 웹에서 "서울"을 검색했을 때 뜨는 지도 + 가게 목록 화면
   { key: 'catchtable', label: '캐치테이블', img: '/img/shortcut/catchtable.png', text: '캐치테이블에서 서울 가게 찾기', url: () => 'https://app.catchtable.co.kr/ct/map/search-map?showTabs=true&bottomSheetHeightType=PARTIAL_MAP&serviceType=INTEGRATION&keyword=' + encodeURIComponent('서울') + '&keywordSearch=' + encodeURIComponent('서울') + '&isInitSearch=1' },
-  { key: 'blackwhite', label: '흑백요리사', img: '/img/shortcut/blackwhite.jpg', isTitle: true, text: '네이버에서 흑백요리사 찾기', url: () => 'https://search.naver.com/search.naver?query=' + encodeURIComponent('흑백요리사') },
-  { key: 'michelin', label: '미쉐린 가이드', img: '/img/shortcut/michelin.png', isLogo: true, text: '미쉐린 가이드 사이트 열기', url: () => 'https://guide.michelin.com/kr/ko' },
 ]
 const PLATFORM_LABEL = { instagram: '인스타', youtube: 'YouTube', naver: '네이버' }
 const recommended = ref([]) // 추천 게시물 (없으면 칸을 숨김)
@@ -474,7 +471,7 @@ function useRecommendedTime() {
                 <img v-if="item.img" :src="item.img" :class="{ 'is-logo': item.isLogo, 'is-title': item.isTitle }" alt="" draggable="false" />
                 <i v-else class="pa-sns__logo" :style="{ '--logo': `url(&quot;${item.logo}&quot;)` }" aria-hidden="true"></i>
               </span>
-              <span class="pa-sns__name"><b :class="item.labelCls">{{ item.label }}</b><VerifiedBadge v-if="item.isVerified" /></span>
+              <span class="pa-sns__name"><b :class="item.labelCls">{{ item.label }}</b></span>
             </a>
           </div>
         </section>
