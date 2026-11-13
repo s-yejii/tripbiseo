@@ -462,8 +462,12 @@ function useRecommendedTime() {
           <WishLinks ref="wishLinks" @added="onLinkAdded" />
         </section>
 
-        <section v-if="step.id === 'link'" class="pa-sns-sec" aria-label="여긴어때?">
-          <h2 class="t-sub" style="margin: 0">여긴어때?</h2>
+        <section v-if="step.id === 'link'" class="pa-sns-sec" aria-label="어디서 봤어요?">
+          <!-- 11/13 주형: 제목 옆에 트리피(여행 중 화면과 같은 그림) + 한 줄 -->
+          <div class="pa-trippie">
+            <img src="/img/trippie-flag.webp" alt="" class="pa-trippie__img" aria-hidden="true" draggable="false" />
+            <span class="pa-trippie__text"><h2 class="t-sub" style="margin: 0">어디서 봤어요?</h2><span class="t-cap">링크만 주면 트리피가 찾아올게요</span></span>
+          </div>
           <div class="pa-sns">
             <a v-for="item in SEARCH_LINKS" :key="item.key" class="pa-sns__tile" :href="item.url()" target="_blank" rel="noopener noreferrer" :aria-label="(item.text || item.label + '에서 서울 찾기') + ' (새 창)'">
               <small v-if="item.caption" class="pa-sns__caption">{{ item.caption }}</small>
@@ -608,6 +612,9 @@ function useRecommendedTime() {
 .scr-PlanAI .pa-sns__ic:has(img.is-title){overflow:hidden;border-radius:14px;background:#000}
 .scr-PlanAI .pa-sns__ic img.is-title{transform:scale(1.25)}
 .scr-PlanAI .pa-sns__ic img.is-logo{object-fit:contain;padding:0 4px;background:#fff;box-sizing:border-box;box-shadow:inset 0 0 0 1px var(--line)}
+.scr-PlanAI .pa-trippie{display:flex;align-items:center;gap:10px}
+.scr-PlanAI .pa-trippie__img{width:40px;height:40px;flex:none;object-fit:contain;-webkit-user-drag:none}
+.scr-PlanAI .pa-trippie__text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .scr-PlanAI .pa-sns{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .scr-PlanAI .pa-sns__tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:104px;border:1.5px solid var(--line);border-radius:16px;background:var(--surface-raised);text-decoration:none;color:var(--ink);transition:border-color .15s,transform .1s}
 .scr-PlanAI .pa-sns__tile:hover{border-color:var(--navy)}
