@@ -111,6 +111,15 @@ async function readFromServer(file) {
   }
 }
 
+// 같은 곳·같은 날·같은 시각 예약이 이미 있는지
+function isAlreadyAdded(placeName, reserveTime, day) {
+  const fixed = (store.planConditions || {}).fixed || []
+  for (const item of fixed) {
+    if (item.name === placeName && item.time === reserveTime && (item.day || 1) === day) return true
+  }
+  return false
+}
+
 function add() {
   const placeName = name.value.trim() || '예약한 곳'
   if (!TIME_PATTERN.test(time.value)) return showToast('시간을 HH:mm으로 적어 주세요')
@@ -118,6 +127,7 @@ function add() {
   // 예전엔 날짜를 버려서 2일차 예약도 1일차에 들어갔어요 (11/11 주형). 손으로 고친 날짜도 그대로 써요
   const day = dayOfTrip(date.value)
   if (day === 0) return showToast('예약 날짜가 여행 날짜 밖이에요 · 여행 날짜를 확인해 주세요')
+  if (isAlreadyAdded(placeName, time.value, day)) return showToast('이미 넣은 예약이에요') // 11/13: 같은 캡처를 두 번 올리면 두 줄이 되던 문제
   if (found.value && found.value.lat != null) {
     store.addDraftPlace({ id: found.value.placeId, name: placeName, address: found.value.address, lat: found.value.lat, lng: found.value.lng }, true, time.value, day)
   }

@@ -290,9 +290,12 @@ function dayTileOf(day) {
   return { title: nights.value ? index + 1 + '일차' : '당일', date: toMonthDay(addDays(store.planStartDate, index)) }
 }
 // 꼭 지킬 시간 빼기 (일정 만들기 조건과 직접 고르기 초안에서 같이)
-function removeFixed(name) {
-  store.planConditions = { ...store.planConditions, fixed: fixedList.value.filter((item) => item.name !== name) }
-  store.draft.stops = store.draft.stops.filter((stop) => !(stop.fixed && stop.name === name))
+// 예약 하나만 빼기 (11/13: 이름으로만 지워서 같은 이름 예약이 둘이면 X 하나에 둘 다 빠지던 문제)
+function removeFixed(index) {
+  const target = fixedList.value[index]
+  store.planConditions = { ...store.planConditions, fixed: fixedList.value.filter((item, i) => i !== index) }
+  const stopIndex = store.draft.stops.findIndex((stop) => stop.fixed && stop.name === target.name && stop.time === target.time)
+  if (stopIndex >= 0) store.draft.stops.splice(stopIndex, 1)
 }
 // 칩 켜고 끄기 (코드 목록에 넣거나 빼기)
 function toggleCode(list, code) {
@@ -544,11 +547,11 @@ function useRecommendedTime() {
             <ChoiceCard to="/plan/search?mode=fixed" icon="i-search" title="장소 검색" desc="식당·공연 이름으로" />
             <ChoiceCard to="/plan/capture" icon="i-camera" title="예약 캡처" desc="예약 문자·화면으로" />
           </div>
-          <div v-for="item in fixedList" :key="item.name" class="stop is-fixed" style="grid-template-columns: 1fr">
+          <div v-for="(item, index) in fixedList" :key="item.name + item.day + item.time" class="stop is-fixed" style="grid-template-columns: 1fr">
             <div class="stop__card">
               <span class="day-tile"><b>{{ dayTileOf(item.day).title }}</b><span>{{ dayTileOf(item.day).date }}</span></span>
               <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><b class="c-navy tn">{{ item.time }}</b> · 시간 고정</span></span>
-              <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(item.name)"><i class="ic i-close muted" aria-hidden="true"></i></button>
+              <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(index)"><i class="ic i-close muted" aria-hidden="true"></i></button>
             </div>
           </div>
           <button v-if="!fixedList.length" type="button" class="textlink" style="align-self: center" @click="goNext">예약 없어요</button>
