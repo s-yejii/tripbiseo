@@ -35,6 +35,7 @@ public class PlanVerifier {
     private static final String MUST = "must";
     private static final int MAX_LINES = 6; // 안내 목록이 너무 길어지지 않게
 
+    private static final String UNLOCATED_MARK = "위치 확인 필요"; // 위치를 못 찾은 예약 칸 메모 앞부분 (PlanServiceImpl)
     private static final int CROWD_FIRST_HOUR = 7;  // 생활인구 데이터는 7~23시만
     private static final int CROWD_LAST_HOUR = 23;
     private static final int BUSY_PCT = 80;   // 서울 순위 이 이상이면 붐빔
@@ -76,6 +77,9 @@ public class PlanVerifier {
         StringBuilder line = new StringBuilder("✓ ").append(stop.getName())
             .append(" · ").append(date.getMonthValue()).append('/').append(date.getDayOfMonth())
             .append('(').append(weekday).append(") ").append(stop.getTime());
+        if (stop.getMemo() != null && stop.getMemo().startsWith(UNLOCATED_MARK)) {
+            return line.append(" · 위치 확인 필요").toString(); // 좌표가 지역 가운데라 붐빔·거리를 붙이면 틀린 말이 돼요 (11/14)
+        }
         String openText = openTextOf(stop, date);
         if (openText != null) {
             line.append(' ').append(openText);
