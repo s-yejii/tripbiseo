@@ -158,6 +158,8 @@ function add() {
             <span class="t-cap">예약 문자 · 앱 예약 내역 캡처</span>
             <span class="t-cap">장소 · 날짜 · 시각을 읽어요</span>
             <span class="t-cap">예약이 여러 개면 첫 번째만 읽어요 · 나머지는 다시 올려 주세요</span>
+            <!-- 11/13: 사진이 어디로 가는지 미리 알림 (개인정보) -->
+            <span class="t-cap rc-privacy"><i class="ic ic--s i-info" aria-hidden="true"></i>사진은 글자를 읽으려고 Google AI(Gemini)로 보내요 · 우리 서버엔 저장하지 않아요 · 이름·전화번호가 보이면 가리고 올려 주세요</span>
           </span>
           <span class="btn btn--secondary btn--sm rc-up"><i class="ic ic--s i-camera" aria-hidden="true"></i>{{ photo ? '다른 사진' : '캡처 올리기' }}</span>
           <input id="rc-file" type="file" accept="image/*" class="rc-file" @change="onFile" />
@@ -193,4 +195,5 @@ function add() {
 .scr-ReserveCapture .rc-img{max-width:100%;max-height:100%;object-fit:contain}
 .scr-ReserveCapture .rc-multi{margin-top:-8px}
 .scr-ReserveCapture .rc-shot{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:15px;color:var(--ink);text-align:center}
+.scr-ReserveCapture .rc-privacy{display:flex;gap:4px;align-items:flex-start;margin-top:6px;color:var(--ink-muted, var(--ink));text-align:left}
 </style>
