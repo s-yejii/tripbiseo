@@ -55,6 +55,7 @@ public class PlanRuleMaker {
     private static final int TODAY_START_AFTER_MIN = 60;       // 오늘 출발이면 지금부터 1시간 뒤 칸부터
     private static final int TODAY_LAST_END_MIN = 23 * 60;     // 오늘 당겨 쓴 칸은 23:00 안에 끝나는 것만
     private static final int MIDDLE_DAY_START_MIN = 10 * 60;   // 여러 날 여행: 고른 시작 시각은 첫날만, 다른 날은 10:00부터 (11/06)
+    private static final int MORNING_LIMIT_MIN = 12 * 60;      // 1일차 시작이 이 시각까지면 2일차부터도 같은 시각 (11/13)
     private static final int MIDDLE_DAY_END_MIN = 20 * 60;     // 고른 끝 시각은 마지막 날만, 다른 날은 20:00까지 (화면 기본값과 같음)
     private static final int BOARDING_TRAVEL_MIN = 40;         // 역·터미널·공항 고정 일정 앞은 40분 비움 (11/06 영등포 타임스퀘어→서울역 대중교통 42분 실측 기준)
     private static final int SLOT_GAP_MIN = 30;                // 당겨 쓴 칸 앞뒤 이동 여유
@@ -148,7 +149,7 @@ public class PlanRuleMaker {
     /** 그날 칸 목록 (담은 곳이 있으면 그 시간은 비워 둠) */
     private List<String[]> getSlotList(PlanConditions conditions, int day) {
         if (hasDayTime(conditions)) {
-            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
+            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : laterDayStartMin(conditions, day);
             int end = day == lastDayOf(conditions) ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
             // 담은 곳 + 그날 예약(고정 일정)을 피해서 칸을 만듦 (11/12: 예약 시간은 빼고 칸을 만들다 보니 19:00 회식과 겹친 저녁 칸이 통째로 빠져 오후가 비었어요)
             List<Stop> blocks = keptOfDay(conditions, day);
@@ -220,7 +221,7 @@ public class PlanRuleMaker {
                 continue;
             }
             int day = dayOf(extra);
-            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
+            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : laterDayStartMin(conditions, day);
             int end = day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
             int stay = extra.getStay() == null ? DEFAULT_EXTRA_STAY_MIN : extra.getStay();
             int time = Math.max(start, Math.min(Geo.toMinutes(extra.getTime()), end - stay));
@@ -242,7 +243,7 @@ public class PlanRuleMaker {
                 continue;
             }
             int day = dayOf(stop);
-            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : MIDDLE_DAY_START_MIN;
+            int start = day == 1 ? Geo.toMinutes(conditions.getStartTime()) : laterDayStartMin(conditions, day);
             int end = day == days ? Geo.toMinutes(conditions.getEndTime()) : MIDDLE_DAY_END_MIN;
             int stopStart = Geo.toMinutes(stop.getTime());
             int stay = stop.getStay() == null ? 0 : stop.getStay();
@@ -789,7 +790,8 @@ public class PlanRuleMaker {
     /** 그날 시작부터 latest까지 15분씩 보며 열려 있고 안 겹치는 첫 시각. 없으면 OPEN_MOVE_LATEST_MIN + 1 (안 옮김) */
     private int findEarlierFreeTime(List<AiDraftStop> extras, AiDraftStop extra, Place place, LocalDate date, int stay,
                                     PlanConditions conditions, int latest) {
-        int dayStart = !hasDayTime(conditions) || dayOf(extra) != 1 ? MIDDLE_DAY_START_MIN : Geo.toMinutes(conditions.getStartTime());
+        int dayStart = dayOf(extra) != 1 ? laterDayStartMin(conditions, dayOf(extra))
+                : !hasDayTime(conditions) ? MIDDLE_DAY_START_MIN : Geo.toMinutes(conditions.getStartTime());
         for (int time = dayStart; time <= latest; time += OPEN_MOVE_STEP_MIN) {
             if (isOpenFor(place, date, time, stay) && !overlapsOtherExtra(extras, extra, time, stay)) {
                 return time;
@@ -1213,6 +1215,32 @@ public class PlanRuleMaker {
     }
 
     /** 여행 첫날부터 몇째 날인지 (첫날 = 1) */
+    /**
+     * 2일차부터 하루 시작 시각 (11/13 주형: 체크아웃과 고른 시각을 섞어서).
+     * 1일차에 고른 시작이 오전(12시까지)이면 그 시각, 오후거나 안 골랐으면 10:00.
+     * 그날 숙소 체크아웃이 있으면 그보다 늦게 시작하지 않음 (예: 11:30 골랐는데 체크아웃 11:00 → 11:00)
+     */
+    public int laterDayStartMin(PlanConditions conditions, int day) {
+        int start = MIDDLE_DAY_START_MIN;
+        if (isTimeText(conditions.getStartTime()) && Geo.toMinutes(conditions.getStartTime()) <= MORNING_LIMIT_MIN) {
+            start = Geo.toMinutes(conditions.getStartTime());
+        }
+        if (conditions.getStays() == null || conditions.getStartDate() == null) {
+            return start;
+        }
+        for (PlanStay stay : conditions.getStays()) {
+            boolean isCheckOutDay = dayOf(conditions.getStartDate(), stay.getCheckOutDate()) == day;
+            if (isCheckOutDay && isTimeText(stay.getCheckOutTime())) {
+                start = Math.min(start, Geo.toMinutes(stay.getCheckOutTime()));
+            }
+        }
+        return start;
+    }
+
+    private boolean isTimeText(String time) {
+        return time != null && time.matches("\\d{2}:\\d{2}");
+    }
+
     private int dayOf(String startDate, String date) {
         if (date == null) {
             return -1;
