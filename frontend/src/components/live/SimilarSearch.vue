@@ -7,11 +7,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { askRecommend, insertPlace } from '@/api/trips'
 import { radiusOptions } from '@/data/ask'
-import { imageFor } from '@/utils/mapView'
 import { showToast } from '@/utils/toast'
+import { photoFor } from '@/utils/placePhoto'
+import '@/assets/css/live-panel.css' // 지도 위 패널 생김새 (AI 채팅·근처 찾기·비슷한 가게 같이, 11/13)
 
 const DEFAULT_RADIUS = 500 // 처음 반경: 근처 찾기와 같은 값
-const WALK_M_PER_MIN = 70 // 걸어서 1분에 가는 거리 (근처 찾기와 같은 값)
 
 const props = defineProps({
   tripId: { type: Number, required: true },
@@ -38,9 +38,6 @@ onMounted(() => search(DEFAULT_RADIUS))
 
 function distText(m) {
   return m >= 1000 ? (m / 1000).toFixed(1) + 'km' : m + 'm'
-}
-function walkMin(m) {
-  return Math.max(1, Math.round(m / WALK_M_PER_MIN))
 }
 
 // 이 반경에서 비슷한 가게 찾기
@@ -78,47 +75,53 @@ async function addPicked() {
 
 <template>
   <div class="addbar">
-    <!-- 고른 가게 카드 -->
-    <div v-if="picked" class="addcard">
-      <div style="display: flex; gap: 12px; align-items: center">
-        <img class="thumb" :src="imageFor(picked.category)" alt="" style="width: 64px; height: 64px" />
-        <div style="flex: 1; min-width: 0">
-          <b class="t-strong">{{ picked.name }}</b>
-          <p class="t-cap tn" style="margin: 2px 0 0">
-            <template v-if="picked.rating != null"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ picked.rating }} · </template>{{ picked.category || '장소' }}
-          </p>
-          <p class="t-cap tn" style="margin: 2px 0 0">지금 위치에서 {{ distText(picked.distance) }} · 걸어서 {{ walkMin(picked.distance) }}분<template v-if="picked.closeAt"> · {{ picked.closeAt }}까지</template></p>
-        </div>
-        <button type="button" class="iconbtn" aria-label="목록으로" @click="emit('update:pickedId', null)"><i class="ic i-close muted" aria-hidden="true"></i></button>
-      </div>
-      <div class="cta__row" style="margin-top: 12px">
-        <button type="button" class="btn btn--secondary btn--md" @click="router.push('/place?id=' + encodeURIComponent(picked.id))">자세히</button>
-        <button type="button" class="btn btn--primary btn--md" :disabled="isAdding" @click="addPicked">
-          <i class="ic ic--s i-plus" aria-hidden="true"></i>{{ isAdding ? '담는 중…' : '담기 · 다음 목적지로' }}
-        </button>
-      </div>
-    </div>
+    <!-- 11/13 디자인: 근처 찾기·AI 채팅과 같은 카드 모양 (동작은 그대로, 닫기는 머리줄로) -->
+    <section class="addcard lp-panel" aria-label="비슷한 근처 가게">
+      <header class="lp-head">
+        <span class="lp-avatar lp-avatar--similar" aria-hidden="true"><i class="ic ic--s i-food"></i></span>
+        <b class="lp-head__title">{{ stop.name }}와(과) 비슷한 근처 가게</b>
+        <button type="button" class="iconbtn" aria-label="비슷한 가게 찾기 닫기" @click="emit('close')"><i class="ic i-close muted" aria-hidden="true"></i></button>
+      </header>
 
-    <!-- 반경 고르기 + 결과 안내 -->
-    <div v-else class="addcard">
-      <p class="t-strong" style="margin: 0 0 6px">{{ stop.name }}와(과) 비슷한 근처 가게</p>
-      <div class="addcard__row">
-        <span class="addcard__k" style="width: auto">현위치에서</span>
-        <div class="chips" style="flex-wrap: nowrap">
-          <button v-for="r in radiusOptions" :key="r" type="button" class="chip chip--sm" :class="{ 'is-on': radius === r }" :aria-pressed="radius === r" @click="search(r)">
-            {{ r < 1000 ? r + 'm' : '1km' }}
+      <!-- 고른 가게 카드 -->
+      <div v-if="picked" class="lp-pick">
+        <div class="lp-place">
+          <img class="lp-place__img" :src="photoFor(picked)" alt="" />
+          <div class="lp-place__body">
+            <b class="lp-place__name">{{ picked.name }}</b>
+            <p class="lp-place__meta tn">
+              <template v-if="picked.rating != null"><i class="ic ic--s i-star c-warning" aria-hidden="true"></i> {{ picked.rating }} · </template>{{ picked.category || '장소' }}
+            </p>
+            <div v-if="picked.closeAt" class="lp-pills"><span class="lp-pill lp-pill--navy tn">{{ picked.closeAt }}까지 영업</span></div>
+          </div>
+          <button type="button" class="iconbtn" aria-label="목록으로" @click="emit('update:pickedId', null)"><i class="ic i-close muted" aria-hidden="true"></i></button>
+        </div>
+        <p class="lp-place__dist tn">지금 위치에서 {{ distText(picked.distance) }}</p>
+        <div class="lp-actions">
+          <button type="button" class="btn btn--secondary btn--md" @click="router.push('/place?id=' + encodeURIComponent(picked.id))">자세히</button>
+          <button type="button" class="btn btn--primary btn--md" :disabled="isAdding" @click="addPicked">
+            <i class="ic ic--s i-plus" aria-hidden="true"></i>{{ isAdding ? '담는 중…' : '담기 · 다음 목적지로' }}
           </button>
         </div>
       </div>
-      <p class="t-cap tn" style="margin: 2px 0 0; display: flex; align-items: center; gap: 6px">
-        <template v-if="isLoading"><i class="ic ic--s i-search" aria-hidden="true"></i>비슷한 가게 찾는 중…</template>
-        <template v-else-if="error"><i class="ic ic--s i-warning c-warning" aria-hidden="true"></i>{{ error }}</template>
-        <template v-else-if="places.length"><i class="ic ic--s i-pin c-navy" aria-hidden="true"></i>{{ places.length }}곳 · 지도에서 핀을 눌러 보세요<template v-if="closedSkipped"> · 지금 문 닫은 {{ closedSkipped }}곳은 뺐어요</template></template>
-        <template v-else><i class="ic ic--s i-info" aria-hidden="true"></i>이 반경엔 비슷한 가게가 없어요 · 더 넓게 찾아보세요</template>
-      </p>
-      <div class="cta__row" style="margin-top: 8px">
-        <button type="button" class="btn btn--secondary btn--md" @click="emit('close')">닫기</button>
-      </div>
-    </div>
+
+      <!-- 반경 고르기 + 결과 안내 -->
+      <template v-else>
+        <div class="lp-radius">
+          <span class="lp-radius__k">현위치에서</span>
+          <div class="lp-chips">
+            <button v-for="r in radiusOptions" :key="r" type="button" class="chip chip--sm" :class="{ 'is-on': radius === r }" :aria-pressed="radius === r" @click="search(r)">
+              {{ r < 1000 ? r + 'm' : '1km' }}
+            </button>
+          </div>
+        </div>
+        <p class="lp-status tn">
+          <template v-if="isLoading"><i class="ic ic--s i-search" aria-hidden="true"></i>비슷한 가게 찾는 중…</template>
+          <template v-else-if="error"><i class="ic ic--s i-warning c-warning" aria-hidden="true"></i>{{ error }}</template>
+          <template v-else-if="places.length"><i class="ic ic--s i-pin c-navy" aria-hidden="true"></i>{{ places.length }}곳 · 지도에서 핀을 눌러 보세요<template v-if="closedSkipped"> · 지금 문 닫은 {{ closedSkipped }}곳은 뺐어요</template></template>
+          <template v-else><i class="ic ic--s i-info" aria-hidden="true"></i>이 반경엔 비슷한 가게가 없어요 · 더 넓게 찾아보세요</template>
+        </p>
+      </template>
+    </section>
   </div>
 </template>
