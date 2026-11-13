@@ -8,6 +8,7 @@ import java.util.Locale;
 
 import org.springframework.stereotype.Component;
 
+import com.tripbiseo.common.exception.ApiException;
 import com.tripbiseo.common.util.Geo;
 import com.tripbiseo.plan.dto.CrowdHour;
 import com.tripbiseo.plan.dto.PlanGenerateResponse;
@@ -95,7 +96,7 @@ public class PlanVerifier {
         if (stop.getPlaceId() == null) {
             return null;
         }
-        Place place = placeService.getPlace(stop.getPlaceId());
+        Place place = findPlace(stop.getPlaceId());
         if (place == null) {
             return null;
         }
@@ -136,6 +137,18 @@ public class PlanVerifier {
             return "붐빔(서울 상위 " + Math.max(1, 100 - seoulPct) + "%)";
         }
         return seoulPct >= NORMAL_PCT ? "보통" : "한산";
+    }
+
+    /**
+     * 장소 번호로 DB 장소 찾기. 카카오에서 찾은 곳("kakao-남대문시장")처럼 DB에 없으면 null.
+     * 11/14: 예전엔 여기서 오류(404)가 그대로 나가서 일정 만들기가 통째로 실패했어요. 확인 줄은 덤이라 못 찾으면 그냥 건너뜀
+     */
+    private Place findPlace(String placeId) {
+        try {
+            return placeService.getPlace(placeId);
+        } catch (ApiException e) {
+            return null;
+        }
     }
 
     /** 그날 숙소(없으면 전날 숙소)에서 이 칸까지 어림 이동 분. 숙소가 없으면 null */
