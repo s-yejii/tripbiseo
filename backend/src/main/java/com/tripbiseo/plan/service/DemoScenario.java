@@ -37,7 +37,7 @@ public class DemoScenario {
     private static final double ORIGIN_LNG = 126.9921;
     // 조금씩 어기기 (11/08 주형): 발표자가 [다음 장소로]만 눌러도 이 곳들에서는 계획보다 조금 더 머물다 떠남 → 뒤 일정 밀림·자동 조정 안내
     private static final Object[][] EXTRA_STAYS = {}; // 11/12 새 시나리오는 돌발이 늦잠(2일차 숙소)이라 조금씩 어기기는 안 씀
-    private static final String DEMO_DATE = "2026-11-10"; // 시연 계정의 "오늘" = 발표일(화). 로그인·[시연 준비]하면 시계를 이 날 15:00으로 (11/09 주형)
+    private static final String DEMO_DATE = "2026-11-16"; // 시연 계정의 "오늘" = 촬영 1일차(월). 로그인·[시연 준비]하면 시계를 이 날 START_TIME으로 (11/13 주형: 앱 날짜 = 촬영일 11/16~17)
     private static final String DINNER_NAME = "산청숯불가든 을지로";
     private static final String DINNER_TIME = "19:00"; // 1일차 회식 예약
     private static final String LUNCH_NAME = "스시도";
