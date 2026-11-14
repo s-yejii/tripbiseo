@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 여행 중 지도 아래의 일정 카드 줄 (옆으로 넘겨 보기) + 카드 사이 이동 칩
 // cards: [{ no, img, title, sub, subCls, state: 'done'|'now'|'', fixed, leg, legState }]
 //   leg: 앞 장소에서 오는 이동 { mode, min, dist } / legState: 'past'(지나감) | 'now'(지금 이동할 구간) | ''
@@ -191,10 +192,10 @@ onMounted(() => {
           type="button"
           class="segc"
           :class="card.legState ? 'segc--' + card.legState : ''"
-          :aria-label="`${modes[card.leg.mode].label} ${card.leg.min}분, ${card.leg.dist}, 길찾기`"
+          :aria-label="`${modes[card.leg.mode].label} ${toDuration(card.leg.min)}, ${card.leg.dist}, 길찾기`"
           @click="emit('seg', card)"
         >
-          <b class="tn"><i class="ic ic--s" :class="modes[card.leg.mode].icon" aria-hidden="true"></i>{{ card.leg.min }}분</b>
+          <b class="tn"><i class="ic ic--s" :class="modes[card.leg.mode].icon" aria-hidden="true"></i>{{ toDuration(card.leg.min) }}</b>
           <span class="tn segc__d">{{ card.leg.dist }}</span>
         </button>
       </span>

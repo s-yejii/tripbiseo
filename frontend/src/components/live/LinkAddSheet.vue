@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 여행 중 링크 추가: 인스타·유튜브·네이버 링크 → 장소 찾기(POST /plans/links) → 하나 고르기 → 남은 일정에 넣어 보기(POST /live/link-fit)
 //   방해 없이 들어가면 여기서 바로 넣고, 늦어지거나 식당·카페가 겹치면 고르는 화면(/live/link-fit)으로 넘어가요
 import { computed, ref } from 'vue'
@@ -26,7 +27,7 @@ const pickedPlaces = computed(() => (found.value ? found.value.filter((place) =>
 
 function slackText(option, fixedName) {
   if (!fixedName) return option.finalArrive + ' 끝'
-  return option.slackMin < 0 ? -option.slackMin + '분 늦어요' : '여유 ' + option.slackMin + '분'
+  return option.slackMin < 0 ? toDuration(-option.slackMin) + ' 늦어요' : '여유 ' + toDuration(option.slackMin)
 }
 
 async function findPlaces() {

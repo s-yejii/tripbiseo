@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 여행 중 AI 채팅 (④): 지도 아래 입력창에 말하면 AI가 세 가지 중 하나로 나눠요
 //   근처 추천 → 말을 SQL로 바꿔 바로 찾기(places, 11/08) → 핀은 진짜 지도에(found로 LiveView에 넘김) → 골라서 일정에 넣기
 //             AI로 못 찾으면 예전처럼 반경 고르기 → 평점 상위 3곳
@@ -224,8 +225,8 @@ function distanceOf(place) {
 /** 카드 아래 줄: 가는 길로 찾았으면 몇 분 더·여유, 아니면 지금 위치에서 거리 */
 function infoText(place) {
   if (place.detourMinutes == null) return '지금 위치에서 ' + distText(distanceOf(place))
-  let text = '가는 길 +' + place.detourMinutes + '분' + (place.isEstimate ? ' (어림)' : '')
-  if (place.slackAfter != null) text += place.slackAfter >= 0 ? ' · 들러도 여유 ' + place.slackAfter + '분' : ' · 들르면 늦어요'
+  let text = '가는 길 +' + toDuration(place.detourMinutes) + (place.isEstimate ? ' (어림)' : '')
+  if (place.slackAfter != null) text += place.slackAfter >= 0 ? ' · 들러도 여유 ' + toDuration(place.slackAfter) : ' · 들르면 늦어요'
   return text
 }
 function isLate(place) {

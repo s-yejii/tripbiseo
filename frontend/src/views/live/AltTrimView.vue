@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // S16-a2 시간 줄이기 슬라이더 (④): 한 장소(?id=)의 머무는 시간을 왼쪽으로 밀어서 줄여요. 0분이면 일정에서 빠져요
 // 숫자는 서버 계산(POST /live/preview)이에요. 끄는 동안에는 "1분 줄이면 고정 일정 도착도 1분 빨라진다"로 바로 보여 주고,
 // 손을 떼면 서버가 다시 계산한 값으로 바꿔요. (고정 일정 앞 칸만 도착 시각에 영향을 줘요)
@@ -83,9 +84,9 @@ const needStay = computed(() => {
 const markerLeft = computed(() => ((needStay.value / max.value) * 100).toFixed(1) + '%')
 
 const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '마지막 일정'))
-const cutText = computed(() => (cut.value === 0 ? '그대로' : '−' + cut.value + '분'))
+const cutText = computed(() => (cut.value === 0 ? '그대로' : '−' + toDuration(cut.value)))
 const cutClass = computed(() => (cut.value === 0 ? 'muted' : isOk.value ? 'c-success' : 'c-warning'))
-const buttonText = computed(() => (cut.value === 0 ? '줄이지 않기' : stay.value + '분으로 정하기'))
+const buttonText = computed(() => (cut.value === 0 ? '줄이지 않기' : toDuration(stay.value) + '으로 정하기'))
 
 // "18:44"에서 분 더하기·빼기
 function shiftTime(time, minutes) {
@@ -134,11 +135,11 @@ function done(minutes) {
   const name = stop.value.name
   if (minutes === 0) showToast(name + '을(를) 빼기로 했어요')
   else if (minutes === max.value) showToast(name + '은(는) 그대로 둬요')
-  else showToast(`${name} ${max.value - minutes}분 줄이기로 했어요`)
+  else showToast(`${name} ${toDuration(max.value - minutes)} 줄이기로 했어요`)
 }
 
 function slackLabel(value) {
-  return value < 0 ? -value + '분 늦음' : '여유 ' + value + '분'
+  return value < 0 ? toDuration(-value) + ' 늦음' : '여유 ' + toDuration(value)
 }
 </script>
 
@@ -164,17 +165,17 @@ function slackLabel(value) {
         </div>
 
         <div style="display: flex; align-items: baseline; justify-content: space-between">
-          <span class="t-big">{{ stay }}분</span>
+          <span class="t-big">{{ toDuration(stay) }}</span>
           <span class="t-strong tn" :class="cutClass">{{ cutText }}</span>
         </div>
 
         <div style="position: relative; padding-top: 18px">
           <template v-if="needStay !== null">
-            <span class="t-label tn c-danger trim-mark-text" :style="{ left: `clamp(0px, calc(${markerLeft} - 60px), calc(100% - 130px))` }">{{ needStay }}분 이하면 안 늦어요</span>
+            <span class="t-label tn c-danger trim-mark-text" :style="{ left: `clamp(0px, calc(${markerLeft} - 60px), calc(100% - 130px))` }">{{ toDuration(needStay) }} 이하면 안 늦어요</span>
             <span class="trim-mark" :style="{ left: markerLeft }" aria-hidden="true"></span>
           </template>
           <input v-model.number="stay" class="range" type="range" :min="rangeMin" :max="max" :step="STEP_MIN" aria-label="머무는 시간(분)" @change="onRelease" />
-          <div style="display: flex; justify-content: space-between"><span class="t-cap tn">{{ rangeMin }}분</span><span class="t-cap tn">기존 {{ max }}분</span></div>
+          <div style="display: flex; justify-content: space-between"><span class="t-cap tn">{{ toDuration(rangeMin) }}</span><span class="t-cap tn">기존 {{ toDuration(max) }}</span></div>
         </div>
 
         <div v-if="stay === 0" class="banner banner--danger">
@@ -183,8 +184,8 @@ function slackLabel(value) {
         <div v-else class="banner" :class="isOk ? 'banner--success' : 'banner--warning'">
           <i class="ic" :class="isOk ? 'i-success' : 'i-warning'" aria-hidden="true"></i>
           <span class="banner__body">
-            <span class="t-strong tn">{{ basisName }} {{ arrive }} 도착 · {{ isOk ? `여유 ${slack}분` : `아직 ${-slack}분 늦어요` }}</span>
-            <span class="t-cap tn">{{ otherCut ? '다른 곳까지 합쳐 ' : '' }}총 {{ cut + otherCut }}분 줄임</span>
+            <span class="t-strong tn">{{ basisName }} {{ arrive }} 도착 · {{ isOk ? `여유 ${toDuration(slack)}` : `아직 ${toDuration(-slack)} 늦어요` }}</span>
+            <span class="t-cap tn">{{ otherCut ? '다른 곳까지 합쳐 ' : '' }}총 {{ toDuration(cut + otherCut) }} 줄임</span>
           </span>
         </div>
         <p v-if="!isBeforeBasis" class="t-cap" style="margin: 0">{{ basisName }} 도착은 그대로예요</p>

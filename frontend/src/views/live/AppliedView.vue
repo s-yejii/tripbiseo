@@ -64,12 +64,12 @@ function toRow(row) {
   if (row.tag === 'added') return { ...row, cls: 'is-changed', badge: { text: '새로 넣음', cls: 'badge--danger' }, meta: toDuration(row.stay) }
   if (old && old.fixed) {
     const fixed = after.value && after.value.fixed
-    const meta = fixed ? `${fixed.eta} 도착 · ` + (fixed.slackMin < 0 ? -fixed.slackMin + '분 늦음' : fixed.slackMin + '분 여유') : '계획 시각 그대로'
+    const meta = fixed ? `${fixed.eta} 도착 · ` + (fixed.slackMin < 0 ? toDuration(-fixed.slackMin) + ' 늦음' : toDuration(fixed.slackMin) + ' 여유') : '계획 시각 그대로'
     if (row.note) return { ...row, cls: 'is-fixed is-changed', isFixed: true, badge: { text: '바뀜', cls: 'badge--danger' }, meta: row.note + ' · ' + meta } // 예: 택시로 바로 가기
     return { ...row, cls: 'is-fixed', isFixed: true, badge: { text: '예약 그대로', cls: 'badge--navy' }, meta }
   }
   if (old && old.stay !== row.stay) {
-    return { ...row, cls: 'is-changed', badge: { text: row.stay < old.stay ? '줄임' : '늘림', cls: 'badge--danger' }, was: old.stay + '분', now: row.stay + '분' }
+    return { ...row, cls: 'is-changed', badge: { text: row.stay < old.stay ? '줄임' : '늘림', cls: 'badge--danger' }, was: toDuration(old.stay), now: toDuration(row.stay) }
   }
   if (old && old.time !== row.time) {
     return { ...row, cls: 'is-changed', badge: { text: '시간 이동', cls: 'badge--danger' }, was: old.time, now: row.time, after: ' · ' + toDuration(row.stay) }
@@ -91,7 +91,7 @@ const banner = computed(() => {
   return {
     cls: isLate ? 'banner--danger' : 'banner--success',
     icon: isLate ? 'i-danger' : 'i-success',
-    title: `${fixed.name} ${fixed.eta} · ` + (isLate ? -fixed.slackMin + '분 늦어요' : '여유 ' + fixed.slackMin + '분'),
+    title: `${fixed.name} ${fixed.eta} · ` + (isLate ? toDuration(-fixed.slackMin) + ' 늦어요' : '여유 ' + toDuration(fixed.slackMin)),
   }
 })
 
@@ -106,7 +106,7 @@ const shareMessage = computed(() => {
   const current = rows.value.find((row) => row.isCurrent) || rows.value[0]
   return {
     title: '일정이 바뀌었어요',
-    description: arrive + (method ? ' · ' + method : '') + (fixed && fixed.slackMin >= 0 ? ' · 여유 ' + fixed.slackMin + '분' : ''),
+    description: arrive + (method ? ' · ' + method : '') + (fixed && fixed.slackMin >= 0 ? ' · 여유 ' + toDuration(fixed.slackMin) : ''),
     imageUrl: current ? location.origin + imageFor(current.category) : '',
     link: location.origin + '/live',
   }
@@ -172,7 +172,7 @@ async function undo() {
 
         <ol class="tl" style="list-style: none; margin: 0; padding: 0">
           <template v-for="(row, i) in rows" :key="(row.id || '') + row.name">
-            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && legOf(row)"><i class="ic ic--s" :class="legOf(row).icon" aria-hidden="true"></i>이동 {{ legOf(row).min }}분</span><span v-else></span></li>
+            <li v-if="i > 0" class="leg"><span></span><span v-if="row.tag !== 'done' && legOf(row)"><i class="ic ic--s" :class="legOf(row).icon" aria-hidden="true"></i>이동 {{ toDuration(legOf(row).min) }}</span><span v-else></span></li>
             <li class="stop" :class="row.cls">
               <span class="stop__time">{{ row.time }}</span>
               <span class="stop__card">

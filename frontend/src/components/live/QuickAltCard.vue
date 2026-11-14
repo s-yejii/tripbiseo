@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 대안 고르기 화면 위 카드 (③, 11/06): 서버가 만든 "갈아타기"(택시로 바로·지하철 → 택시)나 "비 피하기"(야외 먼저)가 있으면 보여 줘요.
 // 아래 세 탭(시간 줄이기·한 곳 빼기·장소 바꾸기)은 사용자가 직접 고르는 것, 이 카드는 서버가 계산을 끝낸 대안을 한 번에 적용하는 것
 import { computed, onMounted, ref, watch } from 'vue'
@@ -63,11 +64,11 @@ async function applyQuick(option) {
 </script>
 
 <template>
-  <p v-if="isAllLate" class="qalt-note"><i class="ic ic--s i-warning" aria-hidden="true"></i>늦지 않는 방법이 없어요 · 가장 빨리 가는 방법은 {{ quickList[0].short }} ({{ -quickList[0].slackMin }}분 늦음)</p>
+  <p v-if="isAllLate" class="qalt-note"><i class="ic ic--s i-warning" aria-hidden="true"></i>늦지 않는 방법이 없어요 · 가장 빨리 가는 방법은 {{ quickList[0].short }} ({{ toDuration(-quickList[0].slackMin) }} 늦음)</p>
   <section v-for="(quick, i) in quickList" :key="quick.short" class="card card--pad qalt" aria-label="더 빨리 가는 방법">
     <div class="qalt__head">
       <span class="badge badge--navy">{{ i === 0 ? '추천 · ' : '' }}{{ quick.short }}</span>
-      <span class="t-cap tn" :class="quick.slackMin < 0 ? 'c-warning' : 'c-success'">{{ quick.finalArrive }} 도착 · {{ quick.slackMin < 0 ? -quick.slackMin + '분 늦음' : '여유 ' + quick.slackMin + '분' }}</span>
+      <span class="t-cap tn" :class="quick.slackMin < 0 ? 'c-warning' : 'c-success'">{{ quick.finalArrive }} 도착 · {{ quick.slackMin < 0 ? toDuration(-quick.slackMin) + ' 늦음' : '여유 ' + toDuration(quick.slackMin) }}</span>
     </div>
     <b class="t-strong">{{ quick.title }}</b>
     <span v-if="quick.reason" class="t-cap">{{ quick.reason }}</span>

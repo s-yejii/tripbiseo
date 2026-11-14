@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // S16-b 대안 · 한 곳 빼기 (④): 남은 장소 중 뺄 곳을 고르고, 남는 시간을 다음 장소에 쓸지 정해요
 // 뺄 수 있는 곳마다 "빼면 어떻게 되는지"를 서버가 계산(POST /live/preview)하고, 고른 대로 적용(POST /live/apply)해요.
 // 고정 일정은 뺄 수 없어요. 꼭 갈 곳은 자물쇠를 보여 주고, 누르면 한 번 더 물어본 뒤 뺄 수 있어요.
@@ -79,7 +80,7 @@ const extra = computed(() => {
 const extraText = computed(() => {
   if (!extra.value) return '남는 시간 없음'
   if (!useExtra.value) return '비워 둠'
-  return `${extra.value.stop.name} ${extra.value.stop.stay}분 → ${extra.value.stop.stay + extra.value.minutes}분`
+  return `${extra.value.stop.name} ${toDuration(extra.value.stop.stay)} → ${toDuration(extra.value.stop.stay + extra.value.minutes)}`
 })
 
 // 뺄 곳을 빼고, (있으면) 다음 장소 머묾을 늘린 목록
@@ -118,7 +119,7 @@ function confirmDrop() {
 function resultText(id) {
   const result = results.value[id]
   if (!result) return '계산 중'
-  const slack = result.slackMin < 0 ? -result.slackMin + '분 늦음' : '여유 ' + result.slackMin + '분'
+  const slack = result.slackMin < 0 ? toDuration(-result.slackMin) + ' 늦음' : '여유 ' + toDuration(result.slackMin)
   return slack
 }
 function resultClass(id) {

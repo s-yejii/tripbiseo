@@ -60,7 +60,7 @@ const fromStop = computed(() => replan.stops.find((stop) => stop.id === fromId.v
 const picked = computed(() => (candidates.value || []).find((place) => place.id === pickedId.value) || null)
 const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '마지막 일정'))
 const whyText = computed(() => {
-  if (replan.lateMin) return `${replan.lateMin}분 늦어요`
+  if (replan.lateMin) return `${toDuration(replan.lateMin)} 늦어요`
   return '안 늦어요'
 })
 
@@ -76,7 +76,7 @@ const mapPins = computed(() => (candidates.value || []).map((place, i) => ({
 })))
 
 function slackText(place) {
-  return place.slackMin < 0 ? -place.slackMin + '분 늦음' : '여유 ' + place.slackMin + '분'
+  return place.slackMin < 0 ? toDuration(-place.slackMin) + ' 늦음' : '여유 ' + toDuration(place.slackMin)
 }
 function reasonText(place) {
   return `${place.distance}m · ${place.eta} 영업 중 · ★${place.rating}`
@@ -157,7 +157,7 @@ async function apply() {
               <span class="row__body">
                 <span class="row__title">{{ i + 1 }} {{ place.name }}</span>
                 <span class="row__meta tn">
-                  <i class="ic ic--s i-star c-warning" aria-hidden="true"></i>{{ place.rating }} · 이동 {{ place.moveMin }}분 · <span :class="place.slackMin < 0 ? 'c-warning' : 'c-success'">{{ slackText(place) }}</span>
+                  <i class="ic ic--s i-star c-warning" aria-hidden="true"></i>{{ place.rating }} · 이동 {{ toDuration(place.moveMin) }} · <span :class="place.slackMin < 0 ? 'c-warning' : 'c-success'">{{ slackText(place) }}</span>
                 </span>
                 <span class="sw-more">{{ openId === place.id ? '정보 접기' : '눌러서 정보 보기' }}<i class="ic ic--s" :class="openId === place.id ? 'i-up' : 'i-down'" aria-hidden="true"></i></span>
               </span>

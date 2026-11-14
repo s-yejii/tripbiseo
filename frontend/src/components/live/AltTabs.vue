@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 대안 3가지 탭: 시간 줄이기 / 한 곳 빼기 / 장소 바꾸기 (세 화면이 같이 써요)
 // 탭 아래 숫자는 서버 추천 대안(POST /live/alternatives)의 여유예요. 서버가 못 만든 대안은 "없음"
 // active: trim | drop | swap
@@ -20,7 +21,7 @@ const TABS = [
 function slackText(tab) {
   const option = replan.findOption(tab.short)
   if (!option) return replan.stops.some((stop) => !stop.fixed && stop.importance !== 'must') ? '직접 고르기' : '모두 꼭'
-  return option.slackMin < 0 ? -option.slackMin + '분 늦음' : '여유 ' + option.slackMin + '분'
+  return option.slackMin < 0 ? toDuration(-option.slackMin) + ' 늦음' : '여유 ' + toDuration(option.slackMin)
 }
 </script>
 

@@ -13,7 +13,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLiveTrip } from '@/utils/useLiveTrip'
 import { imageFor } from '@/utils/mapView'
-import { toMinutes, toTime } from '@/utils/time'
+import { toDuration, toMinutes, toTime } from '@/utils/time'
 import { showToast } from '@/utils/toast'
 import { goBack } from '@/utils/back'
 import { rememberAlert, shouldOpenAlert } from '@/utils/alertMemory'
@@ -350,7 +350,7 @@ const mapPins = computed(() => {
   for (const place of askPlaces.value) {
     if (slotPlace.value && place.id !== slotPlace.value.id) continue
     const cls = ' pin--res' + (place.id === askPickedId.value ? ' pin--sel' : '')
-    const tag = place.detourMinutes != null ? '+' + place.detourMinutes + '분' : '' // 가는 길에서 몇 분 더 (번호는 일정 번호와 헷갈려서 아이콘으로)
+    const tag = place.detourMinutes != null ? '+' + toDuration(place.detourMinutes) : '' // 가는 길에서 몇 분 더 (번호는 일정 번호와 헷갈려서 아이콘으로)
     pins.push({ key: 'ask-' + place.id, askId: place.id, lat: place.lat, lng: place.lng, icon: nearIcon(place.category), tag, cls, label: place.name + (tag ? ', 가는 길 ' + tag : ''), route: false })
   }
   return pins
@@ -481,18 +481,18 @@ const head = computed(() => {
     const leaveAt = isTrain ? toMinutes(current.time) : start + (current.stay || 0)
     const left = leaveAt - now
     if (left >= 0) {
-      return { cap: current.name + ' 출발', big: toTime(leaveAt), strong: left + '분 남음', cls: '' }
+      return { cap: current.name + ' 출발', big: toTime(leaveAt), strong: toDuration(left) + ' 남음', cls: '' }
     }
     const next = nextStop.value
     if (!next || !next.fixed) { // 다음이 예약이 아니면 더 있어도 경고하지 않음 (뒤 일정이 밀릴 뿐, 11/08 주형)
-      return { cap: current.name + '에서', big: '+' + -left + '분', small: '계획보다 더 머무는 중', cls: '' }
+      return { cap: current.name + '에서', big: '+' + toDuration(-left), small: '계획보다 더 머무는 중', cls: '' }
     }
-    return { cap: '출발 시간 지남', big: '+' + -left + '분', small: toTime(leaveAt) + ' 출발', cls: 'c-warning' }
+    return { cap: '출발 시간 지남', big: '+' + toDuration(-left), small: toTime(leaveAt) + ' 출발', cls: 'c-warning' }
   }
   const next = nextStop.value
   if (next) {
     const label = doneCount.value === 0 ? '첫 장소 ' : '다음 '
-    const move = next.moveMin != null ? ' ' + (MODE_LABEL[next.moveMode] || '') + ' ' + next.moveMin + '분' : ''
+    const move = next.moveMin != null ? ' ' + (MODE_LABEL[next.moveMode] || '') + ' ' + toDuration(next.moveMin) : ''
     return { cap: label + next.name + '까지' + move, big: next.eta, strong: '도착 예정', cls: isWarnReach(next.reach) ? 'c-warning' : '' }
   }
   return { cap: '오늘 일정을 모두 다녀왔어요', big: status.value.now, strong: '지금', cls: '' }
@@ -501,7 +501,7 @@ const head = computed(() => {
 const fixedBadge = computed(() => {
   if (!fixed.value) return null
   const slack = fixed.value.slackMin
-  return { cls: slack < 0 ? 'badge--warning' : 'badge--success', text: fixed.value.name + (slack < 0 ? ' ' + -slack + '분 늦음' : ' 여유 ' + slack + '분') }
+  return { cls: slack < 0 ? 'badge--warning' : 'badge--success', text: fixed.value.name + (slack < 0 ? ' ' + toDuration(-slack) + ' 늦음' : ' 여유 ' + toDuration(slack)) }
 })
 
 // ------------------------------------------------------------ 장소 사진 (11/09 상재 요청)
@@ -626,7 +626,7 @@ async function share() {
   const lines = [(live.trip.value ? live.trip.value.title : '여행') + ' · 지금 ' + status.value.now]
   if (currentStop.value) lines.push('지금 ' + currentStop.value.name)
   for (const stop of remainingStops.value) lines.push(stop.eta + ' ' + stop.name + (stop.fixed ? ' (고정 ' + stop.time + ')' : ''))
-  if (fixed.value) lines.push(fixed.value.name + (fixed.value.slackMin < 0 ? ' ' + -fixed.value.slackMin + '분 늦을 것 같아요' : ' 여유 ' + fixed.value.slackMin + '분'))
+  if (fixed.value) lines.push(fixed.value.name + (fixed.value.slackMin < 0 ? ' ' + toDuration(-fixed.value.slackMin) + ' 늦을 것 같아요' : ' 여유 ' + toDuration(fixed.value.slackMin)))
   const text = lines.join('\n')
   try {
     if (navigator.share) {
@@ -896,7 +896,7 @@ function restartMoving() {
         <!-- 다 닫으면 알약: 누르면 지금 알림을 다시 위에 -->
         <template v-else-if="status.alert && !isAlertMuted && !(isLateOff && isLateKey(status.alert.key)) && !adding">
           <button type="button" class="pill-alert live-pill" :aria-label="isLate ? '지연 알림 펼치기' : '알림 펼치기'" @click="openAlert(status.alert)">
-            <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + lateMin + '분' : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
+            <i class="ic ic--s i-warning" aria-hidden="true"></i><span class="tn">{{ isLate ? '+' + toDuration(lateMin) : '알림' }}</span><i class="ic ic--s i-down" aria-hidden="true"></i>
           </button>
         </template>
 
