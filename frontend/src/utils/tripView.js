@@ -66,14 +66,26 @@ export function tripDetailLink(trip) {
   return '/trips/detail?id=' + trip.id
 }
 
+const LOCATION_UNKNOWN_MEMO = '위치 확인 필요' // ③이 가게 위치를 못 찾은 예약 칸에 붙이는 메모 앞머리 (PlanServiceImpl UNLOCATED_MEMO)
+
+// 가게 위치를 못 찾아 여행 지역 가운데에 둔 칸인지 (지금은 메모로 판단. ③이 따로 값을 주면 여기만 바꿈)
+export function isLocationUnknown(stop) {
+  return (stop.memo || '').startsWith(LOCATION_UNKNOWN_MEMO)
+}
+
 // trip: 서버 Trip 또는 초안 / check: POST /plans/check 응답(없으면 null) / day: 몇째 날
 export function toViewTrip(trip, check = null, day = 1) {
   const dayStops = check ? check.stops : trip.stops.filter((stop) => (stop.day || 1) === day && stop.state !== 'skipped')
   const positions = toMapPositions(dayStops, TRIP_MAP_BOX)
   const stops = dayStops.map((stop, i) => toViewStop(stop, positions[i], findMemo(trip, stop)))
+  markUnknownLegs(stops)
   // 화면마다 출발지가 있거나 없어서 합계가 달라지지 않게, 장소 사이 이동만 센다 (그날 첫 칸의 leg = 출발지·숙소에서 오는 길은 뺌)
+  // 위치를 모르는 칸을 오가는 구간은 가짜 좌표로 잰 시간이라 합계에서도 뺌
   let move = 0
-  for (let i = 1; i < stops.length; i++) move += stops[i].leg ? stops[i].leg.min : 0
+  for (let i = 1; i < stops.length; i++) {
+    const leg = stops[i].leg
+    if (leg && !leg.isUnknown) move += leg.min
+  }
   const view = {
     id: trip.id,
     title: trip.title,
@@ -81,7 +93,7 @@ export function toViewTrip(trip, check = null, day = 1) {
     who: (trip.people || 1) + '명',
     move,
     stops,
-    checks: check ? toChecks(check) : [],
+    checks: check ? toChecks(check, stops) : [],
     pack: [],
   }
   if (check && check.slackMin != null) view.slack = check.slackMin
@@ -101,6 +113,15 @@ function toViewLeg(leg, fromStop, toStop) {
   }
 }
 
+// 위치를 모르는 칸으로 오는 구간·그 칸에서 다음 칸으로 가는 구간에 isUnknown 표시 → 화면에 "이동 시간 확인 필요"
+function markUnknownLegs(stops) {
+  for (let i = 0; i < stops.length; i++) {
+    const before = stops[i - 1]
+    const isNearUnknown = stops[i].locationUnknown || (before && before.locationUnknown)
+    if (stops[i].leg && isNearUnknown) stops[i].leg.isUnknown = true
+  }
+}
+
 // 칸 메모 (점검 결과 칸에는 memo가 없어서 원래 일정에서 이름·날짜로 찾음). AI 일정이면 고른 이유·리뷰 근거
 function findMemo(trip, stop) {
   if (stop.memo) return stop.memo
@@ -111,7 +132,7 @@ function findMemo(trip, stop) {
 // 일정 한 칸 (check 결과 칸이면 arrive·issue·leg가 있음)
 function toViewStop(stop, position, memo = null) {
   const stay = stop.stay || 0
-  return {
+  const viewStop = {
     id: stop.id ?? stop.placeId ?? stop.name,
     serverId: stop.id ?? null,
     placeId: stop.placeId ?? null,
@@ -138,15 +159,21 @@ function toViewStop(stop, position, memo = null) {
     x: position.x,
     y: position.y,
   }
+  viewStop.locationUnknown = isLocationUnknown(viewStop) // 점검 칸엔 memo가 없어서, findMemo로 찾은 memo가 담긴 화면 칸으로 판단
+  return viewStop
 }
 
 const FIXED_CHECK_SLACK_MIN = 10 // 예약까지 여유가 이보다 적어야 "미리 확인할 것"에 넣음
 
-// 점검 결과의 문제 줄 → "미리 확인할 것"
-function toChecks(check) {
+// 점검 결과의 문제 줄 → "미리 확인할 것" (stops: 화면 칸, 위치를 모르는 칸을 알려 주려고)
+function toChecks(check, stops) {
   const items = []
   for (const stop of check.stops) {
     if (stop.issue) items.push({ kind: 'late', icon: 'i-warning', title: stop.name, desc: stop.issue })
+  }
+  // 위치를 모르는 칸: 늦음이 아니라 확인할 일이라 kind는 'late'가 아닌 'place' (빨간 "문제 있음"으로 안 바뀜)
+  for (const stop of stops) {
+    if (stop.locationUnknown) items.push({ kind: 'place', icon: 'i-pin', title: stop.name, desc: '가게 위치를 못 찾았어요. 위치를 확인하면 이동 시간이 맞아져요' })
   }
   // 예약(시간 고정)은 빠듯하거나(여유 10분 미만) 늦을 때만 (11/09 주형: 여유 있는데 왜 말해줌?). 여유가 넉넉하면 넣지 않음
   if (check.fixed && check.fixed.slack < FIXED_CHECK_SLACK_MIN) {

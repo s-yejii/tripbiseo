@@ -33,7 +33,13 @@ const props = defineProps({
 })
 const emit = defineEmits(['reorder', 'change-mode'])
 const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
-const hasLegs = computed(() => (props.trip.legs || []).some((leg) => leg.coords && leg.coords.length > 1))
+// 지도에 그릴 경로선: 위치를 모르는 칸을 오가는 구간은 가짜 좌표 길이라 뺌
+//   trip.legs는 칸 번호 순서(legs[i] = i번 칸 → i+1번 칸)로 다른 곳(확대·따라가기)에서도 써서 그대로 두고, 지도에 줄 것만 거름
+const mapLegs = computed(() => {
+  const stops = props.trip.stops
+  return (props.trip.legs || []).filter((leg, i) => !(stops[i] && stops[i].locationUnknown) && !(stops[i + 1] && stops[i + 1].locationUnknown))
+})
+const hasLegs = computed(() => mapLegs.value.some((leg) => leg.coords && leg.coords.length > 1))
 
 const selected = ref(null)
 const scrollBox = ref(null)
@@ -65,6 +71,8 @@ const mapPins = computed(() => {
       icon: stop.isStay ? 'i-bed' : stop.fixed ? 'i-lock' : '', // 숙소는 침대 모양 핀 (11/09)
       cls: pinClass(stop, i),
       label: (stop.isStay ? '숙소 ' : i + 1 + ' ') + stop.name,
+      route: !stop.locationUnknown, // 위치를 모르는 칸(지역 가운데에 둔 가짜 위치)은 점선 동선과
+      fit: !stop.locationUnknown, //   화면 맞추기에서 빼요
     })
   })
   return pins
@@ -75,6 +83,7 @@ function pinClass(stop, i) {
   if (stop.isStay) cls += ' pin--stay'
   else if (stop.fixed) cls += ' pin--fixed'
   if (stop.warn) cls += ' pin--warn'
+  if (stop.locationUnknown) cls += ' pin--unknown' // 흐린 핀: 진짜 위치가 아니라는 표시
   if (selected.value === i || props.activeStop === i) cls += ' pin--sel'
   return cls
 }
@@ -234,7 +243,7 @@ function slackBadge(slack) {
 
 <template>
   <div class="app">
-    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? trip.legs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @map-click="closeTip" @fail="useRealMap = false" />
+    <KakaoMap v-if="isKakao" ref="mapRef" :pins="mapPins" :me="simMe" @move="followPin" @zoom="mapLevel = $event" :paths="hasLegs ? mapLegs : []" :show-route="!hasLegs" :padding="TRIP_MAP_PADDING" :fit-key="mapFitKey" @pick="pickPin" @map-click="closeTip" @fail="useRealMap = false" />
     <!-- 카카오 지도를 못 쓸 때: 예전 지도 그림 -->
     <template v-else>
     <div class="map" aria-hidden="true"><img class="base live" src="/img/mapB.svg" alt="" style="top: -186px" /></div>
@@ -307,4 +316,5 @@ function slackBadge(slack) {
 .trip-tip__name { flex: 1; min-width: 0; font-size: 14px; line-height: 18px; word-break: keep-all; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .trip-tip::after { left: var(--arrow-x, 50%); }
 .trip-tip.is-below::after { bottom: auto; top: -6px; }
+.pin.pin--unknown { opacity: 0.45; } /* 위치를 못 찾은 칸: 지역 가운데에 둔 가짜 위치라 흐리게 */
 </style>

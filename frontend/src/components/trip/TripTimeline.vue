@@ -145,7 +145,9 @@ function isSameBuilding(i) {
       <!-- 앞 장소에서 오는 이동 -->
       <li v-if="stop.leg" class="leg">
         <span></span>
-        <span v-if="isSameBuilding(i)"><span class="legbtn legbtn--text"><i class="ic ic--s i-walk" aria-hidden="true"></i>같은 건물 · 걸어서 {{ SAME_BUILDING_WALK_MIN }}분</span></span>
+        <!-- 위치를 모르는 칸을 오가는 구간: 가짜 좌표로 잰 시간이라 숫자 대신 안내 -->
+        <span v-if="stop.leg.isUnknown"><span v-if="stop.leg.from" class="legfrom">{{ stop.leg.from }}에서</span><span class="legbtn legbtn--text legbtn--unknown"><i class="ic ic--s i-warning" aria-hidden="true"></i>이동 시간 확인 필요</span></span>
+        <span v-else-if="isSameBuilding(i)"><span class="legbtn legbtn--text"><i class="ic ic--s i-walk" aria-hidden="true"></i>같은 건물 · 걸어서 {{ SAME_BUILDING_WALK_MIN }}분</span></span>
         <span v-else>
           <span v-if="stop.leg.from" class="legfrom">{{ stop.leg.from }}에서</span>
           <button v-if="modeEditable" type="button" class="legbtn" :class="{ 'is-open': openLeg === i }" :aria-expanded="openLeg === i" @click="toggleLeg(i)">
@@ -186,6 +188,7 @@ function isSameBuilding(i) {
               <span v-if="memoText(stop.memo)" class="stop__memo">{{ memoText(stop.memo) }}</span>
             </span>
             <span class="stop__side">
+              <span v-if="stop.locationUnknown" class="badge badge--warning">위치 확인 필요</span>
               <small v-if="stop.costText" class="stop__cost tn">{{ stop.costText }}</small>
               <span v-if="stop.isAi" class="stop__ai-remove" role="button" tabindex="0" :aria-label="stop.name + ' 빼기'" @click.stop="emit('remove', i)" @keydown.enter.stop.prevent="emit('remove', i)">빼기</span>
               <span v-if="!stop.fixed && stop.imp" class="imp" :class="'imp--' + stop.imp">{{ importance[stop.imp] }}</span>
@@ -228,5 +231,6 @@ function isSameBuilding(i) {
 .tl .legwalk{color:var(--success);font-weight:700}
 .tl .legfrom{font-size:12px;color:var(--ink-muted);margin-right:6px}
 .tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
+.tl .legbtn--text.legbtn--unknown{color:var(--warning)} /* 위 회색 규칙보다 구체적이라 주황이 이겨요 */
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>
