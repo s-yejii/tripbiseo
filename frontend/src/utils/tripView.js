@@ -71,8 +71,9 @@ export function toViewTrip(trip, check = null, day = 1) {
   const dayStops = check ? check.stops : trip.stops.filter((stop) => (stop.day || 1) === day && stop.state !== 'skipped')
   const positions = toMapPositions(dayStops, TRIP_MAP_BOX)
   const stops = dayStops.map((stop, i) => toViewStop(stop, positions[i], findMemo(trip, stop)))
+  // 화면마다 출발지가 있거나 없어서 합계가 달라지지 않게, 장소 사이 이동만 센다 (그날 첫 칸의 leg = 출발지·숙소에서 오는 길은 뺌)
   let move = 0
-  for (const stop of stops) move += stop.leg ? stop.leg.min : 0
+  for (let i = 1; i < stops.length; i++) move += stops[i].leg ? stops[i].leg.min : 0
   const view = {
     id: trip.id,
     title: trip.title,
