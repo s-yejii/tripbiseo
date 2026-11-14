@@ -86,6 +86,7 @@ const routes = [
   { path: '/web/trips', component: () => import('@/views/after/WebTripsView.vue'), meta: { web: true, owner: 5, title: 'W18 웹 지난 여행' } },
   { path: '/web/retro', component: () => import('@/views/after/WebRetroView.vue'), meta: { web: true, owner: 5, title: 'W19 웹 회고 (3D 지도)' } },
   { path: '/album', component: () => import('@/views/after/AlbumView.vue'), meta: { parent: '/trips', owner: 5, title: 'S19-c 앨범' } },
+  { path: '/shorts', component: () => import('@/views/after/ShortsView.vue'), meta: { parent: '/album', owner: 5, title: 'S19-d 추억 쇼츠' } },
   { path: '/my/card', component: () => import('@/views/after/CardAddView.vue'), meta: { parent: '/my', owner: 5, title: 'S21-d 카드사 연결' } },
 
   // 개발용: 전체 화면 목록
