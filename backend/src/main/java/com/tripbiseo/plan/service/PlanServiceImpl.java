@@ -104,6 +104,7 @@ public class PlanServiceImpl implements PlanService {
     private final PlaceService placeService;
     private final PlanCandidateFinder planCandidateFinder; // 후보 장소 찾기 (RAG의 찾기)
     private final RouteOrderer routeOrderer;               // 하루 동선 정리 (직접 고르기 [동선 정리]와 같은 함수)
+    private final PlanVerifier planVerifier;               // 예약·꼭 갈 곳 검증 줄 (11/13)
     private final PlanRuleMaker planRuleMaker;             // AI가 안 될 때 규칙으로 일정 + 숙소 칸 (11/03)
     private final ReviewNeedChecker reviewNeedChecker;     // 칩에 없는 요청을 후보 리뷰로 확인 (11/04)
     private final PlanLimitChecker planLimitChecker;       // 끝 장소·도착 마감, 걷는 시간 상한 (11/04)
@@ -244,6 +245,7 @@ public class PlanServiceImpl implements PlanService {
         // day → time 순 (sort에 넘기는 규칙: day가 같으면 time 글자 순, "09:00" < "10:00")
         response.getStops().sort((first, second) -> first.getDay().equals(second.getDay())
                 ? first.getTime().compareTo(second.getTime()) : first.getDay() - second.getDay());
+        planVerifier.addVerifyNotes(response); // 예약·꼭 갈 곳을 DB 영업시간·거리로 다시 확인한 줄 (11/13)
         return response;
     }
 
@@ -574,7 +576,9 @@ public class PlanServiceImpl implements PlanService {
             waitDemoStep();
             progress.accept(makeProgress(step[0], "done", Integer.parseInt(step[1]), step[2], null));
         }
-        return demoScenario.makeDraft(conditions);
+        PlanGenerateResponse demo = demoScenario.makeDraft(conditions);
+        planVerifier.addVerifyNotes(demo); // 시연 일정도 진짜 DB 값으로 확인 줄 (11/13)
+        return demo;
     }
 
     private void waitDemoStep() {

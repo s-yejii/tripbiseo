@@ -25,7 +25,6 @@ import DongPicker from '@/components/plan/DongPicker.vue'
 import OriginPicker from '@/components/plan/OriginPicker.vue'
 import ChoiceCard from '@/components/plan/ChoiceCard.vue'
 import TimeRangePicker from '@/components/plan/TimeRangePicker.vue'
-import VerifiedBadge from '@/components/common/VerifiedBadge.vue'
 import { KIND_CHIPS, MOVE_CODES, TAG_CHIPS } from '@/utils/styleCodes'
 // 서비스 아이콘: Simple Icons (CC0, 상표는 각 회사 소유). 그 서비스 바로가기에만 써요
 import youtubeLogo from '@/assets/brand/youtube.svg'
@@ -105,15 +104,13 @@ const canNext = computed(() => !step.value.isRequired || !!store.planArea)
 const YOUTUBE_WORD = '서울 핫플 브이로그'
 const NAVER_WORD = '서울 가볼만한곳'
 const INSTAGRAM_ACCOUNT_URL = 'https://www.instagram.com/yeohaenge_ottae/' // 여행어때 인스타그램 계정 (모든 계정 같음)
+// 11/13: 실제 제휴가 아닌 "착착트립 파트너스" 인증 배지·방송 이미지(먹을텐데·흑백요리사)·미쉐린 로고는 뺌. 실제로 여는 검색 바로가기만 둠
 const SEARCH_LINKS = [
-  { key: 'mukeul', label: '먹을텐데', caption: '착착트립 파트너스', isVerified: true, img: '/img/shortcut/mukeul.jpg', text: '유튜브에서 먹을텐데 서울 찾기', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent('성시경 먹을텐데 서울') },
   { key: 'youtube', label: 'YouTube', logo: youtubeLogo, cls: 'pa-sns--yt', url: () => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(YOUTUBE_WORD) },
   { key: 'instagram', label: 'Instagram', labelCls: 'pa-sns__script', logo: instagramLogo, cls: 'pa-sns--ig', url: () => INSTAGRAM_ACCOUNT_URL }, // 11/08 주형: 인스타는 우리 계정 페이지로
   { key: 'naver', label: '네이버', logo: naverLogo, cls: 'pa-sns--nv', url: () => 'https://search.naver.com/search.naver?query=' + encodeURIComponent(NAVER_WORD) }, // 통합검색: 플레이스 지도·사진 목록이 나와요
   // 캐치테이블: 아이콘은 공식 사이트 favicon. 주소는 캐치테이블 웹에서 "서울"을 검색했을 때 뜨는 지도 + 가게 목록 화면
   { key: 'catchtable', label: '캐치테이블', img: '/img/shortcut/catchtable.png', text: '캐치테이블에서 서울 가게 찾기', url: () => 'https://app.catchtable.co.kr/ct/map/search-map?showTabs=true&bottomSheetHeightType=PARTIAL_MAP&serviceType=INTEGRATION&keyword=' + encodeURIComponent('서울') + '&keywordSearch=' + encodeURIComponent('서울') + '&isInitSearch=1' },
-  { key: 'blackwhite', label: '흑백요리사', img: '/img/shortcut/blackwhite.jpg', isTitle: true, text: '네이버에서 흑백요리사 찾기', url: () => 'https://search.naver.com/search.naver?query=' + encodeURIComponent('흑백요리사') },
-  { key: 'michelin', label: '미쉐린 가이드', img: '/img/shortcut/michelin.png', isLogo: true, text: '미쉐린 가이드 사이트 열기', url: () => 'https://guide.michelin.com/kr/ko' },
 ]
 const PLATFORM_LABEL = { instagram: '인스타', youtube: 'YouTube', naver: '네이버' }
 const recommended = ref([]) // 추천 게시물 (없으면 칸을 숨김)
@@ -474,8 +471,12 @@ function useRecommendedTime() {
           <WishLinks ref="wishLinks" @added="onLinkAdded" />
         </section>
 
-        <section v-if="step.id === 'link'" class="pa-sns-sec" aria-label="여긴어때?">
-          <h2 class="t-sub" style="margin: 0">여긴어때?</h2>
+        <section v-if="step.id === 'link'" class="pa-sns-sec" aria-label="어디서 봤어요?">
+          <!-- 11/13 주형: 제목 옆에 트리피(여행 중 화면과 같은 그림) + 한 줄 -->
+          <div class="pa-trippie">
+            <img src="/img/trippie-flag.webp" alt="" class="pa-trippie__img" aria-hidden="true" draggable="false" />
+            <span class="pa-trippie__text"><h2 class="t-sub" style="margin: 0">어디서 봤어요?</h2><span class="t-cap">링크만 주면 트리피가 찾아올게요</span></span>
+          </div>
           <div class="pa-sns">
             <a v-for="item in SEARCH_LINKS" :key="item.key" class="pa-sns__tile" :href="item.url()" target="_blank" rel="noopener noreferrer" :aria-label="(item.text || item.label + '에서 서울 찾기') + ' (새 창)'">
               <small v-if="item.caption" class="pa-sns__caption">{{ item.caption }}</small>
@@ -483,7 +484,7 @@ function useRecommendedTime() {
                 <img v-if="item.img" :src="item.img" :class="{ 'is-logo': item.isLogo, 'is-title': item.isTitle }" alt="" draggable="false" />
                 <i v-else class="pa-sns__logo" :style="{ '--logo': `url(&quot;${item.logo}&quot;)` }" aria-hidden="true"></i>
               </span>
-              <span class="pa-sns__name"><b :class="item.labelCls">{{ item.label }}</b><VerifiedBadge v-if="item.isVerified" /></span>
+              <span class="pa-sns__name"><b :class="item.labelCls">{{ item.label }}</b></span>
             </a>
           </div>
         </section>
@@ -620,6 +621,9 @@ function useRecommendedTime() {
 .scr-PlanAI .pa-sns__ic:has(img.is-title){overflow:hidden;border-radius:14px;background:#000}
 .scr-PlanAI .pa-sns__ic img.is-title{transform:scale(1.25)}
 .scr-PlanAI .pa-sns__ic img.is-logo{object-fit:contain;padding:0 4px;background:#fff;box-sizing:border-box;box-shadow:inset 0 0 0 1px var(--line)}
+.scr-PlanAI .pa-trippie{display:flex;align-items:center;gap:10px}
+.scr-PlanAI .pa-trippie__img{width:40px;height:40px;flex:none;object-fit:contain;-webkit-user-drag:none}
+.scr-PlanAI .pa-trippie__text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .scr-PlanAI .pa-sns{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .scr-PlanAI .pa-sns__tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:104px;border:1.5px solid var(--line);border-radius:16px;background:var(--surface-raised);text-decoration:none;color:var(--ink);transition:border-color .15s,transform .1s}
 .scr-PlanAI .pa-sns__tile:hover{border-color:var(--navy)}
