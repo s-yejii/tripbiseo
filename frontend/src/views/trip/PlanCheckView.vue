@@ -40,7 +40,7 @@ const isReplacing = ref(false)
 const day = ref(Number(route.query.day || 1))
 const hasDraft = computed(() => store.draft.stops.length > 0)
 // 점검 결과가 오기 전에는 초안 그대로 보여 줌 (가짜 일정으로 깜빡이지 않게)
-const baseTrip = computed(() => (hasDraft.value ? toViewTrip(store.draft, check.value, day.value) : concertTrip))
+const baseTrip = computed(() => (hasDraft.value ? toViewTrip(store.draft, check.value, day.value, hoursCheckedIds.value) : concertTrip))
 // 카드 사진: 장소마다 진짜 사진 (홈 카드와 같은 함수, 일정 안에서 안 겹침). 없으면 종류별 기본 사진
 const stopPhotos = useStopPhotos(() => (hasDraft.value ? store.draft.stops.filter((stop) => (stop.day || 1) === day.value) : []))
 // 칸 오른쪽 아래 금액 글자 (숙소처럼 넣지 않는 곳은 없음, 저장 전 초안에만)
@@ -130,6 +130,16 @@ async function changeMode(i, mode) {
   if (!error.value) showToast(modes[mode].label + '(으)로 바꿨어요')
 }
 
+// 영업시간 [확인했어요]: 초안 그 칸에 hoursChecked를 붙여 다시 점검해도 접힌 채로 ("미리 확인할 것"에서도 빠짐)
+// 칸 id는 화면 칸과 같은 규칙(id → placeId → 이름)이고, 그날 칸에서만 찾아서 이름이 같아도 다른 날은 안 바뀜
+const hoursKeyOf = (stop) => stop.id ?? stop.placeId ?? stop.name
+function markHoursChecked(id) {
+  for (const stop of dayStopsOf(store.draft, day.value)) {
+    if (hoursKeyOf(stop) === id) stop.hoursChecked = true
+  }
+}
+const hoursCheckedIds = computed(() => dayStopsOf(store.draft, day.value).filter((stop) => stop.hoursChecked).map(hoursKeyOf))
+
 // 고른 칸 편집 버튼: "성내동 카페 편집" → 그 칸 수정 (칸을 안 고르면 버튼이 없어요)
 function editLabel(selected) {
   return trip.value.stops[selected].name.replace('천호 ', '') + ' 편집'
@@ -206,7 +216,7 @@ async function save() {
 
 <template>
   <div class="scr scr-PlanCheck">
-    <TripPage :trip="trip" back="/trips" :show-budget="hasDraft && SHOW_PRICE_ESTIMATE" :sim-me="sim.me.value" :active-stop="sim.activeStop.value" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode">
+    <TripPage :trip="trip" back="/trips" :show-budget="hasDraft && SHOW_PRICE_ESTIMATE" :sim-me="sim.me.value" :active-stop="sim.activeStop.value" :reorderable="hasDraft" :mode-editable="hasDraft" @reorder="reorder" @change-mode="changeMode" :show-hours-help="hasDraft" @hours-checked="markHoursChecked">
       <template #right="{ selected }">
         <RouteSimButton v-if="hasDraft" :sim="sim" />
         <RouterLink v-if="selected !== null && !sim.isOn.value" :to="editLink(selected)" class="btn btn--sm btn--float"><i class="ic ic--s i-edit" aria-hidden="true"></i>{{ editLabel(selected) }}</RouterLink>

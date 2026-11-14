@@ -5,6 +5,7 @@ import static com.tripbiseo.common.exception.ApiException.fail;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
 
@@ -38,6 +39,11 @@ public class PlanCheckServiceImpl implements PlanCheckService {
     private static final int DEFAULT_START_MIN = 600;     // 첫 칸 시각이 없으면 10:00
     private static final int LATEST_START_MIN = 23 * 60 + 30;
     private static final int LATE_ALLOWANCE_MIN = 10;     // 이보다 늦게 도착하면 "늦게 도착해요"
+    private static final String STAY_KIND = "stay";       // DB 장소 종류 코드: 숙박 (PlaceMapper kindCase)
+    // Pattern: 늘 열려 있어 영업시간이 없는 곳의 이름 (공원·거리·광장… 또는 "청계천"처럼 천·강으로 끝남) → "영업시간 확인 전" 안내를 안 띄움
+    private static final Pattern ALWAYS_OPEN_NAME = Pattern.compile("공원|거리|골목|마을|광장|한강|산책|둘레길|숲|나들길|[천강]$");
+    private static final String TOUR_KIND = "tour";        // DB 장소 종류 코드: 관광지·축제·레포츠
+    private static final String MOUNTAIN_END = "산";       // 관광지 이름이 이걸로 끝나면 산 (관악산) → 늘 열린 곳
 
     private final RouteClient routeClient;
     private final PlaceService placeService;
@@ -76,7 +82,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
                 stop.setTime(Geo.toHhmm(Math.min(arrive, LATEST_START_MIN))); // 비어 있으면 앞 일정에 이어서
             }
             CheckedStop checked = toCheckedStop(stop, arrive, leg);
-            checked.setIssue(findIssue(stop, date, arrive, checks));
+            checked.setIssue(findIssue(stop, checked, date, arrive, checks));
             response.getStops().add(checked);
             if (leg != null && previous != null) {
                 response.getLegs().add(leg);
@@ -143,22 +149,30 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         return Boolean.TRUE.equals(stop.getFixed()) ? Math.max(arrive, Geo.toMinutes(stop.getTime())) : arrive;
     }
 
-    /** 문제 한 줄 (뒤에 맞는 것이 앞 것을 덮어씀: 시간 문제 → 휴무·영업시간). 검사 결과도 같이 바꿈 */
-    private String findIssue(Stop stop, LocalDate date, int arrive, CheckResult checks) {
+    /**
+     * 문제 한 줄 (뒤에 맞는 것이 앞 것을 덮어씀: 시간 문제 → 휴무·영업시간). 검사 결과도 같이 바꿈.
+     * checked에는 네이버 주소와 "영업시간 확인 전"(hoursUnknown)을 채움. hoursUnknown은 문제 줄·검사 결과를 바꾸지 않음
+     */
+    private String findIssue(Stop stop, CheckedStop checked, LocalDate date, int arrive, CheckResult checks) {
         String issue = findTimeIssue(stop, date, arrive);
         if (issue != null) {
             checks.setMove(false);
         }
         Place place = findPlace(stop.getPlaceId());
         if (place == null) {
+            // DB에 없는 장소(카카오 검색 등)는 영업시간을 알 길이 없어서 "확인 전" 대상, 네이버는 이름·주소 검색
+            checked.setNaverUrl(placeService.getNaverUrl(stop.getName(), stop.getAddress()));
+            checked.setHoursUnknown(needsHours(stop, null));
             return issue;
         }
+        checked.setNaverUrl(findNaverUrl(place));
         int stay = stop.getStay() == null ? 0 : stop.getStay();
         OpenInfo open = placeService.getOpenInfo(place, date, arrive, stay);
         if (open.getClosedReason() != null && open.getClosedReason().startsWith("오늘 휴무")) {
             checks.setClosed(false);
             return "이날 휴무예요 (" + open.getClosedReason().replace("오늘 휴무 (", "").replace(")", "") + ")";
         }
+        checked.setHoursUnknown(open.getOpen() == null && needsHours(stop, place)); // 영업시간을 모름 (휴무는 위에서 이미 걸러짐)
         if (Boolean.FALSE.equals(open.getOpen())) {
             checks.setHours(false);
             return Geo.toHhmm(arrive) + "에는 영업 시간이 아니에요";
@@ -168,6 +182,26 @@ public class PlanCheckServiceImpl implements PlanCheckService {
             return open.getCloseAt() + "에 문을 닫아 " + open.getMinutesLeft() + "분밖에 못 머물러요";
         }
         return issue;
+    }
+
+    /**
+     * 영업시간을 알아야 하는 칸인지: 늘 열린 곳(공원·거리 등, 관광지면 "…산")·숙소·고정 일정(예약)은 몰라도 안내하지 않음.
+     * place가 null(DB에 없는 장소)이면 칸 이름으로만 보고, 종류를 몰라서 "…산" 규칙은 안 씀
+     */
+    private boolean needsHours(Stop stop, Place place) {
+        String kind = place == null ? null : place.getKind();
+        String name = place != null && place.getName() != null ? place.getName().trim() : (stop.getName() == null ? "" : stop.getName().trim());
+        boolean isStay = STAY_CATEGORY.equals(stop.getCategory()) || STAY_KIND.equals(kind);
+        boolean isFixed = Boolean.TRUE.equals(stop.getFixed());
+        boolean isMountain = TOUR_KIND.equals(kind) && name.endsWith(MOUNTAIN_END); // 관광지만: 식당 "부산"·"마산" 같은 이름은 안 걸리게
+        boolean isAlwaysOpen = ALWAYS_OPEN_NAME.matcher(name).find() || isMountain;
+        return !isStay && !isFixed && !isAlwaysOpen;
+    }
+
+    /** 네이버 지도 주소: DB map_url, 없으면 이름·주소로 검색 링크 (AlternativeServiceImpl과 같은 방식) */
+    private String findNaverUrl(Place place) {
+        boolean hasMapUrl = place.getMapUrl() != null && !place.getMapUrl().isBlank();
+        return hasMapUrl ? place.getMapUrl() : placeService.getNaverUrl(place.getName(), place.getAddress());
     }
 
     /** 시간 문제: 오늘 일정인데 이미 지난 시각 / 계획보다 10분 넘게 늦게 도착 */
@@ -237,6 +271,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         checked.setFixed(stop.getFixed());
         checked.setMode(stop.getMode());
         checked.setArrive(Geo.toHhmm(arrive));
+        checked.setHoursUnknown(false); // findIssue가 영업시간을 모르는 칸만 true로 바꿈
         checked.setLeg(leg == null ? null : withoutCoords(leg));
         return checked;
     }
@@ -250,6 +285,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         copy.setMode(leg.getMode());
         copy.setSource(leg.getSource());
         copy.setDetail(leg.getDetail());
+        copy.setFromName(leg.getFromName());
         return copy;
     }
 }

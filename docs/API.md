@@ -680,6 +680,8 @@
 | stops[].arrive | string | 예상 도착 `HH:mm` |
 | stops[].issue | string (null 가능) | 문제 한 줄: "계획보다 N분 늦게 도착해요", "이날 휴무예요 (...)", "HH:mm에는 영업 시간이 아니에요", "22:00에 문을 닫아 N분밖에 못 머물러요", "이미 지난 시각이에요 (지금 HH:mm)" |
 | stops[].leg | object (null 가능) | 앞 장소에서 오는 구간 (Leg에서 `coords` 뺀 모양). 첫 칸은 `null` |
+| stops[].hoursUnknown | boolean | 영업시간 정보가 없으면 `true` ("영업시간 확인 전" 안내용, 문제 줄·`ok`는 안 바뀜). DB에 없는 장소(`placeId` 없음, 카카오 검색 등)도 `true`. 휴무인 날·늘 열린 곳(이름에 공원·거리·골목·마을·광장·한강·산책·둘레길·숲·나들길, 천·강으로 끝남, 관광지(`kind` tour)면 산으로 끝남)·숙소·고정 일정은 `false` (11/15) |
+| stops[].naverUrl | string | 네이버 지도 주소: 장소 `map_url`, 없으면(DB에 없는 장소 포함) 이름·주소 검색 링크 (11/15) |
 | legs | Leg[] | 구간 목록 (칸 수 − 1개, `coords` 포함) |
 
 ```json
