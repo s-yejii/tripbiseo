@@ -16,7 +16,9 @@ import org.springframework.web.multipart.MultipartFile;
 import com.tripbiseo.after.dto.AlbumResponse;
 import com.tripbiseo.after.dto.PhotoResponse;
 import com.tripbiseo.after.dto.PhotoUploadResponse;
+import com.tripbiseo.after.dto.ShortsResponse;
 import com.tripbiseo.after.service.PhotoService;
+import com.tripbiseo.after.service.ShortsService;
 import com.tripbiseo.common.auth.LoginUser;
 
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ import lombok.RequiredArgsConstructor;
 public class PhotoController {
 
     private final PhotoService photoService;
+    private final ShortsService shortsService;
     private final LoginUser loginUser;   // 지금 로그인한 회원 (loginUser.id() = 회원 번호)
 
     /** 앨범: 내 지난 여행마다 사진 앞 8장 + 개수 */
@@ -39,6 +42,12 @@ public class PhotoController {
     @GetMapping("/api/trips/{id}/photos")
     public List<PhotoResponse> getPhotoList(@PathVariable long id) {
         return photoService.getPhotoList(loginUser.id(), id);
+    }
+
+    /** 추억 쇼츠: 사진마다 AI 감성 자막 + 여행 분위기 (S19-d) */
+    @GetMapping("/api/trips/{id}/shorts")
+    public ShortsResponse getShorts(@PathVariable long id) {
+        return shortsService.getShorts(loginUser.id(), id);
     }
 
     /** 사진·영상 여러 개 올리기. tripId가 없으면 찍은 날짜로 여행을 찾음 */
