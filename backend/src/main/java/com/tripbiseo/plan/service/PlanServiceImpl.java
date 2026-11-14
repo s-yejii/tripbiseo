@@ -1069,7 +1069,7 @@ public class PlanServiceImpl implements PlanService {
         }
         for (AiDraftStop pick : picks) {
             for (FixedVisit fixed : conditions.getFixed()) {
-                if (isSameName(pick.getName(), fixed.getName())) {
+                if (planCandidateFinder.isSamePlaceName(pick.getName(), fixed.getName())) { // 11/13: "롯데월드타워" 예약에 "나이키 롯데월드타워점"이 붙던 문제
                     pick.setDay(dayOf(fixed));
                     pick.setTime(fixed.getTime());
                     pick.setFixed(true);
@@ -1095,7 +1095,7 @@ public class PlanServiceImpl implements PlanService {
         for (AiDraftStop pick : picks) {
             Place place = pick.getId() == null ? null : candidates.get(pick.getId());
             String pickName = place != null ? place.getName() : pick.getName();
-            if (isSameName(pickName, name)) {
+            if (planCandidateFinder.isSamePlaceName(pickName, name)) { // 같은 이름이 든 다른 가게를 고른 걸로 치지 않음 (11/13)
                 return true;
             }
         }
@@ -1180,6 +1180,9 @@ public class PlanServiceImpl implements PlanService {
             }
             if (place == null) {
                 place = findSameNamePlace(pick.getName()); // 이름이 똑같은 곳이 있으면 그곳 (11/06)
+            }
+            if (place == null && Boolean.TRUE.equals(pick.getFixed())) {
+                place = planCandidateFinder.findFixedPlace(pick.getName(), nearLat, nearLng); // 예약은 이름이 든 다른 가게로 바꾸지 않음 (11/13)
             }
             if (place == null) {
                 place = placeService.getPlaceByName(pick.getName(), nearLat, nearLng);
