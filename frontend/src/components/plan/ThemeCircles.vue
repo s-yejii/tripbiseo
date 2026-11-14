@@ -1,7 +1,7 @@
 <script setup>
 // 테마로 떠나기 (③): 동그란 테마 사진을 옆으로 넘겨 보고, 누르면 테마 화면으로
 // 예) <ThemeCircles /> · 로그인 전 홈: <ThemeCircles to="/login" />
-// 지금은 가짜 테마(data/themes.js)라 테마 화면에는 "준비 중"만 나와요
+// 11/13: 진짜 코스 3개(data/themes.js). 누르면 그 테마로 AI 일정 만들기를 시작할 수 있어요
 import { onUnmounted, ref } from 'vue'
 import { themeList } from '@/data/themes'
 

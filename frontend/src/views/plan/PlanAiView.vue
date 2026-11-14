@@ -396,6 +396,10 @@ function onLinkAdded() {
 function markAutoNext() {
   store.planAutoNext = true
 }
+// 공유로 들어온 링크(/share → ?link=)가 있으면 링크 칸에 채워 둠 (11/13)
+onMounted(() => {
+  if (typeof route.query.link === 'string' && wishLinks.value) wishLinks.value.fill(route.query.link)
+})
 onMounted(() => {
   if (!store.planAutoNext) return
   store.planAutoNext = false
