@@ -250,6 +250,7 @@ public class PlanCheckServiceImpl implements PlanCheckService {
         copy.setMode(leg.getMode());
         copy.setSource(leg.getSource());
         copy.setDetail(leg.getDetail());
+        copy.setFromName(leg.getFromName());
         return copy;
     }
 }
