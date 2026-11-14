@@ -42,6 +42,16 @@ public final class Geo {
         return String.format("%02d:%02d", m / 60, m % 60);
     }
 
+    /** 80 → "1시간 20분", 60 → "1시간", 40 → "40분" (걸리는 시간·늦는 시간을 화면 글자로, 11/13 ④) */
+    public static String toDuration(int minutes) {
+        if (minutes < 60) {
+            return minutes + "분";
+        }
+        int hours = minutes / 60;
+        int rest = minutes % 60;
+        return rest == 0 ? hours + "시간" : hours + "시간 " + rest + "분";
+    }
+
     /** 지금 한국 시각 (시연 계정이 시연 시계를 맞췄으면 그만큼 옮긴 시각, 11/06) */
     public static ZonedDateTime now() {
         return ZonedDateTime.now(KST).plusSeconds(DemoClock.offsetSeconds());

@@ -499,8 +499,8 @@ public class LiveServiceImpl implements LiveService {
             return message + "이후 일정 시각을 다시 계산했어요.";
         }
         if (result.getSlackMin() >= 0) {
-            return message + fixedStop.getName() + "에는 " + result.getSlackMin() + "분 여유가 있어요.";
+            return message + fixedStop.getName() + "에는 " + Geo.toDuration(result.getSlackMin()) + " 여유가 있어요.";
         }
-        return message + "그래도 " + fixedStop.getName() + "에 " + (-result.getSlackMin()) + "분 늦어요. '대안 보기'를 확인하세요.";
+        return message + "그래도 " + fixedStop.getName() + "에 " + Geo.toDuration(-result.getSlackMin()) + " 늦어요. '대안 보기'를 확인하세요.";
     }
 }

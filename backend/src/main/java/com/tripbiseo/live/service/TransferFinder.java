@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import com.tripbiseo.common.external.GuideStep;
 import com.tripbiseo.common.external.RouteClient;
 import com.tripbiseo.common.external.RouteGuideClient;
+import com.tripbiseo.common.util.Geo;
 
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -44,7 +45,7 @@ public class TransferFinder {
         Option best = new Option();
         best.setTitle("택시로 바로 가기");
         best.setMinutes(minutesOf(fromLat, fromLng, toLat, toLng, "taxi"));
-        best.setText("택시 " + best.getMinutes() + "분");
+        best.setText("택시 " + Geo.toDuration(best.getMinutes()));
 
         List<GuideStep> steps;
         try {
@@ -83,7 +84,7 @@ public class TransferFinder {
         int byTaxi = minutesOf(getoff.getLat(), getoff.getLng(), toLat, toLng, "taxi");
         Option option = new Option();
         option.setTitle(station + "에서 택시로 갈아타기");
-        option.setText("지하철로 " + station + "까지 " + toStation + "분 → 택시 " + byTaxi + "분");
+        option.setText("지하철로 " + station + "까지 " + Geo.toDuration(toStation) + " → 택시 " + Geo.toDuration(byTaxi));
         option.setMinutes(toStation + byTaxi);
         return option;
     }
