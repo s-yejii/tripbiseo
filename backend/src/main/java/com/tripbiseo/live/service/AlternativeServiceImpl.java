@@ -287,7 +287,7 @@ public class AlternativeServiceImpl implements AlternativeService {
         alternative.setChanges(1);
         alternative.setShortName("갈아타기");
         alternative.setTitle(option.getTitle());
-        alternative.setReason(fixedStop.getName() + "까지 대중교통 " + option.getTransitMinutes() + "분 대신 " + option.getText() + "로 가요.");
+        alternative.setReason(fixedStop.getName() + "까지 대중교통 " + Geo.toDuration(option.getTransitMinutes()) + " 대신 " + option.getText() + "로 가요.");
         return alternative;
     }
 
@@ -604,7 +604,7 @@ public class AlternativeServiceImpl implements AlternativeService {
             int before = liveStopFinder.getStay(beforeStops.get(i));
             int after = liveStopFinder.getStay(afterStops.get(i));
             if (before != after) {
-                alternative.getStops().get(i).setChange(before + "분 → " + after + "분");
+                alternative.getStops().get(i).setChange(Geo.toDuration(before) + " → " + Geo.toDuration(after));
                 changes++;
             }
         }
@@ -763,7 +763,7 @@ public class AlternativeServiceImpl implements AlternativeService {
             int before = liveStopFinder.getStay(findStopById(remainingStops, chosen.getId()));
             int after = liveStopFinder.getStay(chosen);
             if (before != after) {
-                altStop.setChange(before + "분 → " + after + "분");
+                altStop.setChange(Geo.toDuration(before) + " → " + Geo.toDuration(after));
                 changes++;
             }
         }
@@ -857,7 +857,7 @@ public class AlternativeServiceImpl implements AlternativeService {
         tripService.updateStop(memberId, tripId, original.getId(), update);
 
         if (beforeStay != afterStay) {
-            noteMap.put(original.getId(), beforeStay + "분 → " + afterStay + "분");
+            noteMap.put(original.getId(), Geo.toDuration(beforeStay) + " → " + Geo.toDuration(afterStay));
         }
     }
 

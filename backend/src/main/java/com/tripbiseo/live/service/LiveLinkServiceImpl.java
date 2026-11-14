@@ -372,7 +372,7 @@ public class LiveLinkServiceImpl implements LiveLinkService {
             Stop stop = stops.get(i);
             for (Stop original : context.remaining()) {
                 if (original.getId().equals(stop.getId()) && liveStopFinder.getStay(original) != liveStopFinder.getStay(stop)) {
-                    option.getStops().get(i).setChange(liveStopFinder.getStay(original) + "분 → " + liveStopFinder.getStay(stop) + "분");
+                    option.getStops().get(i).setChange(Geo.toDuration(liveStopFinder.getStay(original)) + " → " + Geo.toDuration(liveStopFinder.getStay(stop)));
                     changes++;
                 }
             }
@@ -606,7 +606,7 @@ public class LiveLinkServiceImpl implements LiveLinkService {
     private String getMessage(boolean fits, Map<Stop, Stop> swaps, Alternative best, Stop fixedStop) {
         if (!fits) {
             if (fixedStop != null && best.getSlackMin() < 0) {
-                return fixedStop.getName() + " " + -best.getSlackMin() + "분 늦어요";
+                return fixedStop.getName() + " " + Geo.toDuration(-best.getSlackMin()) + " 늦어요";
             }
             return getLastArrive(best) > LAST_ARRIVE_MIN ? "밤늦게 끝나요" : "문 닫는 곳이 생겨요";
         }

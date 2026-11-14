@@ -11,7 +11,7 @@ import PageMessage from '@/components/common/PageMessage.vue'
 import KakaoMap from '@/components/common/KakaoMap.vue'
 import EventTimeline from '@/components/live/EventTimeline.vue'
 import { useReplanStore } from '@/stores/replan'
-import { toMinutes } from '@/utils/time'
+import { toDuration, toMinutes } from '@/utils/time'
 
 const DELAY_MAP_PADDING = { top: 60, right: 40, bottom: 470, left: 40 } // 아래 시트에 핀이 가리지 않게
 
@@ -47,7 +47,7 @@ const reasons = computed(() => {
     items.push({
       time: arrived, color: 'var(--success)', text: current.name + ' 도착',
       badgeCls: lateArrive > 0 ? 'badge--warning' : 'badge--success', badgeIcon: lateArrive > 0 ? 'i-clock' : 'i-check',
-      badge: lateArrive > 0 ? '+' + lateArrive + '분' : '제시간',
+      badge: lateArrive > 0 ? '+' + toDuration(lateArrive) : '제시간',
     })
   }
   if (current) {
@@ -56,7 +56,7 @@ const reasons = computed(() => {
     items.push({
       time: now, color: overStay > 0 ? 'var(--warning)' : 'var(--success)', text: '아직 ' + current.name,
       badgeCls: overStay > 0 ? 'badge--warning' : 'badge--neutral', badgeIcon: 'i-clock',
-      badge: overStay > 0 ? '+' + overStay + '분' : '계획 안',
+      badge: overStay > 0 ? '+' + toDuration(overStay) : '계획 안',
     })
   } else {
     items.push({ time: now, color: 'var(--ink-subtle)', text: '이동 중', badgeCls: 'badge--neutral', badge: '지금' })
@@ -65,7 +65,7 @@ const reasons = computed(() => {
   items.push({
     time: replan.base.finalArrive, color: slack < 0 ? 'var(--danger)' : 'var(--success)', icon: replan.basisStop && replan.basisStop.fixed ? 'i-lock' : '',
     text: basisName.value + ' 도착 예상', badgeCls: slack < 0 ? 'badge--danger' : 'badge--success', badgeIcon: slack < 0 ? 'i-danger' : 'i-check',
-    badge: slack < 0 ? '+' + -slack + '분' : '여유 ' + slack + '분',
+    badge: slack < 0 ? '+' + toDuration(-slack) : '여유 ' + toDuration(slack),
   })
   return items
 })
@@ -98,7 +98,7 @@ function goAnyway() {
         <template v-else>
         <div style="display: flex; align-items: center; gap: 12px">
           <span class="ico-tile" :class="replan.lateMin || isTight ? 'ico-tile--warn' : ''" style="width: 48px; height: 48px"><i class="ic ic--l" :class="replan.lateMin || isTight ? 'i-warning' : 'i-success'" aria-hidden="true"></i></span>
-          <h1 v-if="replan.lateMin" class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br /><span class="c-warning">{{ replan.lateMin }}분</span> 늦어요</h1>
+          <h1 v-if="replan.lateMin" class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br /><span class="c-warning">{{ toDuration(replan.lateMin) }}</span> 늦어요</h1>
           <h1 v-else-if="isTight" class="h-title" style="font-size: 20px; line-height: 28px">지금 나가지 않으면<br />{{ basisName }}에 <span class="c-warning">늦어요</span></h1>
           <h1 v-else class="h-title" style="font-size: 20px; line-height: 28px">{{ basisName }}<br />안 늦어요</h1>
         </div>

@@ -66,15 +66,15 @@ public class AutoAdjuster {
                 : alternativeCalculator.calculate(trip, null, ahead, left.getLat(), left.getLng()).getSlackMin();
         int target = targetSlackFor(devService.isDemoAccount(memberId));
         if (slack >= target) {
-            notice(memberId, tripId, ahead.get(0).getName() + " 도착이 " + lateMin + "분 늦어져요",
-                    left.getName() + "에서 " + lateMin + "분 더 머물렀어요. 뒤 일정은 그만큼 밀려요");
+            notice(memberId, tripId, ahead.get(0).getName() + " 도착이 " + Geo.toDuration(lateMin) + " 늦어져요",
+                    left.getName() + "에서 " + Geo.toDuration(lateMin) + " 더 머물렀어요. 뒤 일정은 그만큼 밀려요");
             return;
         }
         List<String> changes = trimStays(memberId, tripId, ahead.subList(0, fixedIndex), roundUp(target - slack));
         if (changes.isEmpty()) {
             return; // 줄일 곳이 없음 → 늦음 카드가 대안을 보여 줌
         }
-        notice(memberId, tripId, left.getName() + "에서 " + lateMin + "분 더 머물러서 " + String.join(", ", changes) + "으로 줄였어요",
+        notice(memberId, tripId, left.getName() + "에서 " + Geo.toDuration(lateMin) + " 더 머물러서 " + String.join(", ", changes) + "으로 줄였어요",
                 ahead.get(fixedIndex).getName() + " " + ahead.get(fixedIndex).getTime() + "에 늦지 않게 남은 일정을 맞췄어요");
     }
 
@@ -130,7 +130,7 @@ public class AutoAdjuster {
                 continue;
             }
             saveStay(memberId, tripId, stop, stay - cut);
-            changes.add(stop.getName() + objectParticle(stop.getName()) + " " + stay + "분 → " + (stay - cut) + "분");
+            changes.add(stop.getName() + objectParticle(stop.getName()) + " " + Geo.toDuration(stay) + " → " + Geo.toDuration(stay - cut));
             left -= cut;
         }
         return changes;

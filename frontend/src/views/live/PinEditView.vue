@@ -133,8 +133,8 @@ function badgeOf(key) {
   if (!result) return { cls: 'badge--neutral', text: '계산 중' }
   if (result.isLast) return { cls: 'badge--neutral', text: '오늘 일정 끝' }
   if (result.error) return { cls: 'badge--neutral', text: '계산 실패' }
-  if (result.slackMin < 0) return { cls: 'badge--danger', text: -result.slackMin + '분 늦음' }
-  return { cls: 'badge--success', text: '여유 ' + result.slackMin + '분' }
+  if (result.slackMin < 0) return { cls: 'badge--danger', text: toDuration(-result.slackMin) + ' 늦음' }
+  return { cls: 'badge--success', text: '여유 ' + toDuration(result.slackMin) }
 }
 
 function cancelSkip() {

@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 카드 사이 이동 칩을 눌렀을 때 뜨는 시트: 어디서 어디까지, 무엇으로 몇 분
 // "네이버 지도로 길찾기"는 출발·도착 좌표로 네이버 지도 길찾기 웹 페이지를 새 창으로 열어요 (앱이 깔려 있으면 앱으로 넘어가요)
 import { modes } from '@/data/places'
@@ -38,7 +39,7 @@ function openNaverMap() {
     <div class="seg-sum">
       <span class="ico-tile"><i class="ic" :class="modes[leg.mode].icon" aria-hidden="true"></i></span>
       <span>
-        <b class="t-big tn">{{ leg.min }}분</b>
+        <b class="t-big tn">{{ toDuration(leg.min) }}</b>
         <span class="t-cap tn" style="display: block">{{ modes[leg.mode].label }} · {{ leg.dist }}</span>
       </span>
     </div>

@@ -60,20 +60,20 @@ public class LiveAlertMaker {
         if (isLost(context)) {
             // 어떤 방법으로도 못 맞춤 → 가운데 놓침 카드 (그대로 가기 / 빼고 다음으로 / 식당·카페면 비슷한 가게). 식당인지는 화면이 stops[].meal로 봄
             return newAlert("lost-" + fixedStop.getId(), "danger", fixedStop.getName(),
-                    "가장 빠른 방법으로 가도 " + toTimeWord(context) + "(" + fixedStop.getTime() + ")보다 " + (-context.getFastestSlack()) + "분 늦어요");
+                    "가장 빠른 방법으로 가도 " + toTimeWord(context) + "(" + fixedStop.getTime() + ")보다 " + Geo.toDuration(-context.getFastestSlack()) + " 늦어요");
         }
         // 11/08: 고정 일정(KTX·예약)에 늦는 게 가장 중요해서 맨 먼저. 도착 "목표" 시각을 같이 보여 줘서 기차를 놓친다고 오해하지 않게
         if (isLate(slack)) {
             // key 끝의 숫자는 10분 더 늦어질 때마다 바뀜 → 그때마다 다시 알려 줌
             return newAlert("late-" + fixedStop.getId() + "-" + (-slack) / 10, "danger",
-                    "지금대로면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")보다 " + (-slack) + "분 늦어요",
+                    "지금대로면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")보다 " + Geo.toDuration(-slack) + " 늦어요",
                     "누르면 늦지 않는 대안을 볼 수 있어요");
         }
         if (isAtStopBeforeFixed(context) && slack != null && slack <= LEAVE_NOW_SLACK_MIN) {
             // 11/09: 나갈 시각 전이라도 여유가 5분 이하면 출발 알림 대신 이 알림 (시연 [다음 장소로]의 출발 전 검사와 같은 기준)
             // 11/08 주형: 이미 늦은 뒤에 알리면 늦어서, 여유가 조금 남았을 때 먼저 경고 (key가 late-로 시작 → 위에 크게 다시 뜸)
             return newAlert("late-soon-" + fixedStop.getId(), "danger",
-                    "지금 나가지 않으면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")에 늦어요 · 여유 " + slack + "분",
+                    "지금 나가지 않으면 " + fixedStop.getName() + " 도착 목표(" + fixedStop.getTime() + ")에 늦어요 · 여유 " + Geo.toDuration(slack),
                     "누르면 더 빨리 가는 대안을 볼 수 있어요");
         }
         if (isOverdue(context)) {
@@ -96,7 +96,7 @@ public class LiveAlertMaker {
         }
         if (slack != null && slack <= TIGHT_SLACK_MIN) {
             return newAlert("tight-" + fixedStop.getId(), "warn",
-                    fixedStop.getName() + "까지 여유가 " + slack + "분뿐이에요", "다음 장소는 짧게 들르는 게 좋아요");
+                    fixedStop.getName() + "까지 여유가 " + Geo.toDuration(slack) + "뿐이에요", "다음 장소는 짧게 들르는 게 좋아요");
         }
         return makeRainAlert(context); // 11/12: 다음 장소 지각(next-)은 알림 안 함 (위 설명)
     }
@@ -233,7 +233,7 @@ public class LiveAlertMaker {
             }
             if (isTooShort(open, stop)) {
                 return newAlert("closed-" + stop.getId() + "-short", "warn", stop.getName() + ": " + open.getCloseAt() + "에 닫아요",
-                        "도착 후 " + open.getMinutesLeft() + "분밖에 못 있어요. '대안 보기'로 다른 곳을 찾아보세요");
+                        "도착 후 " + Geo.toDuration(open.getMinutesLeft()) + "밖에 못 있어요. '대안 보기'로 다른 곳을 찾아보세요");
             }
         }
         return null;
@@ -248,11 +248,11 @@ public class LiveAlertMaker {
     /** 출발 알림: 남은 분을 key에 넣어 1분마다 새로 울리게 함 (repeat = true) */
     private LiveAlert makeLeaveAlert(LeaveInfo leave) {
         int left = leave.getMinutesLeft();
-        String title = left + "분 뒤 출발해야 해요";
+        String title = Geo.toDuration(left) + " 뒤 출발해야 해요";
         if (left == 0) {
             title = "지금 출발해야 해요";
         } else if (left < 0) {
-            title = "출발 시각이 " + (-left) + "분 지났어요";
+            title = "출발 시각이 " + Geo.toDuration(-left) + " 지났어요";
         }
         String text = leave.getName() + "에 계획대로 닿으려면 " + leave.getLeaveAt() + "에 출발";
         if (leave.isAtStop()) {

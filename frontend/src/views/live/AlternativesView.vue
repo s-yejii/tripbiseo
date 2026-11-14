@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // S16-a 대안 · 시간 줄이기 (④): 남은 장소의 머무는 시간을 줄여서 고정 일정에 맞춰요
 // 장소를 누르면 S16-a2 슬라이더에서 몇 분 머물지 정해요. 정한 만큼 서버가 다시 계산(POST /live/preview)하고,
 // 적용하면 계산된 일정 그대로 저장(POST /live/apply)해요. 아무것도 안 정하면 서버 추천(A 시간 단축)을 적용해요.
@@ -64,28 +65,28 @@ const basisName = computed(() => (replan.basisStop ? replan.basisStop.name : '�
 
 const resultText = computed(() => {
   if (!isEdited.value) {
-    if (recommendStop.value) return `추천 ${recommendStop.value.name} ${recommendStop.value.cut}분`
+    if (recommendStop.value) return `추천 ${recommendStop.value.name} ${toDuration(recommendStop.value.cut)}`
     return replan.lateMin ? '줄일 곳이 없어요' : '안 늦어요'
   }
   const arrive = result.value ? result.value.finalArrive : '-'
-  return `${arrive} 도착 · ` + (isOk.value ? `여유 ${slack.value}분` : `${-slack.value}분 늦어요`)
+  return `${arrive} 도착 · ` + (isOk.value ? `여유 ${toDuration(slack.value)}` : `${toDuration(-slack.value)} 늦어요`)
 })
 
 const button = computed(() => {
   if (!isEdited.value) {
-    if (recommendStop.value) return { text: `${recommendStop.value.name} ${recommendStop.value.cut}분 줄이기`, isOff: false }
+    if (recommendStop.value) return { text: `${recommendStop.value.name} ${toDuration(recommendStop.value.cut)} 줄이기`, isOff: false }
     return replan.lateMin ? { text: '한 곳 빼러 가기', to: '/live/alt/drop', isOff: false } : { text: '그대로 가요', to: '/live', isOff: false }
   }
-  if (!isOk.value && replan.lateMin) return { text: `${cutTotal.value}분 줄이기 · 아직 ${-slack.value}분 늦어요`, isOff: false }
-  return { text: `${cutTotal.value}분 줄이기`, isOff: false }
+  if (!isOk.value && replan.lateMin) return { text: `${toDuration(cutTotal.value)} 줄이기 · 아직 ${toDuration(-slack.value)} 늦어요`, isOff: false }
+  return { text: `${toDuration(cutTotal.value)} 줄이기`, isOff: false }
 })
 
 // 칸 한 줄에 보일 글자
 function rowMeta(stop) {
   const planned = replan.trimPlan[stop.id]
   if (planned === 0) return '뺌'
-  if (planned != null) return `<s>${stop.stay}분</s> → <b>${planned}분</b>`
-  return stop.stay + '분'
+  if (planned != null) return `<s>${toDuration(stop.stay)}</s> → <b>${toDuration(planned)}</b>`
+  return toDuration(stop.stay)
 }
 
 function reset() {
@@ -124,10 +125,10 @@ async function apply() {
         <section class="tsum" aria-label="줄인 시간 합계" aria-live="polite">
           <div class="tsum__top">
             <span class="tsum__lbl">줄인 시간</span>
-            <span v-if="replan.lateMin" class="tsum__need">필요 <b>{{ replan.lateMin }}분</b></span>
+            <span v-if="replan.lateMin" class="tsum__need">필요 <b>{{ toDuration(replan.lateMin) }}</b></span>
           </div>
           <div class="tsum__mid">
-            <span class="tsum__big" :class="cutTotal === 0 ? '' : isOk ? 'c-success' : 'c-warning'">{{ cutTotal }}분</span>
+            <span class="tsum__big" :class="cutTotal === 0 ? '' : isOk ? 'c-success' : 'c-warning'">{{ toDuration(cutTotal) }}</span>
             <div class="tsum__bar" role="progressbar" aria-label="필요한 만큼 줄였는지" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100"><i :class="{ ok: isOk && cutTotal > 0 }" :style="{ width: (isEdited ? percent : 0) + '%' }"></i></div>
           </div>
           <p class="tsum__res" :class="!isEdited ? 'muted' : isOk ? 'c-success' : 'c-warning'">
@@ -165,8 +166,8 @@ async function apply() {
                 <span class="tr-name"><b class="t-sub">{{ stop.name }}</b><span class="imp" :class="'imp--' + (stop.importance || 'maybe')">{{ importance[stop.importance || 'maybe'] }}</span></span>
                 <span class="tr-meta" v-html="rowMeta(stop)"></span>
               </span>
-              <span v-if="replan.trimPlan[stop.id] != null" class="tr-cut">−{{ stop.stay - replan.trimPlan[stop.id] }}분</span>
-              <span v-else-if="!isEdited && recommendStop && recommendStop.id === stop.id" class="badge badge--coral">추천 −{{ recommendStop.cut }}분</span>
+              <span v-if="replan.trimPlan[stop.id] != null" class="tr-cut">−{{ toDuration(stop.stay - replan.trimPlan[stop.id]) }}</span>
+              <span v-else-if="!isEdited && recommendStop && recommendStop.id === stop.id" class="badge badge--coral">추천 −{{ toDuration(recommendStop.cut) }}</span>
               <i class="ic i-next subtle" aria-hidden="true"></i>
             </RouterLink>
           </template>

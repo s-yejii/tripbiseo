@@ -1,4 +1,5 @@
 <script setup>
+import { toDuration } from '@/utils/time'
 // 일정에 넣기 전에 순서 정하기 (④ 11/13). 구글 지도·카카오맵 "경유지 추가"처럼:
 //   새 장소가 남은 일정 목록에 끼워져 강조돼 보이고, 오른쪽 손잡이(≡)를 끌어 원하는 자리로 옮겨요 (위아래 화살표키도 됨)
 //   왼쪽 번호는 넣은 뒤의 일정 번호 (지도 핀 번호와 같음: 옮기면 지도 핀 번호도 같이 바뀜)
@@ -221,7 +222,7 @@ async function add() {
           <li v-else class="lp-order__row" :class="{ 'is-fixed': row.stop.fixed }" :data-stop-index="row.index">
             <span class="lp-order__no tn" aria-hidden="true">{{ firstNo + row.index + (row.index >= slot ? 1 : 0) }}</span>
             <span class="lp-order__name">{{ row.stop.name }}<i v-if="row.stop.fixed" class="ic ic--s i-lock" aria-label="예약"></i></span>
-            <span v-if="lateOf(row.stop)" class="lp-order__time lp-order__time--late tn">{{ etaOf(row.stop) }} · {{ lateOf(row.stop) }}분 늦어요</span>
+            <span v-if="lateOf(row.stop)" class="lp-order__time lp-order__time--late tn">{{ etaOf(row.stop) }} · {{ toDuration(lateOf(row.stop)) }} 늦어요</span>
             <span v-else class="lp-order__time tn">{{ etaOf(row.stop) }}</span>
           </li>
         </template>

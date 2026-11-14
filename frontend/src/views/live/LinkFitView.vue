@@ -43,7 +43,7 @@ const picked = computed(() => (pickedKey.value === 'custom' ? custom.value : opt
 // 고정 일정이 있으면 여유, 없으면 끝나는 시각
 function slackText(option) {
   if (!fixedName.value || option.finalArrive.startsWith('다음날')) return option.finalArrive + ' 끝'
-  return option.slackMin < 0 ? -option.slackMin + '분 늦어요' : '여유 ' + option.slackMin + '분'
+  return option.slackMin < 0 ? toDuration(-option.slackMin) + ' 늦어요' : '여유 ' + toDuration(option.slackMin)
 }
 function isLate(option) {
   if (option.finalArrive.startsWith('다음날')) return true

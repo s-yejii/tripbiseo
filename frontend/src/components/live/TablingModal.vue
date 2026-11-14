@@ -2,7 +2,7 @@
 // 첫 장소에서 "테이블링 하셨나요?" → 했으면 예상 대기 시간을 받아요
 // 저장하면 save(대기 분)를 보내고, 화면이 남은 일정을 그만큼 미뤄요
 import { computed, ref } from 'vue'
-import { toTime } from '@/utils/time'
+import { toDuration, toTime } from '@/utils/time'
 import { planArrive, reserveTime } from '@/data/live'
 
 const emit = defineEmits(['close', 'save'])
@@ -48,21 +48,21 @@ function changeWait(diff) {
       </div>
       <div class="tbl-wait">
         <button type="button" class="iconbtn iconbtn--soft" aria-label="5분 줄이기" @click="changeWait(-5)"><i class="ic ic--s i-minus" aria-hidden="true"></i></button>
-        <b class="tn" aria-live="polite">{{ wait }}분</b>
+        <b class="tn" aria-live="polite">{{ toDuration(wait) }}</b>
         <button type="button" class="iconbtn iconbtn--soft" aria-label="5분 늘리기" @click="changeWait(5)"><i class="ic ic--s i-plus" aria-hidden="true"></i></button>
       </div>
       <div class="chips" style="justify-content: center">
-        <button v-for="m in quickWaits" :key="m" type="button" class="chip chip--sm" :class="{ 'is-on': m === wait }" @click="wait = m">{{ m }}분</button>
+        <button v-for="m in quickWaits" :key="m" type="button" class="chip chip--sm" :class="{ 'is-on': m === wait }" @click="wait = m">{{ toDuration(m) }}</button>
       </div>
       <div class="tbl-res tn">
         <span>13:00 도착</span><i class="ic ic--s i-next" aria-hidden="true"></i>
-        <span>대기 {{ wait }}분</span><i class="ic ic--s i-next" aria-hidden="true"></i>
+        <span>대기 {{ toDuration(wait) }}</span><i class="ic ic--s i-next" aria-hidden="true"></i>
         <b>{{ toTime(780 + wait) }} 입장 예상</b>
       </div>
       <p v-if="slack < 0" class="t-cap tn c-warning" style="margin: 0; text-align: center">
-        <i class="ic ic--s i-warning" aria-hidden="true"></i> 이대로면 공연 18:30 입장에 {{ -slack }}분 늦어요
+        <i class="ic ic--s i-warning" aria-hidden="true"></i> 이대로면 공연 18:30 입장에 {{ toDuration(-slack) }} 늦어요
       </p>
-      <p v-else class="t-cap tn muted" style="margin: 0; text-align: center">남은 일정을 {{ wait }}분씩 미뤄도 공연 18:30 전에 도착해요</p>
+      <p v-else class="t-cap tn muted" style="margin: 0; text-align: center">남은 일정을 {{ toDuration(wait) }}씩 미뤄도 공연 18:30 전에 도착해요</p>
       <button type="button" class="btn btn--primary btn--lg btn--block" @click="emit('save', wait)">이 시간으로 다시 계산하기</button>
     </template>
   </section>
