@@ -79,7 +79,6 @@ public class PlanServiceImpl implements PlanService {
     private static final int LAST_MUST_START_MIN = 1260;  // 꼭 갈 곳은 늦어도 21:00 시작
     private static final int MUST_STAY_MIN = 90;
     private static final int FIXED_STAY_MIN = 120;
-    private static final String MIDDLE_DAY_START = "10:00"; // 여러 날 여행에서 첫날이 아닌 날의 시작 (PlanRuleMaker와 같음)
     private static final String AI_FAIL_NOTE = "AI가 답하지 않아 고른 종류·평점·거리로 일정을 짰어요"; // AI 대신 규칙으로 짠 안내 (오류 원문은 안 보임)
     private static final String CALL_AHEAD_MARK = "연락 필수"; // 영업시간 원문에 이 말이 있으면 미리 연락해야 하는 곳
     private static final int BOARDING_STAY_MIN = 30;     // 기차역·터미널·공항 고정 일정은 타러 가는 것뿐이라 30분 (11/06)
@@ -913,6 +912,10 @@ public class PlanServiceImpl implements PlanService {
             addDongNote(conditions, notes);
         } else if (conditions.getAreaLat() != null) {
             planCandidateFinder.addKinds(candidates, conditions.getAreaLat(), conditions.getAreaLng(), conditions.getAreaType(), kinds);
+            String guName = guNameOf(region);
+            if ("gu".equals(conditions.getAreaType()) && guName != null) {
+                planCandidateFinder.keepInGu(candidates, guName); // 고른 구 밖 가게는 뺌 (꼭 갈 곳·예약은 이 뒤에 더해져서 안 빠짐)
+            }
         } else if (baseLat != null && baseLng != null) {
             planCandidateFinder.addKinds(candidates, baseLat, baseLng, "dong", kinds);
             planCandidateFinder.addNearMe(candidates, baseLat, baseLng);
@@ -936,6 +939,13 @@ public class PlanServiceImpl implements PlanService {
             addRegionKinds(candidates, region, kinds); // 그 지역 중심에서 종류별 후보 + 볼거리 카카오 보충 (11/06)
         }
         return candidates;
+    }
+
+    /** 지역 글자에서 구 이름 ("서울 중구" → "중구"). 구가 아니면 null */
+    private String guNameOf(String region) {
+        String[] words = region.trim().split("\s+");
+        String last = words[words.length - 1];
+        return last.endsWith("구") && last.length() >= 2 ? last : null;
     }
 
     /**
@@ -1295,7 +1305,8 @@ public class PlanServiceImpl implements PlanService {
         if (conditions.getMustVisit() == null) {
             return;
         }
-        String lastDayStart = days > 1 ? MIDDLE_DAY_START : (conditions.getStartTime() == null ? Geo.toHhmm(FALLBACK_START_MIN) : conditions.getStartTime());
+        String lastDayStart = days > 1 ? Geo.toHhmm(planRuleMaker.laterDayStartMin(conditions, days)) // 11/13: 2일차부터 시작 규칙과 같게
+                : (conditions.getStartTime() == null ? Geo.toHhmm(FALLBACK_START_MIN) : conditions.getStartTime());
         for (String name : conditions.getMustVisit()) {
             if (isPicked(name, picks)) {
                 continue;

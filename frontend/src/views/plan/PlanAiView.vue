@@ -285,6 +285,20 @@ const stayNights = computed(() => {
   return total
 })
 // 일차 칸 글: 위 "2일차"(당일치기면 "당일"), 아래 "12/5"
+// 11/13: 예약이 여행 날짜·시간 밖인지 (밖이면 서버가 말없이 마지막 날로 옮기거나 끝에 붙여서 화면에서 미리 알림)
+//   날짜: 여행 일수보다 뒤 / 시간: 첫날은 시작 시각 전, 마지막 날은 끝 시각 뒤 (가운데 날은 시간 검사 안 함)
+function fixedOutsideText(item) {
+  const day = item.day || 1
+  if (day > nights.value + 1) return '여행 날짜 밖이에요 · 그대로 만들면 마지막 날로 들어가요'
+  const isFirstDay = day === 1
+  const isLastDay = day === nights.value + 1
+  if (isFirstDay && store.planFromTime && item.time < store.planFromTime) return '여행 시작 시각(' + store.planFromTime + ') 전이에요'
+  if (isLastDay && store.planToTime && item.time >= store.planToTime) return '여행 끝 시각(' + store.planToTime + ') 뒤예요 · 그대로 만들면 일정 끝에 붙어요'
+  return ''
+}
+const hasOutsideFixed = computed(() => fixedList.value.some((item) => fixedOutsideText(item) !== ''))
+let isOutsideWarned = false // 밖인 예약이 있을 때 [일정 만들기]를 한 번은 막고 알려 줬는지
+
 function dayTileOf(day) {
   const index = (day || 1) - 1
   return { title: nights.value ? index + 1 + '일차' : '당일', date: toMonthDay(addDays(store.planStartDate, index)) }
@@ -358,6 +372,10 @@ watch(() => route.query.step, (value) => {
 function goNext() {
   if (!canNext.value) return showToast('어디로 가는지 알려 주세요')
   if (isLast.value) {
+    if (hasOutsideFixed.value && !isOutsideWarned) {
+      isOutsideWarned = true
+      return showToast('여행 날짜·시간 밖 예약이 있어요 · 고치거나, 그대로 만들려면 한 번 더 눌러 주세요')
+    }
     saveConditions()
     if (!byMe) store.planMessages = [] // 예전 대화가 남아 있으면 일정 만들기에 섞이지 않게
     router.push(byMe ? '/plan/manual' : '/plan/generating')
@@ -563,7 +581,7 @@ function useRecommendedTime() {
           <div v-for="(item, index) in fixedList" :key="item.name + item.day + item.time" class="stop is-fixed" style="grid-template-columns: 1fr">
             <div class="stop__card">
               <span class="day-tile"><b>{{ dayTileOf(item.day).title }}</b><span>{{ dayTileOf(item.day).date }}</span></span>
-              <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><b class="c-navy tn">{{ item.time }}</b> · 시간 고정</span></span>
+              <span class="stop__body"><span class="stop__name">{{ item.name }}</span><span class="stop__meta"><b class="c-navy tn">{{ item.time }}</b> · 시간 고정</span><span v-if="fixedOutsideText(item)" class="row__meta c-warning">{{ fixedOutsideText(item) }}</span></span>
               <button type="button" class="iconbtn" :aria-label="item.name + ' 빼기'" @click="removeFixed(index)"><i class="ic i-close muted" aria-hidden="true"></i></button>
             </div>
           </div>

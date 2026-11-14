@@ -25,6 +25,18 @@ class PlanTravelTimeTest {
     }
 
     @Test
+    void 멀수록_같거나_오래_걸림() { // 11/13: 1km에서 거꾸로 되던 문제
+        double[] start = {37.5600, 126.9800};
+        int before = 0;
+        for (int i = 1; i <= 40; i++) {
+            double[] end = {37.5600 + i * 0.0009, 126.9800}; // 약 100m씩 멀어짐 (4km까지)
+            int minutes = PlanTravelTime.minutesBetween(start, end);
+            assertTrue(minutes >= before, (i * 100) + "m: " + minutes + "분 < 앞 " + before + "분");
+            before = minutes;
+        }
+    }
+
+    @Test
     void 좌표를_모르면_0분() {
         assertEquals(0, PlanTravelTime.minutesBetween(null, SANCHEONG));
     }
