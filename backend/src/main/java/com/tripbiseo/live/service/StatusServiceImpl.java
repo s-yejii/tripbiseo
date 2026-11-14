@@ -45,6 +45,7 @@ public class StatusServiceImpl implements StatusService {
     private static final int PRECISE_ROUTE_COUNT = 3;   // 가까운 3구간만 진짜 길찾기, 나머지는 거리로 추정
     private static final Set<String> MEAL_KINDS = Set.of("food", "cafe", "bar"); // 놓침 카드를 띄울 장소 종류 (PlaceMapper kindCase 값, 11/12)
     private static final int LATE_STEP_MIN = 10;        // late- 알림과 같은 간격: 10분 더 늦어질 때마다만 가장 빠른 방법을 다시 계산
+    private static final String CLOSE_WORD = "에 영업이 끝나요"; // ② OpeningHours가 도착 때 닫혀 있으면 붙이는 끝말 ("22:00에 영업이 끝나요")
 
     private final AutoAdjuster autoAdjuster; // 최근 자동 일정 조정 안내 (③ 11/08)
     private final LiveTripReader liveTripReader;         // 공통 오류 검사 + 진행 중인 여행 (④ 도우미)
@@ -349,13 +350,33 @@ public class StatusServiceImpl implements StatusService {
             }
             Place place = findPlace(stop.getPlaceId());
             if (place != null) {
-                openMap.put(stop.getId(), placeService.getOpenInfo(place, today, etaMap.get(stop.getId()), liveStopFinder.getStay(stop)));
+                OpenInfo open = placeService.getOpenInfo(place, today, etaMap.get(stop.getId()), liveStopFinder.getStay(stop));
+                fixClosedReason(open, place, today);
+                openMap.put(stop.getId(), open);
                 if (MEAL_KINDS.contains(place.getKind())) {
                     mealStopIds.add(stop.getId()); // 11/12: 놓침 카드·"못 가게 됐어요" 버튼은 식당·카페·술집만 (KTX 등은 빠짐)
                 }
             }
         }
         return openMap;
+    }
+
+    /**
+     * "22:00에 영업이 끝나요"를 지금 시각 기준으로 나눔 (11/13 ④).
+     * ②는 도착 시각만 알아서 이미 닫은 곳도 "끝나요"라고 함 → 지금도 닫혔으면 "끝났어요", 지금은 열렸으면 "도착 전 …"
+     */
+    private void fixClosedReason(OpenInfo open, Place place, LocalDate today) {
+        String reason = open.getClosedReason();
+        if (reason == null || !reason.endsWith(CLOSE_WORD)) {
+            return; // 휴무·문 열기 전·영업 중은 그대로
+        }
+        String nowReason = placeService.getOpenInfo(place, today, Geo.nowMinutes(), 0).getClosedReason();
+        boolean isClosedNow = nowReason != null && nowReason.endsWith(CLOSE_WORD);
+        if (isClosedNow) {
+            open.setClosedReason(open.getCloseAt() + "에 영업이 끝났어요");
+        } else {
+            open.setClosedReason("도착 전 " + reason);
+        }
     }
 
     /** 고정 일정에 늦을 때: 가장 빠른 방법으로 지금 바로 가도 남는 여유(분). 안 늦으면 null (11/12 ④) */
