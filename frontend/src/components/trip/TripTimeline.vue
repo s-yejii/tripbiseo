@@ -15,8 +15,9 @@ const props = defineProps({
   selected: { type: Number, default: null },
   reorderable: { type: Boolean, default: false },
   modeEditable: { type: Boolean, default: false },
+  showHoursHelp: { type: Boolean, default: false }, // 영업시간 모르는 칸 아래 안내 상자 + [네이버에서 확인]·[확인했어요] (일정 점검만)
 })
-const emit = defineEmits(['select', 'reorder', 'change-mode', 'remove'])
+const emit = defineEmits(['select', 'reorder', 'change-mode', 'remove', 'hours-checked'])
 const MODE_CHOICES = ['walk', 'transit', 'taxi'] // 고를 수 있는 수단 (서버 Stop.mode가 아는 값만)
 
 // 끌기: 다른 칸은 그대로 두고, 끄는 칸만 손가락을 따라 움직여요. 놓은 자리의 칸과 둘이 자리를 바꿔요 (11/04)
@@ -185,6 +186,7 @@ function isSameBuilding(i) {
             <span class="stop__body">
               <span class="stop__name"><small v-if="stop.isAi" class="stop__ai">AI</small>{{ stop.name }}</span>
               <span class="stop__meta" :class="stop.metaCls"><i v-if="stop.metaIcon" class="ic ic--s" :class="stop.metaIcon" aria-hidden="true"></i>{{ stop.meta }}</span>
+              <span v-if="stop.hoursUnknown" class="stop__hours"><i class="ic ic--s i-clock" aria-hidden="true"></i>{{ stop.hoursChecked ? '영업시간 확인함' : '영업시간 확인 전' }}</span>
               <span v-if="memoText(stop.memo)" class="stop__memo">{{ memoText(stop.memo) }}</span>
             </span>
             <span class="stop__side">
@@ -211,6 +213,15 @@ function isSameBuilding(i) {
           <span v-else class="tl-grip" aria-hidden="true"></span>
         </template>
       </li>
+      <!-- 영업시간 모르는 칸 안내 (카드 버튼 안에는 버튼을 못 넣어서 카드 바로 아래 줄로) -->
+      <li v-if="showHoursHelp && stop.hoursUnknown && !stop.hoursChecked" class="hours-help" :class="{ 'has-grip': reorderable }">
+        <b class="hours-help__title">{{ stop.name }} 영업시간을 아직 몰라요</b>
+        <span class="hours-help__text">가기 전에 한 번만 확인해 주세요.</span>
+        <span class="hours-help__buttons">
+          <a v-if="stop.naverUrl" class="btn btn--secondary btn--sm":href="stop.naverUrl" target="_blank" rel="noopener noreferrer" :aria-label="stop.name + ' 네이버에서 확인 (새 창)'">네이버에서 확인</a>
+          <button type="button" class="btn btn--primary btn--sm" @click="emit('hours-checked', stop.id)">확인했어요</button>
+        </span>
+      </li>
     </template>
   </ol>
 </template>
@@ -232,5 +243,13 @@ function isSameBuilding(i) {
 .tl .legfrom{font-size:12px;color:var(--ink-muted);margin-right:6px}
 .tl .legbtn--text,.tl .legbtn--text:hover{cursor:default;border-color:transparent;background:none;color:var(--ink-muted)}
 .tl .legbtn--text.legbtn--unknown{color:var(--warning)} /* 위 회색 규칙보다 구체적이라 주황이 이겨요 */
+/* 영업시간 모르는 칸: 카드 안 회색 한 줄 + 카드 아래 흰 상자(테두리 있음, 버튼이 바탕에 안 묻히게). 경고 아님이라 주황을 안 씀 */
+.tl .stop__hours{font-size:12px;line-height:17px;color:var(--ink-muted);display:flex;align-items:center;gap:4px}
+.tl .hours-help{margin:6px 0 2px 58px;padding:12px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-raised);display:flex;flex-direction:column;gap:4px} /* 58px = 시각 칸 48px + 간격 10px → 카드와 왼쪽을 맞춤 */
+.tl .hours-help.has-grip{margin-right:30px} /* 순서 손잡이(28px + 2px) 만큼 오른쪽도 카드와 맞춤 */
+.tl .hours-help__title{font-size:13px;line-height:18px;font-weight:700;color:var(--ink)}
+.tl .hours-help__text{font-size:13px;line-height:18px;color:var(--ink-muted)}
+.tl .hours-help__buttons{display:flex;gap:8px;margin-top:6px}
+.tl .hours-help__buttons .btn{flex:1;min-width:0}
 .tl .stop__memo{font-size:12px;line-height:17px;color:var(--ink-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;text-align:left}
 </style>

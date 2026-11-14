@@ -30,8 +30,9 @@ const props = defineProps({
   simMe: { type: Object, default: null }, // 이동 미리보기의 점 { lat, lng }
   activeStop: { type: Number, default: null }, // 이동 미리보기로 지금 머무는 칸
   tripId: { type: Number, default: null }, // 저장된 여행 번호. 있으면 장소 상세에 &trip=으로 넘겨 "이 일정에 담겨 있어요"로 보이게
+  showHoursHelp: { type: Boolean, default: false }, // 영업시간 모르는 칸 아래 안내 상자 (일정 점검만, TripTimeline에 그대로 넘김)
 })
-const emit = defineEmits(['reorder', 'change-mode'])
+const emit = defineEmits(['reorder', 'change-mode', 'hours-checked'])
 const route = useRoute() // 지금 주소 (일정 점검은 ?day=N으로 일차를 알려 줘요)
 // 지도에 그릴 경로선: 위치를 모르는 칸을 오가는 구간은 가짜 좌표 길이라 뺌
 //   trip.legs는 칸 번호 순서(legs[i] = i번 칸 → i+1번 칸)로 다른 곳(확대·따라가기)에서도 써서 그대로 두고, 지도에 줄 것만 거름
@@ -294,7 +295,7 @@ function slackBadge(slack) {
       <slot name="head"></slot>
       <div ref="scrollBox" class="trip-scroll">
         <CheckList :items="trip.checks" :rain-swap="rainSwap" />
-        <TripTimeline :stops="trip.stops" :selected="activeStop !== null ? activeStop : selected" :reorderable="reorderable" @select="pickRow" :mode-editable="modeEditable" @reorder="emit('reorder', $event)" @change-mode="(i, mode) => emit('change-mode', i, mode)" />
+        <TripTimeline :stops="trip.stops" :selected="activeStop !== null ? activeStop : selected" :reorderable="reorderable" @select="pickRow" :mode-editable="modeEditable" @reorder="emit('reorder', $event)" @change-mode="(i, mode) => emit('change-mode', i, mode)" :show-hours-help="showHoursHelp" @hours-checked="emit('hours-checked', $event)" />
         <p v-if="!trip.stops.length" class="t-cap" style="margin: 0; padding: 16px 0">아직 넣은 일정이 없어요. 일정 편집에서 장소를 넣어 주세요.</p>
         <slot name="below"></slot>
       </div>

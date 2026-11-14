@@ -74,10 +74,12 @@ export function isLocationUnknown(stop) {
 }
 
 // trip: 서버 Trip 또는 초안 / check: POST /plans/check 응답(없으면 null) / day: 몇째 날
-export function toViewTrip(trip, check = null, day = 1) {
+// hoursChecked: 영업시간을 "확인했어요"로 누른 칸 id 목록 (화면 칸 id와 같은 값). 일정 점검만 넘김
+//   안 넘기면(null, 여행 상세 등) "미리 확인할 것"에 영업시간 확인 전 줄을 안 넣음. 카드의 회색 줄은 그대로
+export function toViewTrip(trip, check = null, day = 1, hoursChecked = null) {
   const dayStops = check ? check.stops : trip.stops.filter((stop) => (stop.day || 1) === day && stop.state !== 'skipped')
   const positions = toMapPositions(dayStops, TRIP_MAP_BOX)
-  const stops = dayStops.map((stop, i) => toViewStop(stop, positions[i], findMemo(trip, stop)))
+  const stops = dayStops.map((stop, i) => toViewStop(stop, positions[i], findMemo(trip, stop), hoursChecked || []))
   markUnknownLegs(stops)
   // 화면마다 출발지가 있거나 없어서 합계가 달라지지 않게, 장소 사이 이동만 센다 (그날 첫 칸의 leg = 출발지·숙소에서 오는 길은 뺌)
   // 위치를 모르는 칸을 오가는 구간은 가짜 좌표로 잰 시간이라 합계에서도 뺌
@@ -93,7 +95,7 @@ export function toViewTrip(trip, check = null, day = 1) {
     who: (trip.people || 1) + '명',
     move,
     stops,
-    checks: check ? toChecks(check, stops) : [],
+    checks: check ? toChecks(check, stops, hoursChecked) : [],
     pack: [],
   }
   if (check && check.slackMin != null) view.slack = check.slackMin
@@ -129,8 +131,8 @@ function findMemo(trip, stop) {
   return original ? original.memo : null
 }
 
-// 일정 한 칸 (check 결과 칸이면 arrive·issue·leg가 있음)
-function toViewStop(stop, position, memo = null) {
+// 일정 한 칸 (check 결과 칸이면 arrive·issue·leg·hoursUnknown·naverUrl이 있음)
+function toViewStop(stop, position, memo = null, hoursChecked = []) {
   const stay = stop.stay || 0
   const viewStop = {
     id: stop.id ?? stop.placeId ?? stop.name,
@@ -160,13 +162,17 @@ function toViewStop(stop, position, memo = null) {
     y: position.y,
   }
   viewStop.locationUnknown = isLocationUnknown(viewStop) // 점검 칸엔 memo가 없어서, findMemo로 찾은 memo가 담긴 화면 칸으로 판단
+  viewStop.hoursUnknown = !!stop.hoursUnknown // 영업시간을 모르는 곳 → "영업시간 확인 전" (경고는 아님)
+  viewStop.naverUrl = stop.naverUrl || null
+  viewStop.hoursChecked = hoursChecked.includes(viewStop.id) // 사용자가 "확인했어요"를 누른 칸
   return viewStop
 }
 
 const FIXED_CHECK_SLACK_MIN = 10 // 예약까지 여유가 이보다 적어야 "미리 확인할 것"에 넣음
 
-// 점검 결과의 문제 줄 → "미리 확인할 것" (stops: 화면 칸, 위치를 모르는 칸을 알려 주려고)
-function toChecks(check, stops) {
+// 점검 결과의 문제 줄 → "미리 확인할 것" (stops: 화면 칸, 위치·영업시간을 모르는 칸을 알려 주려고)
+// hoursChecked: 영업시간을 "확인했어요"로 누른 칸 id 목록 → 그 칸은 빼요. null이면(일정 점검이 아닌 화면) 영업시간 줄을 아예 안 넣음
+function toChecks(check, stops, hoursChecked = null) {
   const items = []
   for (const stop of check.stops) {
     if (stop.issue) items.push({ kind: 'late', icon: 'i-warning', title: stop.name, desc: stop.issue })
@@ -174,6 +180,12 @@ function toChecks(check, stops) {
   // 위치를 모르는 칸: 늦음이 아니라 확인할 일이라 kind는 'late'가 아닌 'place' (빨간 "문제 있음"으로 안 바뀜)
   for (const stop of stops) {
     if (stop.locationUnknown) items.push({ kind: 'place', icon: 'i-pin', title: stop.name, desc: '가게 위치를 못 찾았어요. 위치를 확인하면 이동 시간이 맞아져요' })
+  }
+  // 영업시간을 모르는 칸: 문제가 아니라 확인할 일이라 kind는 'hours' (빨간 "문제 있음"으로 안 바뀜)
+  if (hoursChecked) {
+    for (const stop of stops) {
+      if (stop.hoursUnknown && !hoursChecked.includes(stop.id)) items.push({ kind: 'hours', icon: 'i-clock', title: stop.name, desc: '영업시간 확인 전' })
+    }
   }
   // 예약(시간 고정)은 빠듯하거나(여유 10분 미만) 늦을 때만 (11/09 주형: 여유 있는데 왜 말해줌?). 여유가 넉넉하면 넣지 않음
   if (check.fixed && check.fixed.slack < FIXED_CHECK_SLACK_MIN) {
