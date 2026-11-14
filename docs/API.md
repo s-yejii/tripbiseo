@@ -177,6 +177,7 @@
 | `GET /api/trips/{id}/photos` | 한 여행의 사진·영상 전체 (찍은 순) | after/RetroView, after/AlbumView(더보기) | 있음 (11/06) |
 | `POST /api/photos` | 사진·영상 여러 개 올리기 → 찍은 시각으로 여행·장소 자동 분류 | after/AlbumView | 있음 (11/06) |
 | `GET /api/photos/{photoId}/file` | 사진·영상 파일 (`<img>`·`<video>` 주소) | after/AlbumView, after/RetroView | 있음 (11/06) |
+| `GET /api/trips/{id}/shorts` | 추억 쇼츠: 사진마다 AI 감성 자막 + 여행 분위기 | after/ShortsView | 있음 (11/14) |
 | `GET /api/route` | 길 안내: 경로선 + 단계별 안내 (도보·버스·지하철·택시) | after/RouteGuideView | 있음 |
 | `GET /api/amenities/nearby?kind=` | 근처 화장실·쓰레기통 | after/RouteGuideView, live/LiveView (AmenityChips) | 확인 필요 |
 | `POST /api/trips/{id}/visits` | 일정에 없던 곳 "들렀어요" 기록 | live/LiveView (VisitedPin), member/LockStayView | 확인 필요 |
@@ -1606,6 +1607,24 @@ key 끝의 숫자가 바뀔 때만 화면이 같은 알림을 다시 띄워요.
 사진·영상 파일 자체. 내 여행의 사진만 줘요. · 로그인 필요 · 11/06 추가
 
 **응답** 파일 (Content-Type `image/jpeg`, `video/mp4` 등) · **오류** 404 "사진을 찾을 수 없어요."
+
+### `GET /api/trips/{id}/shorts`
+추억 쇼츠에 띄울 사진마다 감성 자막과 여행 전체 분위기. · 로그인 필요 · 화면: after/ShortsView · 11/14 추가
+
+**만드는 방법**
+1. 사진(찍은 순) 앞 12장을 한 장씩 Gemini에 보내 `{caption, mood}`를 받아요. 보내기 전에 가로 768px JPEG로 다시 그려서 EXIF(GPS 좌표 등)를 빼요. 함께 보내는 글은 장소 이름과 시간대(오전·오후·저녁)뿐이에요.
+2. 여행 분위기 `mood` = 사진 분위기 중 가장 많이 나온 것. `잔잔함`·`신남`·`설렘`·`뭉클` 중 하나 (나중에 BGM 고르기에 씀).
+3. Gemini 키가 없거나 실패한 사진, 영상, 13번째부터는 기본 자막 "경복궁에서 보낸 오후"(장소를 모르면 "이동하며 담은 오후"). 이때 오류는 내지 않아요.
+4. 만든 결과는 서버 메모리에 기억해서, 사진 수가 그대로면 다시 부르지 않아요 (서버를 다시 켜면 새로 만듦).
+
+**응답**
+```json
+{ "mood": "잔잔함",
+  "captions": [ { "photoId": 12, "caption": "한옥 지붕 위로 내려앉은 오후" } ] }
+```
+`captions`는 `GET /api/trips/{id}/photos`와 같은 순서·같은 개수예요.
+
+**오류** 404 "여행을 찾을 수 없어요."
 
 ---
 
